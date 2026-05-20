@@ -8,7 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
-from ..core.models import Album, Lyric, Playlist, Singer, Song
+from ..core.models import Album, ArtistDetail, Lyric, Playlist, Singer, Song
 
 # 回调类型
 EventCallback = Callable[..., None]
@@ -109,12 +109,28 @@ class UIBase(ABC):
         """展示歌单搜索结果 (歌单 Tab)."""
 
     @abstractmethod
+    def show_album_detail(self, album: Album) -> None:
+        """进入专辑详情页 (含 songs, 可点播)."""
+
+    @abstractmethod
+    def show_artist_detail(self, artist: ArtistDetail) -> None:
+        """进入歌手详情页 (含热门歌曲, 可点播)."""
+
+    @abstractmethod
+    def show_playlist_detail(self, playlist: Playlist) -> None:
+        """进入歌单详情页 (含 songs, 可点播)."""
+
+    @abstractmethod
     def show_playlist(self, playlist: Playlist) -> None:
         """展示歌单."""
 
     @abstractmethod
     def show_lyric(self, lyric: Lyric) -> None:
-        """展示歌词."""
+        """更新当前歌词数据 (UI 可选择何时渲染)."""
+
+    @abstractmethod
+    def update_lyric_position(self, position_ms: int) -> None:
+        """同步当前播放位置, UI 据此高亮 active 行 + 滚动."""
 
     @abstractmethod
     def set_now_playing(self, song: Song) -> None:
@@ -123,6 +139,14 @@ class UIBase(ABC):
     @abstractmethod
     def set_play_state(self, playing: bool) -> None:
         """更新播放/暂停状态."""
+
+    @abstractmethod
+    def set_play_mode_indicator(self, mode: str) -> None:
+        """更新播放模式指示器 (sequence/repeat_all/repeat_one/shuffle)."""
+
+    @abstractmethod
+    def set_quality_preference(self, pref: str) -> None:
+        """同步当前音质偏好到 UI (high/balanced/standard), settings view 用."""
 
     @abstractmethod
     def set_position(self, position_ms: int, duration_ms: int) -> None:

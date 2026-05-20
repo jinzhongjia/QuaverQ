@@ -88,6 +88,16 @@ class Album:
 
 
 @dataclass
+class ArtistDetail:
+    """歌手详情 = 基本信息 + 热门歌曲 + 专辑列表."""
+
+    singer: "Singer"
+    description: str = ""
+    hot_songs: list["Song"] = field(default_factory=list)
+    albums: list["Album"] = field(default_factory=list)
+
+
+@dataclass
 class Playlist:
     """歌单."""
 
@@ -109,5 +119,6 @@ __all__ = [
     "Lyric",
     "LyricLine",
     "Album",
+    "ArtistDetail",
     "Playlist",
 ]

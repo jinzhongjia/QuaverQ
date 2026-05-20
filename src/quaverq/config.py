@@ -35,6 +35,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "player": {
         "volume": 0.8,
+        "quality": "balanced",  # high / balanced / standard
     },
 }
 

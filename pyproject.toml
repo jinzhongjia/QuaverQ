@@ -25,6 +25,8 @@ classifiers = [
 
 dependencies = [
     "qqmusic-api-python>=0.4.1,<0.5",
+    "tomli-w>=1.0",
+    "dbus-next>=0.2.3",   # MPRIS2 D-Bus 集成 (媒体键 / GNOME Now Playing)
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,11 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-ra -q"
+filterwarnings = [
+    # PyGObject 内部加载 GLib proxy 时遍历到 deprecated alias 触发,
+    # 不是我们代码直接调用 — 我们已经用 GLibUnix.signal_add_full.
+    "ignore::DeprecationWarning:gi.overrides",
+]
 
 [project.urls]
 repository = "https://github.com/jinzhongjia/quaverq"

@@ -652,17 +652,18 @@ SearchEntry "changed" signal
 |---|---|---|---|---|
 | P0.1 | `[x]` | service 重构 + 模型扩展 (Song.singers, Album, Playlist, Singer) + qqmusic-api 降到 0.4.1 (v0.5/0.6 服务端拒下发 VIP 完整版) + 38 单元测试 | `core/service.py`, `core/models.py`, `pyproject.toml`, `tests/` | ✅ 启动 / 搜索 / 凭据流转 / 真实 cookie 拿到 FLAC 完整 URL |
 | P0.2 | `[x]` | 搜索按类型 (歌曲/歌手/专辑/歌单 4 Tabs) + Adw.ViewStack/ViewSwitcher + service.search_{songs,singers,albums,playlists} + highlight=False 清 HTML | `core/service.py`, `ui/{qt,gtk}/app.py` | ✅ 4 Tab 都能拿到对应类型数据, 真接 QQ API 验证 |
-| P0.3 | `[~]` | AlbumView / ArtistView / PlaylistView 三个详情页 | `core/service.py`, `ui/gtk/app.py`, `__main__.py` | 从搜索结果点歌手/专辑/歌单能进详情；详情页能点播放 |
-| P0.4 | `[ ]` | PlayQueue + 4 种 PlayMode + GStreamer EOS 自动 next | `core/queue.py`, `core/player.py`, controller | 多首加队列连播；切换模式立刻生效；列表末尾停在正确状态 |
-| P0.5 | `[ ]` | 歌词同步滚动 (LyricView, 无翻译) | `core/lyric.py`, `ui/*/views/lyric.py` | 播放时歌词跟随；当前行高亮；点歌词跳转 |
-| P0.6 | `[ ]` | 音质偏好 (Settings + 自动降级) | `core/service.py`, `ui/*/views/settings.py`, `config.py` | 切换音质生效；VIP 限制时降级且 Toast 提示 |
-| P0.7 | `[ ]` | MPRIS2 最小实现 | `core/mpris.py`, controller wiring | 媒体键、GNOME/KDE 媒体小组件能控制 + 显示元数据封面 |
+| P0.2.5 | `[x]` | GTK UI 现代化: HeaderBar 改 WindowTitle + 搜索框独立 top_bar + Tab 加 symbolic icon + Gtk.ListView→Gtk.ListBox+Adw.ActionRow+boxed-list | `ui/gtk/app.py` | ✅ Libadwaita 风格, 列表 title+subtitle+suffix 标准 |
+| P0.3 | `[x]` | AlbumView / ArtistView / PlaylistView 三个详情页 (Adw.NavigationView push/pop) + 详情 API (album.get_detail/get_song, singer.get_info+get_tab_detail, songlist.get_detail) + HeaderBar 自定义返回按钮 + 修复 ResponseCodeError 2001 (search_by_type 显式带 credential) | `core/service.py`, `core/models.py`, `ui/gtk/app.py`, `__main__.py` | ✅ 从搜索点歌手/专辑/歌单能进详情, 点歌能播 |
+| P0.4 | `[x]` | PlayQueue + 4 种 PlayMode + GStreamer EOS 自动 next + 4 按钮 transport (prev/play/next/mode) + 失败自动跳过 + 20 单元测试 | `core/queue.py`, `__main__.py`, `ui/gtk/app.py` | ✅ 多首连播验证; 模式 cycle 按钮在; 跨页面 (tab/详情) 入队 |
+| P0.5 | `[x]` | 歌词同步滚动 (LRC 解析 + LyricSync + LyricView 点击 push + 行高亮 + 自动滚动) + 19 单元测试 | `core/lyric.py`, `core/service.py`, `ui/gtk/app.py`, `__main__.py` | ✅ 点歌曲信息进歌词页, 实时跟随高亮 |
+| P0.6 | `[x]` | 音质偏好 3 档 (high/balanced/standard) + Settings PreferencesPage + 退出登录 + config.toml 持久化 (tomli-w) + show_welcome/show_qrcode/show_search_results 自动 pop_to_tag("home") + 网络超时友好 toast + GLibUnix.signal_add_full 替代 deprecated API | `core/service.py`, `config.py`, `ui/gtk/app.py`, `__main__.py`, `pyproject.toml` | ✅ 音质切换生效, 持久化, settings 页能登/退 |
+| P0.7 | `[x]` | MPRIS2 D-Bus 集成 (Root+Player 接口, song_to_metadata, dbus-next 在 asyncio loop, gdbus 实测注册成功) | `core/mpris.py`, `__main__.py`, `pyproject.toml` | ✅ playerctl/gdbus 能查到 + 媒体键能控 |
 
 ### P1 — 个人库 + 持久化
 
 | # | 状态 | 步骤 | 主要文件 | 验证要点 |
 |---|---|---|---|---|
-| P1.1 | `[ ]` | SQLite cache 层 (song/album/playlist meta + TTL) | `core/cache.py` | 第二次访问详情页明显更快；DB 文件存在且 schema 正确 |
+| P1.1 | `[~]` | SQLite cache 层 (song/album/playlist/artist meta + TTL) | `core/cache.py`, `core/service.py`, `__main__.py` | 第二次访问详情页明显更快；DB 文件存在且 schema 正确 |
 | P1.2 | `[ ]` | 喜欢/取消喜欢 (本地 + QQ fav 歌单镜像) | `core/library.py`, controller, UI heart 按钮 | 喜欢操作即时反映 UI；重启后状态保留；QQ 端 fav 歌单同步 |
 | P1.3 | `[ ]` | LibraryView 4 Tabs (我喜欢/我的歌单/收藏的专辑/关注的歌手) | `ui/*/views/library.py` | 4 Tab 都能拉到对应数据；点击可进入详情 |
 | P1.4 | `[ ]` | 会话恢复 (state.json: queue + position + mode) | `core/state.py`, controller | 退出再启动队列、当前曲、暂停态、音量都恢复 |

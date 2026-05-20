@@ -11,18 +11,40 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
-from qqmusic_api import Credential, login, search, song
+from qqmusic_api import (
+    Credential,
+    album as album_api,
+    login,
+    lyric as lyric_api,
+    search,
+    singer as singer_api,
+    song,
+    songlist as songlist_api,
+)
 from qqmusic_api.login import QRCodeLoginEvents, QRLoginType
 from qqmusic_api.search import SearchType
+from qqmusic_api.singer import TabType
 from qqmusic_api.song import SongFileType
 
-from .models import Album, Lyric, Playlist, Singer, Song, SongUrl
+from .cache import Cache
+from .lyric import parse_lrc
+from .models import (
+    Album,
+    ArtistDetail,
+    Lyric,
+    LyricLine,
+    Playlist,
+    Singer,
+    Song,
+    SongUrl,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,17 +87,31 @@ class QuaverService:
     """
 
     credential: Credential | None = None
+    # P1.1: 可选 cache; 命中直接返, miss 走真请求 + 写穿
+    cache: Cache | None = None
 
     # 登录回调: 通知 UI 展示二维码图片
     on_qrcode: Callable[[bytes, str], None] | None = None
 
-    # 完整音质降级顺序: VIP 优先拿无损/高码, 免费档兜底
-    _QUALITY_ORDER = (
-        SongFileType.FLAC,       # 无损 (VIP)
-        SongFileType.MP3_320,    # 高品 320k (VIP)
-        SongFileType.OGG_192,    # HQ (OGG 192k)
-        SongFileType.MP3_128,    # 标准 128k (免费)
-    )
+    # 各档音质偏好的降级顺序 (key 由 controller 从 config 读)
+    _QUALITY_PROFILES = {
+        "high": (
+            SongFileType.FLAC,       # 无损 (VIP)
+            SongFileType.MP3_320,    # 高品 320k (VIP)
+            SongFileType.OGG_192,    # HQ
+            SongFileType.MP3_128,    # 标准 (免费)
+        ),
+        "balanced": (
+            SongFileType.MP3_320,
+            SongFileType.OGG_192,
+            SongFileType.MP3_128,
+        ),
+        "standard": (
+            SongFileType.MP3_128,
+            SongFileType.OGG_192,
+        ),
+    }
+    _DEFAULT_QUALITY = "balanced"
 
     # ------------------------------------------------------------------
     # 生命周期 (0.4.1 没 client 对象, connect/disconnect 是 no-op,
@@ -167,19 +203,21 @@ class QuaverService:
             num=limit,
             page=page,
             highlight=False,
+            credential=self.credential,
         )
         return [self._to_song(item) for item in raw_list]
 
     async def search_singers(
         self, keyword: str, *, page: int = 1, limit: int = 30
     ) -> list[Singer]:
-        """搜索歌手."""
+        """搜索歌手 (SINGER/ALBUM 服务端强制要求 credential, 否则 code 2001)."""
         raw_list = await search.search_by_type(
             keyword=keyword,
             search_type=SearchType.SINGER,
             num=limit,
             page=page,
             highlight=False,
+            credential=self.credential,
         )
         return [self._to_singer(item) for item in raw_list]
 
@@ -193,6 +231,7 @@ class QuaverService:
             num=limit,
             page=page,
             highlight=False,
+            credential=self.credential,
         )
         return [self._to_album_brief(item) for item in raw_list]
 
@@ -206,6 +245,7 @@ class QuaverService:
             num=limit,
             page=page,
             highlight=False,
+            credential=self.credential,
         )
         return [self._to_playlist_brief(item) for item in raw_list]
 
@@ -216,16 +256,183 @@ class QuaverService:
         return await self.search_songs(keyword, page=page, limit=limit)
 
     # ------------------------------------------------------------------
+    # 详情拉取 (P0.3 — AlbumView / ArtistView / PlaylistView)
+    # ------------------------------------------------------------------
+
+    async def get_album_detail(
+        self, album_mid: str, *, song_limit: int = 100
+    ) -> Album:
+        """专辑详情 (含 songs). 优先走 cache."""
+        if self.cache is not None:
+            cached = self.cache.get_album(album_mid)
+            if cached is not None and cached.songs:
+                logger.debug("cache hit: album %s", album_mid)
+                return cached
+
+        detail_raw, songs_raw = await asyncio.gather(
+            album_api.get_detail(album_mid, credential=self.credential),
+            album_api.get_song(
+                album_mid, num=song_limit, page=1, credential=self.credential
+            ),
+        )
+        bi = (detail_raw.get("basicInfo") or {}) if isinstance(detail_raw, dict) else {}
+        singer_block = (detail_raw.get("singer") or {}) if isinstance(detail_raw, dict) else {}
+        singers: list[Singer] = []
+        for s in singer_block.get("singerList") or []:
+            singers.append(
+                Singer(mid=s.get("mid", "") or "", name=s.get("name", "") or "")
+            )
+        mid = bi.get("albumMid", "") or album_mid
+        album = Album(
+            mid=mid,
+            name=bi.get("albumName", "") or "",
+            singers=singers,
+            cover_url=_cover_url(mid, 500),
+            publish_date=bi.get("publishDate", "") or "",
+            description=bi.get("desc", "") or "",
+            song_count=bi.get("total_song_num", 0) or 0,
+            songs=[self._to_song(s) for s in (songs_raw or [])],
+        )
+        if self.cache is not None and album.songs:
+            self.cache.put_album(album)
+        return album
+
+    async def get_playlist_detail(
+        self, pid: str | int, *, song_limit: int = 300
+    ) -> Playlist:
+        """歌单详情 (含 songs). 优先走 cache."""
+        pid_str = str(pid)
+        if self.cache is not None:
+            cached = self.cache.get_playlist(pid_str)
+            if cached is not None and cached.songs:
+                logger.debug("cache hit: playlist %s", pid_str)
+                return cached
+
+        try:
+            sid = int(pid)
+        except (TypeError, ValueError):
+            sid = 0
+        detail_raw = await songlist_api.get_detail(
+            songlist_id=sid, num=song_limit, credential=self.credential
+        )
+        di = (detail_raw.get("dirinfo") or {}) if isinstance(detail_raw, dict) else {}
+        creator = (di.get("creator") or {}).get("nick", "") or ""
+        playlist = Playlist(
+            pid=str(di.get("dirid") or pid or ""),
+            name=di.get("title", "") or "",
+            cover_url=di.get("picurl", "") or "",
+            description=di.get("desc", "") or "",
+            creator=creator,
+            song_count=di.get("songnum", 0) or 0,
+            play_count=di.get("listennum", 0) or 0,
+            songs=[
+                self._to_song(s)
+                for s in (detail_raw.get("songlist") or [])
+            ],
+        )
+        if self.cache is not None and playlist.songs:
+            self.cache.put_playlist(playlist)
+        return playlist
+
+    async def get_lyric(
+        self, mid: str, *, with_translation: bool = True
+    ) -> Lyric:
+        """拉取歌词. 0.4.1 返回 LRC 文本; 我们解析为 LyricLine 列表.
+
+        翻译歌词如果有, 按时间戳合并到主歌词的 translation 字段.
+        """
+        raw = await lyric_api.get_lyric(
+            mid,
+            trans=with_translation,
+            credential=self.credential,
+        )
+        lrc_text = raw.get("lyric", "") if isinstance(raw, dict) else ""
+        trans_text = raw.get("trans", "") if isinstance(raw, dict) else ""
+
+        lines = parse_lrc(lrc_text or "")
+
+        if trans_text:
+            trans_lines = parse_lrc(trans_text)
+            trans_by_ts = {ln.timestamp_ms: ln.text for ln in trans_lines}
+            merged = []
+            for ln in lines:
+                merged.append(
+                    LyricLine(
+                        timestamp_ms=ln.timestamp_ms,
+                        text=ln.text,
+                        translation=trans_by_ts.get(ln.timestamp_ms, ""),
+                    )
+                )
+            lines = merged
+
+        return Lyric(
+            mid=mid,
+            lines=lines,
+            has_translation=bool(trans_text),
+        )
+
+    async def get_artist_detail(
+        self, singer_mid: str, *, hot_song_limit: int = 50
+    ) -> ArtistDetail:
+        """歌手详情: 基本信息 + 热门歌曲 (P0.x 再加 albums). 优先走 cache."""
+        if self.cache is not None:
+            cached = self.cache.get_artist(singer_mid)
+            if cached is not None and cached.hot_songs:
+                logger.debug("cache hit: artist %s", singer_mid)
+                return cached
+
+        info_raw, songs_raw = await asyncio.gather(
+            singer_api.get_info(singer_mid, credential=self.credential),
+            # 直接调 get_tab_detail (@api_request 装饰, 接 credential).
+            # singer.get_songs 是普通 helper, 内部转调时丢 credential 导致 2001.
+            singer_api.get_tab_detail(
+                singer_mid,
+                TabType.SONG,
+                1,                  # page
+                hot_song_limit,     # num
+                credential=self.credential,
+            ),
+        )
+        info = (info_raw.get("Info") or {}) if isinstance(info_raw, dict) else {}
+        s = Singer(
+            mid=singer_mid,
+            name=info.get("Name", "") or "",
+            avatar_url=info.get("Pic", "") or "",
+        )
+        artist = ArtistDetail(
+            singer=s,
+            description="",
+            hot_songs=[self._to_song(sr) for sr in (songs_raw or [])],
+        )
+        if self.cache is not None and artist.hot_songs:
+            self.cache.put_artist(artist)
+        return artist
+
+    # ------------------------------------------------------------------
     # 歌曲播放
     # ------------------------------------------------------------------
 
-    async def get_song_url(self, song_obj: Song) -> SongUrl | None:
-        """按音质降级顺序拿可播 URL; 全失败返 None.
+    async def get_song_url(
+        self,
+        song_obj: Song,
+        *,
+        quality_preference: str = "balanced",
+    ) -> SongUrl | None:
+        """按指定偏好档位的降级顺序拿可播 URL; 全失败返 None.
+
+        quality_preference:
+            - "high":     FLAC → MP3_320 → OGG_192 → MP3_128 (VIP 优先)
+            - "balanced": MP3_320 → OGG_192 → MP3_128 (默认, 兼顾质量带宽)
+            - "standard": MP3_128 → OGG_192 (省流量)
+            - 未知值: 回退到 balanced
 
         0.4.1 的 song.get_song_urls 直接返回 {mid: full_url}, URL 自带
         host + vkey, 直接给 GStreamer 即可.
         """
-        for ft in self._QUALITY_ORDER:
+        order = self._QUALITY_PROFILES.get(
+            quality_preference, self._QUALITY_PROFILES[self._DEFAULT_QUALITY]
+        )
+        for ft in order:
             try:
                 result = await song.get_song_urls(
                     mid=[song_obj.mid],

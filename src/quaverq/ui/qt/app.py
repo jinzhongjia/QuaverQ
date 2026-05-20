@@ -157,6 +157,25 @@ class QtUI(UIBase):
             lambda: self._window.show_playlist_results(playlists) if self._window else None
         )
 
+    def show_album_detail(self, album) -> None:
+        self._post(
+            lambda: self._window.show_album_detail(album) if self._window else None
+        )
+
+    def show_artist_detail(self, artist) -> None:
+        self._post(
+            lambda: self._window.show_artist_detail(artist) if self._window else None
+        )
+
+    def show_playlist_detail(self, playlist) -> None:
+        self._post(
+            lambda: self._window.show_playlist_detail(playlist) if self._window else None
+        )
+
+    def update_lyric_position(self, position_ms: int) -> None:
+        # Qt P0.5 暂不展示歌词页, 状态栏不打扰
+        pass
+
     def show_playlist(self, playlist: Playlist) -> None:
         self._post(
             lambda: self._window.show_playlist(playlist) if self._window else None
@@ -176,6 +195,15 @@ class QtUI(UIBase):
         self._post(
             lambda: self._window.set_play_state(playing) if self._window else None
         )
+
+    def set_play_mode_indicator(self, mode: str) -> None:
+        self._post(
+            lambda: self._window.set_play_mode_indicator(mode) if self._window else None
+        )
+
+    def set_quality_preference(self, pref: str) -> None:
+        # Qt 端目前无 settings UI; 静默接受
+        pass
 
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         self._post(
@@ -364,6 +392,23 @@ class _MainWindow(QtWidgets.QMainWindow):
                 f"找到 {len(playlists)} 个歌单 (切到 GTK 后端可看 4 Tab)", 5000
             )
 
+    def show_album_detail(self, album) -> None:
+        # P0.3 Qt 详情页占位; 把歌曲塞进现有 list
+        self._status.showMessage(f"专辑: {album.name} ({len(album.songs)} 首)", 5000)
+        self.show_search_results(album.songs)
+
+    def show_artist_detail(self, artist) -> None:
+        self._status.showMessage(
+            f"歌手: {artist.singer.name} ({len(artist.hot_songs)} 首热门)", 5000
+        )
+        self.show_search_results(artist.hot_songs)
+
+    def show_playlist_detail(self, playlist) -> None:
+        self._status.showMessage(
+            f"歌单: {playlist.name} ({len(playlist.songs)} 首)", 5000
+        )
+        self.show_search_results(playlist.songs)
+
     def show_lyric(self, lyric: Lyric) -> None:
         pass
 
@@ -374,6 +419,16 @@ class _MainWindow(QtWidgets.QMainWindow):
 
     def set_play_state(self, playing: bool) -> None:
         self._play_btn.setText("⏸" if playing else "▶")
+
+    def set_play_mode_indicator(self, mode: str) -> None:
+        # Qt 端简化: 状态栏短显当前模式 (P0.x 再上正式按钮)
+        labels = {
+            "sequence": "顺序",
+            "repeat_all": "列表循环",
+            "repeat_one": "单曲循环",
+            "shuffle": "随机",
+        }
+        self._status.showMessage(f"模式: {labels.get(mode, mode)}", 3000)
 
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         if duration_ms > 0:
