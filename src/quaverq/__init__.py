@@ -1,7 +1,4 @@
-"""QuaverQ — QQ 音乐桌面客户端.
-
-双框架自适应：Qt (KDE/LXQt) / GTK (GNOME/XFCE).
-"""
+"""QuaverQ — QQ 音乐核心服务 (UI 待重建)."""
 
 __version__ = "0.1.0"
 __author__ = "Jin"

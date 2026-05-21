@@ -7,8 +7,13 @@ from pathlib import Path
 import pytest
 
 from quaverq.core.cache import Cache
-from quaverq.core.library import Library
-from quaverq.core.models import Singer, Song
+from quaverq.core.library import (
+    Library,
+    SidebarItem,
+    build_sidebar_items,
+    filter_sidebar_items,
+)
+from quaverq.core.models import Album, Playlist, Singer, Song
 
 
 class _FakeService:
@@ -130,3 +135,79 @@ async def test_list_liked_after_sync(lib: Library):
     assert {s.mid for s in liked} == {"a", "b"}
     a = next(s for s in liked if s.mid == "a")
     assert a.singers[0].name == "周杰伦"
+
+
+# ----------------------------------------------------------------------
+# UI-2 sidebar 摊平 + 过滤 (纯函数, 无需 fixture)
+# ----------------------------------------------------------------------
+
+
+def test_build_sidebar_items_liked_pinned_first():
+    items = build_sidebar_items(5, [], [], [])
+    assert len(items) == 1
+    assert items[0].kind == "liked"
+    assert "5" in items[0].subtitle
+
+
+def test_build_sidebar_items_empty_liked_subtitle():
+    items = build_sidebar_items(0, [], [], [])
+    assert items[0].subtitle == "暂无"
+
+
+def test_build_sidebar_items_combines_all_kinds_in_order():
+    pl = Playlist(pid="p", name="MyMix", song_count=12)
+    al = Album(mid="a", name="Album1", singers=[Singer(mid="s1", name="X")])
+    sg = Singer(mid="s2", name="Y")
+    items = build_sidebar_items(3, [pl], [al], [sg])
+    assert [it.kind for it in items] == ["liked", "playlist", "album", "singer"]
+    assert items[1].subtitle == "12 首"
+    assert items[2].subtitle == "X"
+    assert items[3].subtitle == "艺人"
+
+
+def test_filter_sidebar_kind_filter_keeps_liked():
+    items = build_sidebar_items(2, [Playlist(pid="p", name="P")], [], [])
+    only_album = filter_sidebar_items(items, "album", "")
+    # liked 不受 kind 过滤; playlist 被滤掉
+    assert [it.kind for it in only_album] == ["liked"]
+
+
+def test_filter_sidebar_kind_filter_keeps_matching():
+    items = build_sidebar_items(
+        0,
+        [Playlist(pid="p1", name="A"), Playlist(pid="p2", name="B")],
+        [Album(mid="a1", name="Alb")],
+        [],
+    )
+    pls = filter_sidebar_items(items, "playlist", "")
+    assert {it.name for it in pls if it.kind == "playlist"} == {"A", "B"}
+    assert all(it.kind != "album" for it in pls)
+
+
+def test_filter_sidebar_text_query_case_insensitive():
+    items = build_sidebar_items(
+        0,
+        [Playlist(pid="p1", name="Jazz Mix"), Playlist(pid="p2", name="Rock")],
+        [],
+        [],
+    )
+    out = filter_sidebar_items(items, "all", "jazz")
+    names = [it.name for it in out if it.kind != "liked"]
+    assert names == ["Jazz Mix"]
+
+
+def test_filter_sidebar_text_query_matches_subtitle():
+    items = build_sidebar_items(
+        0,
+        [],
+        [Album(mid="a1", name="X", singers=[Singer(mid="s", name="Bowie")])],
+        [],
+    )
+    out = filter_sidebar_items(items, "all", "bowie")
+    assert any(it.kind == "album" and it.ref.mid == "a1" for it in out)
+
+
+def test_filter_sidebar_empty_query_keeps_all():
+    items = build_sidebar_items(1, [Playlist(pid="p", name="A")], [], [])
+    out = filter_sidebar_items(items, "all", "")
+    assert len(out) == 2

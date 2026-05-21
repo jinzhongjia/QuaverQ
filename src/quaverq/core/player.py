@@ -103,8 +103,7 @@ class GStreamerBackend(PlayerBackend):
         self._pipeline.set_property("volume", self.volume)
 
         # 监听 bus 消息: error/eos 转给回调
-        # 注意: add_signal_watch 把 watch 挂到当前线程的 default MainContext;
-        # GTK 后端共用 default context, Qt 后端目前没 GLib loop 会丢消息 (P0.4 修).
+        # add_signal_watch 把 watch 挂到当前线程的 default MainContext (GTK 主循环).
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message::error", self._on_bus_error)

@@ -16,10 +16,71 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .cache import Cache
-    from .models import Song
+    from .models import Album, Playlist, Singer, Song
     from .service import QuaverService
 
 logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------
+# Sidebar 统一资料库 (UI-2): 把 4 种来源摊平到一个 list, 配合过滤芯片 + 搜索
+# ----------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SidebarItem:
+    """资料库 sidebar 一行 (我喜欢 + 我的歌单 + 收藏专辑 + 关注艺人).
+
+    kind: "liked" | "playlist" | "album" | "singer"
+    ref:  对应原对象 (Playlist/Album/Singer); "liked" 为 None (虚拟行).
+    """
+
+    kind: str
+    name: str
+    subtitle: str
+    ref: object = None
+
+
+def build_sidebar_items(
+    liked_count: int,
+    my_playlists: "list[Playlist]",
+    fav_albums: "list[Album]",
+    followed_singers: "list[Singer]",
+) -> list[SidebarItem]:
+    """把 4 个来源摊平为 SidebarItem 列表; "我喜欢" 永远在第一位 (虚拟行)."""
+    items: list[SidebarItem] = [
+        SidebarItem(
+            kind="liked",
+            name="我喜欢的音乐",
+            subtitle=f"{liked_count} 首" if liked_count else "暂无",
+        )
+    ]
+    for p in my_playlists:
+        sub = f"{p.song_count} 首" if p.song_count else "歌单"
+        items.append(SidebarItem(kind="playlist", name=p.name, subtitle=sub, ref=p))
+    for a in fav_albums:
+        sub = " / ".join(s.name for s in a.singers) if a.singers else "专辑"
+        items.append(SidebarItem(kind="album", name=a.name, subtitle=sub, ref=a))
+    for s in followed_singers:
+        items.append(SidebarItem(kind="singer", name=s.name, subtitle="艺人", ref=s))
+    return items
+
+
+def filter_sidebar_items(
+    items: list[SidebarItem], kind_filter: str, query: str
+) -> list[SidebarItem]:
+    """纯函数过滤: kind_filter='all' 保留全部; "liked" 行不受 kind_filter 影响 (它是 pinned).
+
+    query 大小写不敏感, 匹配 name 或 subtitle 子串.
+    """
+    q = (query or "").strip().lower()
+    out: list[SidebarItem] = []
+    for it in items:
+        if kind_filter != "all" and it.kind != "liked" and it.kind != kind_filter:
+            continue
+        if q and q not in it.name.lower() and q not in it.subtitle.lower():
+            continue
+        out.append(it)
+    return out
 
 
 @dataclass

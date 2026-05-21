@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import random
+import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
@@ -37,6 +39,7 @@ from .models import (
     Singer,
     Song,
     SongUrl,
+    TopList,
 )
 
 if TYPE_CHECKING:
@@ -52,6 +55,21 @@ def _cover_url(album_mid: str, size: int = 300) -> str:
     if not album_mid:
         return ""
     return f"https://y.qq.com/music/photo_new/T002R{size}x{size}M000{album_mid}.jpg"
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _clean_text(s: str | None, *, max_len: int = 120) -> str:
+    """去 HTML 标签 + 折空白 + 截断 (UI 显示用的文本规整)."""
+    if not s:
+        return ""
+    txt = _HTML_TAG_RE.sub(" ", s)        # <br>/<em> 等 → 空格
+    txt = _WS_RE.sub(" ", txt).strip()    # 多空白 → 单空格
+    if len(txt) > max_len:
+        txt = txt[:max_len].rstrip() + "…"
+    return txt
 
 
 def _credential_from_dict(d: dict[str, Any]) -> Credential:
@@ -87,6 +105,14 @@ class QuaverService:
     _client: Client | None = field(default=None, init=False, repr=False)
     # bypass 路径用的 ct 值, 实例生命周期内固定 (见 _SAFE_CT_VALUES)
     _ct_value: int = field(default=0, init=False, repr=False)
+    # 实例级内存 cache: 短期 ad-hoc 数据 (recommend 等) 不适合 SQLite TTL 表
+    # key → (timestamp, value); 重启失效
+    _memo: dict[str, tuple[float, Any]] = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    # 内存 cache 默认 TTL: 推荐数据每天/每小时换换, 10 分钟够
+    _MEMO_TTL_SEC = 600
 
     # ------------------------------------------------------------------
     # bypass / 反风控
@@ -423,49 +449,24 @@ class QuaverService:
         我们直接 POST crypt=0 拿 base64 明文."""
         import base64
 
-        cred = self._effective_credential()
-        if cred is None or not cred.musickey:
+        block = await self._bypass_post(
+            "music.musichallSong.PlayLyricInfo",
+            "GetPlayLyricInfo",
+            {
+                "crypt": 0,
+                "lrc_t": 0,
+                "qrc": 0, "qrc_t": 0,
+                "roma": 0, "roma_t": 0,
+                "trans": 1 if with_translation else 0,
+                "trans_t": 0,
+                "type": 1,
+                "songMid": mid,
+            },
+            require_login=True,
+        )
+        if not block:
             return Lyric(mid=mid, lines=[], has_translation=False)
 
-        body = {
-            "comm": {
-                "qq": str(cred.musicid),
-                "authst": cred.musickey,
-                "ct": self._ct_value,
-            },
-            "req_0": {
-                "module": "music.musichallSong.PlayLyricInfo",
-                "method": "GetPlayLyricInfo",
-                "param": {
-                    "crypt": 0,
-                    "lrc_t": 0,
-                    "qrc": 0, "qrc_t": 0,
-                    "roma": 0, "roma_t": 0,
-                    "trans": 1 if with_translation else 0,
-                    "trans_t": 0,
-                    "type": 1,
-                    "songMid": mid,
-                },
-            },
-        }
-
-        def _do() -> dict[str, Any]:
-            import niquests
-            with niquests.Session() as s:
-                r = s.post(
-                    "https://u.y.qq.com/cgi-bin/musicu.fcg",
-                    json=body,
-                    timeout=10,
-                )
-                return r.json()
-
-        try:
-            data = await asyncio.to_thread(_do)
-        except Exception as exc:
-            logger.warning("bypass lyric 请求异常 (%s): %s", mid, exc)
-            return Lyric(mid=mid, lines=[], has_translation=False)
-
-        block = data.get("req_0", {}).get("data", {}) or {}
         lrc_b64 = block.get("lyric", "") or ""
         trans_b64 = block.get("trans", "") or ""
 
@@ -520,44 +521,33 @@ class QuaverService:
         logger.warning("所有音质均不可下发: %s", song_obj.name)
         return None
 
-    async def _try_bypass_url(
-        self, mid: str, quality_label: str
-    ) -> str | None:
-        """直接 POST musicu.fcg 绕过 0.6 默认 ct=11.
+    async def _bypass_post(
+        self,
+        module: str,
+        method: str,
+        param: dict[str, Any],
+        *,
+        require_login: bool = False,
+    ) -> dict[str, Any] | None:
+        """通用 musicu.fcg POST: 用 self._ct_value 跳过库默认 ct=11 的降级响应.
 
-        ct 字段实例生命周期内固定 (self._ct_value), 启动时从合法白名单随机选.
+        返回 req_0.data 字典 (失败/无登录时 None).
         """
-        prefix_ext = self._QUALITY_FILE.get(quality_label)
-        if not prefix_ext:
-            return None
-        prefix, ext = prefix_ext
-        filename = f"{prefix}{mid}{mid}.{ext}"
-
         cred = self._effective_credential()
-        if cred is None or not cred.musickey:
-            logger.debug("bypass 跳过: 无登录态")
+        if require_login and (cred is None or not cred.musickey):
             return None
+
+        comm: dict[str, Any] = {"ct": self._ct_value, "cv": 0}
+        if cred is not None and cred.musickey:
+            comm["qq"] = str(cred.musicid)
+            comm["authst"] = cred.musickey
 
         body = {
-            "comm": {
-                "qq": str(cred.musicid),
-                "authst": cred.musickey,
-                "ct": self._ct_value,
-            },
-            "req_0": {
-                "module": "music.vkey.GetVkey",
-                "method": "UrlGetVkey",
-                "param": {
-                    "filename": [filename],
-                    "guid": uuid.uuid4().hex,
-                    "songmid": [mid],
-                    "songtype": [0],
-                },
-            },
+            "comm": comm,
+            "req_0": {"module": module, "method": method, "param": param},
         }
 
         def _do() -> dict[str, Any]:
-            # 用 niquests (0.6 已依赖); 同步在 to_thread 跑
             import niquests
             with niquests.Session() as s:
                 r = s.post(
@@ -570,18 +560,39 @@ class QuaverService:
         try:
             data = await asyncio.to_thread(_do)
         except Exception as exc:
-            logger.warning(
-                "bypass vkey 请求异常 (%s): %s", quality_label, exc
-            )
+            logger.warning("bypass %s.%s 请求异常: %s", module, method, exc)
             return None
 
-        midurlinfo = (
-            data.get("req_0", {}).get("data", {}).get("midurlinfo") or []
+        return data.get("req_0", {}).get("data", {}) or {}
+
+    async def _try_bypass_url(
+        self, mid: str, quality_label: str
+    ) -> str | None:
+        """vkey bypass. ct 实例生命周期内固定 (启动时从 _SAFE_CT_VALUES 随机)."""
+        prefix_ext = self._QUALITY_FILE.get(quality_label)
+        if not prefix_ext:
+            return None
+        prefix, ext = prefix_ext
+        filename = f"{prefix}{mid}{mid}.{ext}"
+
+        data = await self._bypass_post(
+            "music.vkey.GetVkey",
+            "UrlGetVkey",
+            {
+                "filename": [filename],
+                "guid": uuid.uuid4().hex,
+                "songmid": [mid],
+                "songtype": [0],
+            },
+            require_login=True,
         )
+        if not data:
+            return None
+
+        midurlinfo = data.get("midurlinfo") or []
         if not midurlinfo:
             return None
-        item = midurlinfo[0]
-        purl = item.get("purl", "") or ""
+        purl = midurlinfo[0].get("purl", "") or ""
         if not purl:
             return None
         return f"https://isure.stream.qqmusic.qq.com/{purl}"
@@ -627,10 +638,26 @@ class QuaverService:
     # 发现 / 推荐 (P2.1 — HomeView)
     # ------------------------------------------------------------------
 
+    def _memo_get(self, key: str) -> Any | None:
+        hit = self._memo.get(key)
+        if hit is None:
+            return None
+        ts, val = hit
+        if time.time() - ts > self._MEMO_TTL_SEC:
+            return None
+        return val
+
+    def _memo_put(self, key: str, value: Any) -> None:
+        self._memo[key] = (time.time(), value)
+
     async def get_recommend_playlists(
         self, *, limit: int = 8
     ) -> list[Playlist]:
-        """推荐歌单 (首页 Featured Playlists)."""
+        """推荐歌单 (首页 Featured Playlists). 10 分钟内存 cache."""
+        cached = self._memo_get("recommend_playlists")
+        if cached is not None:
+            return cached[:limit]
+
         try:
             resp = await self.client.recommend.get_recommend_songlist(num=limit)
         except Exception as exc:
@@ -650,19 +677,147 @@ class QuaverService:
                     play_count=int(getattr(p, "listennum", 0) or 0),
                 )
             )
+        self._memo_put("recommend_playlists", out)
         return out
+
+    async def get_top_categories(
+        self, *, limit_per_group: int | None = None
+    ) -> list[TopList]:
+        """所有排行榜入口扁平化 (各 group 拼起来). 10 分钟内存 cache.
+
+        用库默认 ct=11 (PC web 客户端 profile): 实测此 profile 返回 43 个榜
+        (含巅峰潮流榜 等编辑榜); safe ct (移动端) 仅 30 个, 反而缺榜.
+        intro 在列表里为空是 QQ 设计 — 详情页 GetDetail 才有.
+        """
+        cached = self._memo_get("top_categories")
+        if cached is not None:
+            return cached
+
+        try:
+            resp = await self.client.top.get_category()
+        except Exception as exc:
+            logger.warning("get_top_categories 失败: %s", exc)
+            return []
+        out: list[TopList] = []
+        for g in (getattr(resp, "group", None) or []):
+            tlist = getattr(g, "toplist", None) or []
+            if limit_per_group is not None:
+                tlist = tlist[:limit_per_group]
+            for tl in tlist:
+                out.append(
+                    TopList(
+                        top_id=int(getattr(tl, "id", 0) or 0),
+                        name=getattr(tl, "name", "") or "",
+                        cover_url=(
+                            getattr(tl, "front_pic_url", "")
+                            or getattr(tl, "head_pic_url", "")
+                            or ""
+                        ),
+                        intro=_clean_text(getattr(tl, "intro", ""), max_len=80),
+                        total_num=int(getattr(tl, "total_num", 0) or 0),
+                    )
+                )
+        self._memo_put("top_categories", out)
+        return out
+
+    async def get_top_detail(
+        self, top_id: int, *, limit: int = 100
+    ) -> Playlist:
+        """单个排行榜详情, 复用 Playlist 模型. 库默认 ct=11 即可拿完整 intro.
+
+        注: 某些榜本身服务端无 intro (如 tid=135 巅峰潮流榜, 编辑榜没规则文本),
+        这不是 ct 风控. 调用方需对 description 容空.
+        """
+        try:
+            resp = await self.client.top.get_detail(top_id, num=limit, page=1)
+        except Exception as exc:
+            logger.warning("get_top_detail 失败 (top_id=%s): %s", top_id, exc)
+            return Playlist(pid=str(top_id), name="榜单不可用")
+
+        info = getattr(resp, "info", None)
+        songs_raw = getattr(resp, "songs", None) or []
+        return Playlist(
+            pid=str(top_id),
+            name=getattr(info, "name", "") or "",
+            cover_url=(
+                getattr(info, "front_pic_url", "")
+                or getattr(info, "head_pic_url", "")
+                or ""
+            ),
+            description=_clean_text(getattr(info, "intro", ""), max_len=400),
+            creator="",
+            song_count=int(getattr(info, "total_num", 0) or 0),
+            play_count=int(getattr(info, "listen_num", 0) or 0),
+            songs=[self._to_song(s) for s in songs_raw],
+        )
 
     async def get_recommend_new_songs(
         self, *, limit: int = 12
     ) -> list[Song]:
-        """新歌速递 (首页 New Releases)."""
+        """新歌速递 (首页 New Releases). 10 分钟内存 cache."""
+        cached = self._memo_get("recommend_new_songs")
+        if cached is not None:
+            return cached[:limit]
+
         try:
             resp = await self.client.recommend.get_recommend_newsong()
         except Exception as exc:
             logger.warning("get_recommend_newsong 失败: %s", exc)
             return []
         songs_raw = getattr(resp, "songs", None) or []
-        return [self._to_song(s) for s in songs_raw[:limit]]
+        out = [self._to_song(s) for s in songs_raw[:limit]]
+        self._memo_put("recommend_new_songs", out)
+        return out
+
+    async def get_hot_search(self, *, limit: int = 12) -> list[str]:
+        """热搜词 (vec_hotkey 抽 query). 10 分钟内存 cache, 去重."""
+        cached = self._memo_get("hot_search")
+        if cached is not None:
+            return cached[:limit]
+
+        try:
+            resp = await self.client.search.get_hotkey()
+        except Exception as exc:
+            logger.warning("get_hotkey 失败: %s", exc)
+            return []
+
+        items = (resp or {}).get("vec_hotkey", []) or []
+        out: list[str] = []
+        seen: set[str] = set()
+        for it in items:
+            q = (it.get("query") or "").strip()
+            if not q or q in seen:
+                continue
+            seen.add(q)
+            out.append(q)
+        self._memo_put("hot_search", out)
+        return out[:limit]
+
+    async def get_search_suggest(
+        self, keyword: str, *, limit: int = 10
+    ) -> list[str]:
+        """搜索补全 (smartbox items 抽 hint). 空 keyword 不发请求."""
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
+        try:
+            resp = await self.client.search.complete(kw)
+        except Exception as exc:
+            logger.warning("search.complete 失败 (%s): %s", kw, exc)
+            return []
+
+        items = (resp or {}).get("items", []) or []
+        out: list[str] = []
+        seen: set[str] = set()
+        for it in items:
+            hint = (it.get("hint") or "").strip()
+            if not hint or hint in seen:
+                continue
+            seen.add(hint)
+            out.append(hint)
+            if len(out) >= limit:
+                break
+        return out
 
     async def get_my_playlists(self) -> list[Playlist]:
         """我创建的歌单 (排除 dirid=201 那个"我喜欢", 后者走 library)."""

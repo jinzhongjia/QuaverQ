@@ -20,9 +20,11 @@ from quaverq.core.models import (
     Playlist,
     Singer,
     Song,
+    TopList,
 )
 from quaverq.core.service import (
     QuaverService,
+    _clean_text,
     _cover_url,
     _credential_from_dict,
     _credential_to_dict,
@@ -479,6 +481,292 @@ async def test_get_recommend_playlists_failure_returns_empty():
         credential=svc.credential,
     )
     assert await svc.get_recommend_playlists() == []
+
+
+async def test_get_recommend_playlists_uses_memo_cache():
+    """同一 service 实例第二次调用直接命中内存 cache, 不打 API."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    call_count = [0]
+
+    async def fake_get(num):
+        call_count[0] += 1
+        return SimpleNamespace(songlists=[
+            SimpleNamespace(
+                id=1, dirid=1, title="x", picurl="", desc="",
+                songnum=1, listennum=0, creator_nick="",
+            ),
+        ])
+
+    svc._client = SimpleNamespace(
+        recommend=SimpleNamespace(get_recommend_songlist=fake_get),
+        credential=svc.credential,
+    )
+    await svc.get_recommend_playlists()
+    await svc.get_recommend_playlists()
+    await svc.get_recommend_playlists()
+    # 只打了一次 API, 后面两次直接 memory cache
+    assert call_count[0] == 1
+
+
+async def test_get_recommend_new_songs_uses_memo_cache():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    call_count = [0]
+
+    async def fake_get():
+        call_count[0] += 1
+        return SimpleNamespace(songs=[_raw_song(mid="m", name="x")])
+
+    svc._client = SimpleNamespace(
+        recommend=SimpleNamespace(get_recommend_newsong=fake_get),
+        credential=svc.credential,
+    )
+    await svc.get_recommend_new_songs()
+    await svc.get_recommend_new_songs()
+    assert call_count[0] == 1
+
+
+def test_clean_text_removes_br_tags():
+    raw = "1. 榜单定义：xxx。<br>2. 更新频率：每日。<br>3. 排序依据：yyy。"
+    out = _clean_text(raw, max_len=999)
+    assert "<br>" not in out
+    assert "1. 榜单定义" in out
+
+
+def test_clean_text_truncates():
+    raw = "abc" * 200
+    out = _clean_text(raw, max_len=20)
+    assert len(out) <= 21   # 20 + ellipsis
+    assert out.endswith("…")
+
+
+def test_clean_text_handles_empty():
+    assert _clean_text(None) == ""
+    assert _clean_text("") == ""
+
+
+def test_clean_text_strips_em_tags():
+    raw = "<em>周杰伦</em> 的歌"
+    assert _clean_text(raw) == "周杰伦 的歌"
+
+
+def test_clean_text_collapses_whitespace():
+    raw = "line1<br><br>line2    \t  line3"
+    assert _clean_text(raw) == "line1 line2 line3"
+
+
+async def test_get_top_categories_flattens_groups():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_get_category():
+        return SimpleNamespace(group=[
+            SimpleNamespace(id=0, name="巅峰榜", toplist=[
+                SimpleNamespace(id=135, name="巅峰潮流榜", front_pic_url="http://p1", head_pic_url="", intro="", total_num=300),
+                SimpleNamespace(id=4, name="飙升榜", front_pic_url="http://p2", head_pic_url="", intro="", total_num=200),
+            ]),
+            SimpleNamespace(id=1, name="地区榜", toplist=[
+                SimpleNamespace(id=11, name="内地", front_pic_url="", head_pic_url="http://p3", intro="", total_num=100),
+            ]),
+        ])
+
+    svc._client = SimpleNamespace(
+        top=SimpleNamespace(get_category=fake_get_category),
+        credential=svc.credential,
+    )
+    tops = await svc.get_top_categories()
+    assert len(tops) == 3   # 扁平化全 group 的 toplist
+    assert tops[0].top_id == 135
+    assert tops[0].name == "巅峰潮流榜"
+    assert tops[0].cover_url == "http://p1"
+    assert tops[2].cover_url == "http://p3"   # head_pic_url 兜底
+
+
+async def test_get_top_categories_cached():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    call_count = [0]
+
+    async def fake_get_category():
+        call_count[0] += 1
+        return SimpleNamespace(group=[])
+
+    svc._client = SimpleNamespace(
+        top=SimpleNamespace(get_category=fake_get_category),
+        credential=svc.credential,
+    )
+    await svc.get_top_categories()
+    await svc.get_top_categories()
+    assert call_count[0] == 1
+
+
+async def test_get_top_detail_reuses_playlist_model():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_get_detail(top_id, num, page):
+        return SimpleNamespace(
+            info=SimpleNamespace(
+                id=135, name="巅峰潮流榜",
+                front_pic_url="http://p", intro="每日更新",
+                total_num=300, listen_num=99999,
+            ),
+            songs=[
+                _raw_song(mid="t1", name="排行第 1"),
+                _raw_song(mid="t2", name="排行第 2"),
+            ],
+        )
+
+    svc._client = SimpleNamespace(
+        top=SimpleNamespace(get_detail=fake_get_detail),
+        credential=svc.credential,
+    )
+    p = await svc.get_top_detail(135)
+    assert p.pid == "135"
+    assert p.name == "巅峰潮流榜"
+    assert p.cover_url == "http://p"
+    assert p.song_count == 300
+    assert p.play_count == 99999
+    assert len(p.songs) == 2
+    assert p.songs[0].name == "排行第 1"
+
+
+async def test_get_top_detail_failure_returns_placeholder_playlist():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_get_detail(top_id, num, page):
+        raise RuntimeError("network")
+
+    svc._client = SimpleNamespace(
+        top=SimpleNamespace(get_detail=fake_get_detail),
+        credential=svc.credential,
+    )
+    p = await svc.get_top_detail(999)
+    assert p.pid == "999"
+    assert p.songs == []
+    assert "不可用" in p.name
+
+
+# ============================================================== P2.3 热搜 / 搜索建议
+
+
+async def test_get_hot_search_extracts_queries():
+    """get_hot_search 从 vec_hotkey 抽 query 字段, 排除空/重复."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    call_count = [0]
+
+    async def fake_hotkey():
+        call_count[0] += 1
+        return {
+            "vec_hotkey": [
+                {"query": "玻璃 gareth.t", "title": "玻璃 Gareth.T"},
+                {"query": "梓渝 凌绝顶", "title": "凌绝顶"},
+                {"query": "", "title": "空查询应被跳过"},
+                {"query": "玻璃 gareth.t", "title": "重复应被去重"},
+            ]
+        }
+
+    svc._client = SimpleNamespace(
+        search=SimpleNamespace(get_hotkey=fake_hotkey),
+        credential=svc.credential,
+    )
+    hots = await svc.get_hot_search(limit=10)
+    assert hots == ["玻璃 gareth.t", "梓渝 凌绝顶"]
+    assert call_count[0] == 1
+
+
+async def test_get_hot_search_cached():
+    """10 分钟内存 cache, 短时间重复调用不重发请求."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    call_count = [0]
+
+    async def fake_hotkey():
+        call_count[0] += 1
+        return {"vec_hotkey": [{"query": "a", "title": "a"}]}
+
+    svc._client = SimpleNamespace(
+        search=SimpleNamespace(get_hotkey=fake_hotkey),
+        credential=svc.credential,
+    )
+    await svc.get_hot_search()
+    await svc.get_hot_search()
+    assert call_count[0] == 1
+
+
+async def test_get_hot_search_failure_returns_empty():
+    """get_hotkey 抛错时优雅降级返 []."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_hotkey():
+        raise RuntimeError("net")
+
+    svc._client = SimpleNamespace(
+        search=SimpleNamespace(get_hotkey=fake_hotkey),
+        credential=svc.credential,
+    )
+    assert await svc.get_hot_search() == []
+
+
+async def test_get_search_suggest_extracts_hints():
+    """complete 返回的 items 取 hint, 剥掉 <em></em> 高亮标签."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_complete(keyword):
+        assert keyword == "周杰"
+        return {
+            "items": [
+                {"hint": "周杰伦", "hint_hilight": "<em>周杰</em>伦"},
+                {"hint": "周杰伦 七里香", "hint_hilight": "<em>周杰</em>伦 七里香"},
+                {"hint": "", "hint_hilight": ""},          # 空跳过
+                {"hint": "周杰伦", "hint_hilight": "重复"},  # 去重
+            ]
+        }
+
+    svc._client = SimpleNamespace(
+        search=SimpleNamespace(complete=fake_complete),
+        credential=svc.credential,
+    )
+    sugs = await svc.get_search_suggest("周杰")
+    assert sugs == ["周杰伦", "周杰伦 七里香"]
+
+
+async def test_get_search_suggest_empty_keyword_returns_empty():
+    """空 keyword 不该发请求."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    called = [False]
+
+    async def fake_complete(keyword):
+        called[0] = True
+        return {"items": []}
+
+    svc._client = SimpleNamespace(
+        search=SimpleNamespace(complete=fake_complete),
+        credential=svc.credential,
+    )
+    assert await svc.get_search_suggest("") == []
+    assert await svc.get_search_suggest("   ") == []
+    assert called[0] is False
+
+
+async def test_get_search_suggest_failure_returns_empty():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_complete(keyword):
+        raise RuntimeError("net")
+
+    svc._client = SimpleNamespace(
+        search=SimpleNamespace(complete=fake_complete),
+        credential=svc.credential,
+    )
+    assert await svc.get_search_suggest("jay") == []
 
 
 async def test_get_recommend_new_songs_maps_to_song():

@@ -27,9 +27,6 @@ CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 # 默认配置
 DEFAULTS: dict[str, Any] = {
-    "ui": {
-        "backend": "auto",  # auto | qt | gtk
-    },
     "api": {
         "cookie_file": "",  # QQ 音乐 cookie 文件路径
     },

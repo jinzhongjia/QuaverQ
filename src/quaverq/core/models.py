@@ -89,6 +89,17 @@ class Album:
 
 
 @dataclass
+class TopList:
+    """排行榜入口 (TopSummary). detail 通过 service.get_top_detail 拉, 复用 Playlist."""
+
+    top_id: int
+    name: str
+    cover_url: str = ""
+    intro: str = ""
+    total_num: int = 0
+
+
+@dataclass
 class ArtistDetail:
     """歌手详情 = 基本信息 + 热门歌曲 + 专辑列表."""
 
@@ -122,4 +133,5 @@ __all__ = [
     "Album",
     "ArtistDetail",
     "Playlist",
+    "TopList",
 ]

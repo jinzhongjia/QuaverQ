@@ -1,15 +1,14 @@
 [project]
 name = "quaverq"
 version = "0.1.0"
-description = "QuaverQ — QQ 音乐桌面客户端，自适应 Qt / GTK 环境"
+description = "QuaverQ — QQ 音乐桌面客户端 (GTK 4 + Libadwaita)"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
 authors = [{ name = "Jin", email = "jinzhongjia@qq.com" }]
-keywords = ["qqmusic", "music", "player", "qt", "gtk"]
+keywords = ["qqmusic", "music", "player", "gtk"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "Environment :: X11 Applications :: Qt",
     "Environment :: X11 Applications :: GTK",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
@@ -27,11 +26,8 @@ dependencies = [
     "qqmusic-api-python>=0.6.1,<0.7",
     "tomli-w>=1.0",
     "dbus-next>=0.2.3",   # MPRIS2 D-Bus 集成 (媒体键 / GNOME Now Playing)
+    "PyGObject>=3.50",
 ]
-
-[project.optional-dependencies]
-qt = ["PySide6>=6.8"]
-gtk = ["PyGObject>=3.50"]
 
 [dependency-groups]
 dev = [
