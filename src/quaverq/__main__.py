@@ -14,18 +14,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 import threading
 from concurrent.futures import Future
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .config import CONFIG_DIR, load as load_config
 from .core.cache import Cache
+from .core.cover_cache import CoverCache
 from .core.library import Library
 from .core.mpris import MprisCallbacks, MprisService
 from .core.player import create_player
 from .core.queue import PlayMode, PlayQueue
 from .core.service import QuaverService
+from .core.state import SessionState
 from .ui import check_availability, create_ui, resolve_backend
 
 if TYPE_CHECKING:
@@ -126,6 +130,13 @@ def main() -> None:
 
     api = QuaverService(cache=cache)
     library = Library(cache=cache, service=api) if cache is not None else None
+    session_state = SessionState(CONFIG_DIR / "state.json")
+
+    # 封面磁盘缓存 (P1.5): ~/.cache/quaverq/covers/
+    _xdg_cache = os.environ.get("XDG_CACHE_HOME") or str(
+        Path.home() / ".cache"
+    )
+    cover_cache = CoverCache(Path(_xdg_cache) / "quaverq" / "covers")
 
     # 模式 cycle 顺序 + UI 显示名映射
     _MODE_ORDER = [
@@ -244,12 +255,24 @@ def main() -> None:
             ui.set_now_playing(song)
             ui.set_play_state(True)
             ui.show_message(f"播放: {song.name} [{url_result.quality}]")
+
             # MPRIS 元数据 + 状态推送
-            mpris.push_metadata(song)
+            # 1) 先用本地已缓存的封面 (秒级)
+            local_path = cover_cache.get_path(song.cover_url)
+            local_uri = (
+                cover_cache.to_file_uri(local_path) if local_path else None
+            )
+            mpris.push_metadata(song, local_cover_uri=local_uri)
             mpris.push_playback_status("play")
+
             # 同步当前歌的喜欢态到 UI ❤️
             if library is not None:
                 ui.set_liked_state(song.mid, library.is_liked(song.mid))
+
+            # 后台下封面 (没缓存时), 完成后再次 push MPRIS 让控件显示
+            if local_uri is None and song.cover_url:
+                runner.submit(_fetch_cover_then_push(song))
+
             # 后台并发拉歌词, 失败不影响播放
             runner.submit(_fetch_lyric_for(song))
             return
@@ -270,6 +293,19 @@ def main() -> None:
             ui.show_lyric(ly)
         except Exception as exc:
             logger.warning("拉歌词失败 (%s): %s", song.name, exc)
+
+    async def _fetch_cover_then_push(song) -> None:
+        """切歌时本地没封面 → 后台下载 → 完成后重新 push MPRIS 让桌面控件显示."""
+        path = await cover_cache.fetch(song.cover_url)
+        if path is None:
+            return
+        # 仅在该歌还是 current 时才 push, 避免覆盖已切走的歌的 metadata
+        cur = queue.current()
+        if cur is None or cur.mid != song.mid:
+            return
+        mpris.push_metadata(
+            song, local_cover_uri=cover_cache.to_file_uri(path)
+        )
 
     async def _on_play(song, song_list=None) -> None:
         """点歌入队 + 播放. song_list 是该 song 所在的上下文 (整个 tab / 详情页)."""
@@ -441,6 +477,15 @@ def main() -> None:
 
     ui.on("open_library", lambda: runner.submit(_on_open_library()))
 
+    # 首页 (P2.1): 推荐歌单 + 新歌速递并发拉
+    async def _on_open_home() -> None:
+        ui.show_message("加载首页…")
+        rp = await api.get_recommend_playlists(limit=8)
+        ns = await api.get_recommend_new_songs(limit=12)
+        ui.show_home(rp, ns)
+
+    ui.on("open_home", lambda: runner.submit(_on_open_home()))
+
     # 详情页 (P0.3): 拉详情 → push 详情视图
     async def _open_album(album_brief) -> None:
         ui.show_message(f"加载专辑: {album_brief.name}…")
@@ -501,6 +546,15 @@ def main() -> None:
 
     # ---- 清理 (UI 退出时触发) ----
     def _cleanup() -> None:
+        # 先保存会话快照 (在 player.stop 之前拿 position)
+        try:
+            pos_ms = runner.run_sync(player.get_position(), timeout=2)
+        except Exception:
+            pos_ms = 0
+        try:
+            session_state.save(queue, position_ms=pos_ms)
+        except Exception:
+            logger.exception("保存会话快照失败")
         try:
             runner.run_sync(mpris.stop(), timeout=2)
         except Exception:
@@ -561,6 +615,21 @@ def main() -> None:
         mpris_ok = False
     if not mpris_ok:
         logger.info("MPRIS 未启用 (D-Bus session 不可用?)")
+
+    # 会话恢复 (P1.4): 把上次队列 + mode 还原, 但不自动开播
+    _snapshot = session_state.restore()
+    if _snapshot is not None:
+        _snapshot.apply_to(queue)
+        if queue.current() is not None:
+            cur = queue.current()
+            ui.set_now_playing(cur)
+            ui.set_play_state(False)  # 启动停在 paused 状态
+            if library is not None:
+                ui.set_liked_state(cur.mid, library.is_liked(cur.mid))
+            ui.show_message(
+                f"已恢复上次队列 ({len(queue.songs)} 首, 暂停中)",
+                level="info",
+            )
 
     # 初始 mode 指示器 + quality 偏好同步到 UI
     ui.set_play_mode_indicator(_MODE_UI_NAME[queue.mode])

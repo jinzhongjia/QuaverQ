@@ -74,6 +74,19 @@ def test_song_to_metadata_sanitizes_trackid():
         assert ch == "/" or ch == "_" or ch.isalnum()
 
 
+def test_song_to_metadata_prefers_local_cover_uri():
+    """有 local_cover_uri 时 artUrl 用本地 file://, 否则退到远端 cover_url."""
+    s = Song(mid="m", name="x", cover_url="https://y.qq.com/cover.jpg")
+    meta = song_to_metadata(s, local_cover_uri="file:///home/u/c.jpg")
+    assert meta["mpris:artUrl"] == "file:///home/u/c.jpg"
+
+
+def test_song_to_metadata_falls_back_to_remote_cover():
+    s = Song(mid="m", name="x", cover_url="https://y.qq.com/cover.jpg")
+    meta = song_to_metadata(s, local_cover_uri=None)
+    assert meta["mpris:artUrl"] == "https://y.qq.com/cover.jpg"
+
+
 # ============================================================== status mapping
 
 def test_normalize_status_play():

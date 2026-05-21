@@ -440,6 +440,67 @@ async def test_get_lyric_no_credential_returns_empty():
     assert ly.lines == []
 
 
+# ============================================================== Discover / Home (P2.1)
+
+async def test_get_recommend_playlists_maps_to_playlist():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_get(num):
+        return SimpleNamespace(songlists=[
+            SimpleNamespace(
+                id=8907966308, dirid=14, title="国韵之潮",
+                picurl="http://x/c.jpg", desc="国风精选",
+                songnum=50, listennum=10000, creator_nick="编辑",
+            ),
+        ])
+
+    svc._client = SimpleNamespace(
+        recommend=SimpleNamespace(get_recommend_songlist=fake_get),
+        credential=svc.credential,
+    )
+    pls = await svc.get_recommend_playlists(limit=8)
+    assert len(pls) == 1
+    assert pls[0].pid == "8907966308"
+    assert pls[0].name == "国韵之潮"
+    assert pls[0].creator == "编辑"
+    assert pls[0].song_count == 50
+
+
+async def test_get_recommend_playlists_failure_returns_empty():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_get(num):
+        raise RuntimeError("boom")
+
+    svc._client = SimpleNamespace(
+        recommend=SimpleNamespace(get_recommend_songlist=fake_get),
+        credential=svc.credential,
+    )
+    assert await svc.get_recommend_playlists() == []
+
+
+async def test_get_recommend_new_songs_maps_to_song():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_get():
+        return SimpleNamespace(songs=[
+            _raw_song(mid="m1", name="新歌1"),
+            _raw_song(mid="m2", name="新歌2"),
+        ])
+
+    svc._client = SimpleNamespace(
+        recommend=SimpleNamespace(get_recommend_newsong=fake_get),
+        credential=svc.credential,
+    )
+    songs = await svc.get_recommend_new_songs(limit=12)
+    assert len(songs) == 2
+    assert songs[0].name == "新歌1"
+    assert songs[0].mid == "m1"
+
+
 # ============================================================== Library APIs (P1.3)
 
 async def test_get_my_playlists_excludes_fav_dir():

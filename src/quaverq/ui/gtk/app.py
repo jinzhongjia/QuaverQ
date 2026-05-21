@@ -221,6 +221,12 @@ class GtkUI(UIBase):
                 )
         self._glib_idle(_do)
 
+    def show_home(self, recommend_playlists, recommend_new_songs) -> None:
+        def _do() -> None:
+            if self._window:
+                self._window.show_home(recommend_playlists, recommend_new_songs)
+        self._glib_idle(_do)
+
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         def _do() -> None:
             if self._window:
@@ -268,7 +274,15 @@ class _MainWindow(Adw.ApplicationWindow):
         self._back_btn.add_css_class("flat")
         self._back_btn.set_visible(False)
 
-        # 资料库入口 (HeaderBar 左侧, 仅登录后可见)
+        # 首页 / 资料库 入口 (HeaderBar 左侧, 仅登录后可见)
+        self._home_btn = Gtk.Button.new_from_icon_name("user-home-symbolic")
+        self._home_btn.add_css_class("flat")
+        self._home_btn.set_tooltip_text("首页")
+        self._home_btn.set_visible(False)
+        self._home_btn.connect(
+            "clicked", lambda _b: self._ui._emit("open_home")
+        )
+
         self._library_btn = Gtk.Button.new_from_icon_name(
             "folder-music-symbolic"
         )
@@ -285,6 +299,7 @@ class _MainWindow(Adw.ApplicationWindow):
 
         header = Adw.HeaderBar()
         header.pack_start(self._back_btn)
+        header.pack_start(self._home_btn)
         header.pack_start(self._library_btn)
         header.set_title_widget(self._title_widget)
         header.pack_end(self._login_btn)
@@ -393,7 +408,8 @@ class _MainWindow(Adw.ApplicationWindow):
 
     def _apply_auth_state(self, authed: bool) -> None:
         self._authenticated = authed
-        # 资料库入口跟登录态绑定
+        # 首页 / 资料库 入口跟登录态绑定
+        self._home_btn.set_visible(authed)
         self._library_btn.set_visible(authed)
         if authed:
             self._welcome_page.set_title("已就绪")
@@ -464,7 +480,7 @@ class _MainWindow(Adw.ApplicationWindow):
         self._song_data: list[Song] = []
         self._results_view_stack.add_titled_with_icon(
             self._wrap_in_scroll(self._song_listbox),
-            "songs", "歌曲", "emblem-music-symbolic",
+            "songs", "歌曲", "audio-headphones-symbolic",
         )
 
         self._singer_listbox = self._make_results_listbox(self._on_singer_row_activated)
@@ -1307,6 +1323,87 @@ class _MainWindow(Adw.ApplicationWindow):
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
         return scrolled
+
+    # ------------------------------------------------------------------
+    # HomeView (P2.1) — 推荐歌单 + 新歌速递
+    # ------------------------------------------------------------------
+
+    def show_home(
+        self,
+        recommend_playlists: list["Playlist"],
+        recommend_new_songs: list["Song"],
+    ) -> None:
+        page = self._nav_view.get_visible_page()
+        if page is not None and page.get_tag() == "home_view":
+            return
+        self._nav_view.push(
+            self._build_home_page(recommend_playlists, recommend_new_songs)
+        )
+
+    def _build_home_page(
+        self,
+        recommend_playlists: list["Playlist"],
+        recommend_new_songs: list["Song"],
+    ) -> Adw.NavigationPage:
+        prefs = Adw.PreferencesPage()
+
+        # 推荐歌单组
+        pl_group = Adw.PreferencesGroup()
+        pl_group.set_title("推荐歌单")
+        pl_group.set_description("为你精选的播放列表")
+        if recommend_playlists:
+            pl_lb = Gtk.ListBox()
+            pl_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+            pl_lb.add_css_class("boxed-list")
+            pl_data = list(recommend_playlists)
+
+            def _on_pl_act(_lb, row):
+                idx = getattr(row, "_quaver_index", -1)
+                if 0 <= idx < len(pl_data):
+                    self._ui._emit("open_playlist", pl_data[idx])
+
+            pl_lb.connect("row-activated", _on_pl_act)
+            for i, p in enumerate(pl_data):
+                pl_lb.append(self._make_playlist_row(p, i))
+            pl_group.add(pl_lb)
+        else:
+            pl_group.add(self._make_empty_row("暂无推荐歌单"))
+
+        # 新歌速递组
+        ns_group = Adw.PreferencesGroup()
+        ns_group.set_title("新歌速递")
+        ns_group.set_description("最新发布的曲目")
+        if recommend_new_songs:
+            ns_lb = Gtk.ListBox()
+            ns_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+            ns_lb.add_css_class("boxed-list")
+            ns_data = list(recommend_new_songs)
+
+            def _on_ns_act(_lb, row):
+                idx = getattr(row, "_quaver_index", -1)
+                if 0 <= idx < len(ns_data):
+                    self._ui._emit("play_song", ns_data[idx], ns_data)
+
+            ns_lb.connect("row-activated", _on_ns_act)
+            for i, s in enumerate(ns_data):
+                ns_lb.append(self._make_song_row(s, i))
+            ns_group.add(ns_lb)
+        else:
+            ns_group.add(self._make_empty_row("暂无新歌数据"))
+
+        prefs.add(pl_group)
+        prefs.add(ns_group)
+
+        nav_page = Adw.NavigationPage.new(prefs, "首页")
+        nav_page.set_tag("home_view")
+        return nav_page
+
+    @staticmethod
+    def _make_empty_row(text: str) -> Adw.ActionRow:
+        row = Adw.ActionRow()
+        row.set_title(text)
+        row.add_css_class("dim-label")
+        return row
 
     def _push_settings_view(self) -> None:
         # 已经在 settings 不重复 push

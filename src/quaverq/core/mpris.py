@@ -34,8 +34,13 @@ def _sanitize_trackid_segment(mid: str) -> str:
     return _TRACKID_SANITIZE.sub("_", mid or "unknown")
 
 
-def song_to_metadata(song: Song) -> dict[str, Any]:
-    """把 QuaverQ 的 Song 转成 MPRIS metadata dict (待包装 Variant)."""
+def song_to_metadata(
+    song: Song, *, local_cover_uri: str | None = None
+) -> dict[str, Any]:
+    """把 QuaverQ 的 Song 转成 MPRIS metadata dict.
+
+    artUrl 优先用本地 file:// (桌面媒体控件加载更可靠); 没本地时退到 cover_url.
+    """
     meta: dict[str, Any] = {
         "mpris:trackid": f"/org/mpris/MediaPlayer2/quaverq/track/{_sanitize_trackid_segment(song.mid)}",
         "mpris:length": int(song.duration) * 1_000_000 if song.duration else 0,
@@ -43,7 +48,9 @@ def song_to_metadata(song: Song) -> dict[str, Any]:
         "xesam:artist": [s.name for s in song.singers],
         "xesam:album": song.album_name or "",
     }
-    if song.cover_url:
+    if local_cover_uri:
+        meta["mpris:artUrl"] = local_cover_uri
+    elif song.cover_url:
         meta["mpris:artUrl"] = song.cover_url
     return meta
 
@@ -256,8 +263,10 @@ def _build_interfaces(cb: MprisCallbacks):
             return True
 
         # 外部 push
-        def update_metadata(self, song: Song) -> None:
-            raw = song_to_metadata(song)
+        def update_metadata(
+            self, song: Song, *, local_cover_uri: str | None = None
+        ) -> None:
+            raw = song_to_metadata(song, local_cover_uri=local_cover_uri)
             self._metadata = {k: _wrap_variant(v, Variant) for k, v in raw.items()}
             self.emit_properties_changed({"Metadata": self._metadata})
 
@@ -323,10 +332,14 @@ class MprisService:
             self._bus = None
             return False
 
-    def push_metadata(self, song: Song) -> None:
+    def push_metadata(
+        self, song: Song, *, local_cover_uri: str | None = None
+    ) -> None:
         if self._player is not None:
             try:
-                self._player.update_metadata(song)
+                self._player.update_metadata(
+                    song, local_cover_uri=local_cover_uri
+                )
             except Exception:
                 logger.exception("MPRIS 推 metadata 异常")
 

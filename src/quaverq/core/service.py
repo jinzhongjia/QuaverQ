@@ -623,6 +623,47 @@ class QuaverService:
             logger.warning("like_song API 失败: %s", exc)
             return False
 
+    # ------------------------------------------------------------------
+    # 发现 / 推荐 (P2.1 — HomeView)
+    # ------------------------------------------------------------------
+
+    async def get_recommend_playlists(
+        self, *, limit: int = 8
+    ) -> list[Playlist]:
+        """推荐歌单 (首页 Featured Playlists)."""
+        try:
+            resp = await self.client.recommend.get_recommend_songlist(num=limit)
+        except Exception as exc:
+            logger.warning("get_recommend_songlist 失败: %s", exc)
+            return []
+        out: list[Playlist] = []
+        for p in (getattr(resp, "songlists", None) or [])[:limit]:
+            pid = str(getattr(p, "id", "") or "")
+            out.append(
+                Playlist(
+                    pid=pid,
+                    name=getattr(p, "title", "") or "",
+                    cover_url=getattr(p, "picurl", "") or "",
+                    description=getattr(p, "desc", "") or "",
+                    creator=getattr(p, "creator_nick", "") or "",
+                    song_count=int(getattr(p, "songnum", 0) or 0),
+                    play_count=int(getattr(p, "listennum", 0) or 0),
+                )
+            )
+        return out
+
+    async def get_recommend_new_songs(
+        self, *, limit: int = 12
+    ) -> list[Song]:
+        """新歌速递 (首页 New Releases)."""
+        try:
+            resp = await self.client.recommend.get_recommend_newsong()
+        except Exception as exc:
+            logger.warning("get_recommend_newsong 失败: %s", exc)
+            return []
+        songs_raw = getattr(resp, "songs", None) or []
+        return [self._to_song(s) for s in songs_raw[:limit]]
+
     async def get_my_playlists(self) -> list[Playlist]:
         """我创建的歌单 (排除 dirid=201 那个"我喜欢", 后者走 library)."""
         cred = self._effective_credential()

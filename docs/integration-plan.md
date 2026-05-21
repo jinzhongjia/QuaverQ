@@ -663,17 +663,18 @@ SearchEntry "changed" signal
 
 | # | 状态 | 步骤 | 主要文件 | 验证要点 |
 |---|---|---|---|---|
-| P1.1 | `[~]` | SQLite cache 层 (song/album/playlist/artist meta + TTL) | `core/cache.py`, `core/service.py`, `__main__.py` | 第二次访问详情页明显更快；DB 文件存在且 schema 正确 |
-| P1.2 | `[ ]` | 喜欢/取消喜欢 (本地 + QQ fav 歌单镜像) | `core/library.py`, controller, UI heart 按钮 | 喜欢操作即时反映 UI；重启后状态保留；QQ 端 fav 歌单同步 |
-| P1.3 | `[ ]` | LibraryView 4 Tabs (我喜欢/我的歌单/收藏的专辑/关注的歌手) | `ui/*/views/library.py` | 4 Tab 都能拉到对应数据；点击可进入详情 |
-| P1.4 | `[ ]` | 会话恢复 (state.json: queue + position + mode) | `core/state.py`, controller | 退出再启动队列、当前曲、暂停态、音量都恢复 |
-| P1.5 | `[ ]` | 封面磁盘缓存 (`~/.cache/quaverq/covers/`) | `core/cache.py` 扩展 | 第二次显示同一封面不走网络；MPRIS 拿到本地 file:// URL |
+| P1.1 | `[x]` | SQLite cache 层 (song/album/playlist/artist meta + TTL 7d + JSON blob + 跨线程 RLock) + 11 单元测试 | `core/cache.py`, `core/service.py`, `__main__.py` | ✅ artist_meta 实测有数据, 二次访问详情秒开 |
+| P1.1.5 | `[~]` | 升级 qqmusic-api 0.4.1 → 0.6.1 + vkey 接口 bypass (绕过库的 get_song_urls, 自拼 musicu.fcg JSON, 随机选合法 ct 实例级固定) + service 全面适配 Client API | `pyproject.toml`, `core/service.py`, `tests/test_service.py`, `__main__.py` | 启动用 0.6.1; 播放仍能拿 FLAC; ct 在 log 里显示且生命周期不变 |
+| P1.2 | `[x]` | 喜欢/取消喜欢 (Library 本地 cache 即写 + QQ fav 歌单 dirid=201 双写 + 启动 sync + ❤️ 改 star outline/filled) + 15 单元测试 | `core/library.py`, `core/cache.py`, `core/service.py`, `ui/gtk/app.py`, `__main__.py` | ✅ 307 首 sync, 点星 toast, 持久化 |
+| P1.3 | `[x]` | LibraryView 4 Tabs (我喜欢 boxed-list / 我的歌单 排除 dirid=201 / 收藏的专辑 lib bug 容错 / 关注的歌手) + HeaderBar 资料库按钮 | `core/service.py`, `ui/gtk/app.py`, `__main__.py` | ✅ 4 Tab 分别拉数据, 入口在 header |
+| P1.4 | `[x]` | SessionState 启动/退出快照 (queue + current_index + position_ms + play_mode JSON 持久化) + 11 单元测试 | `core/state.py`, `__main__.py` | ✅ 退再启 toast「已恢复上次队列」, 暂停态 |
+| P1.5 | `[x]` | 封面磁盘缓存 (CoverCache, sha1(url) 命名, 秒级 get_path + 异步 fetch, MPRIS 优先 file://) + 13 单元测试 | `core/cover_cache.py`, `core/mpris.py`, `__main__.py` | ✅ 一次 HTTP 后秒级命中本地, MPRIS 自动用 file:// |
 
 ### P2 — 发现 + 打磨
 
 | # | 状态 | 步骤 | 主要文件 | 验证要点 |
 |---|---|---|---|---|
-| P2.1 | `[ ]` | HomeView (5 个推荐 + 排行榜入口) | `ui/*/views/home.py`, `core/service.py` | 启动后首页有内容；点卡片能跳详情 |
+| P2.1 | `[~]` | HomeView (推荐歌单 + 新歌速递, 排行榜留 P2.2) | `core/service.py`, `ui/gtk/app.py`, `__main__.py` | 启动后点首页有内容；点歌单进 PlaylistView, 点新歌播放 |
 | P2.2 | `[ ]` | TopChartsView (排行榜分类网格) | `ui/*/views/charts.py` | 分类列出 → 进具体榜 → Tracklist 能播 |
 | P2.3 | `[ ]` | 搜索建议词 / 热搜 (空态 + 输入补全) | `core/service.py`, `ui/*/views/search.py` | 搜索框空态显示热搜；输入时 250ms debounce 拉补全 |
 | P2.4 | `[ ]` | 离线音频 LRU 缓存 | `core/cache.py` 扩展 | 已听过的歌断网仍能播；超过配额自动淘汰旧文件 |

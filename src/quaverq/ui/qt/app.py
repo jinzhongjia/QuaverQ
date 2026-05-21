@@ -219,6 +219,13 @@ class QtUI(UIBase):
             10000,
         )
 
+    def show_home(self, recommend_playlists, recommend_new_songs) -> None:
+        self._status.showMessage(
+            f"首页: {len(recommend_playlists)} 推荐歌单 / "
+            f"{len(recommend_new_songs)} 新歌",
+            10000,
+        )
+
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         self._post(
             lambda: self._window.set_position(position_ms, duration_ms)

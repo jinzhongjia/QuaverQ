@@ -163,6 +163,14 @@ class UIBase(ABC):
         """打开资料库视图, 4 Tabs 同时填充."""
 
     @abstractmethod
+    def show_home(
+        self,
+        recommend_playlists: list[Playlist],
+        recommend_new_songs: list[Song],
+    ) -> None:
+        """打开首页发现 (推荐歌单 + 新歌速递)."""
+
+    @abstractmethod
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         """更新进度条."""
 
