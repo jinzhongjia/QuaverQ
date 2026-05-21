@@ -205,6 +205,10 @@ class QtUI(UIBase):
         # Qt 端目前无 settings UI; 静默接受
         pass
 
+    def set_liked_state(self, mid: str, liked: bool) -> None:
+        # Qt 端目前没 ❤️ 按钮, 静默接受 (P0.x 完整 Qt UI 时补)
+        pass
+
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         self._post(
             lambda: self._window.set_position(position_ms, duration_ms)

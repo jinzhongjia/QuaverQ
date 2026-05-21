@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from .config import CONFIG_DIR, load as load_config
 from .core.cache import Cache
+from .core.library import Library
 from .core.mpris import MprisCallbacks, MprisService
 from .core.player import create_player
 from .core.queue import PlayMode, PlayQueue
@@ -124,6 +125,7 @@ def main() -> None:
         cache = None
 
     api = QuaverService(cache=cache)
+    library = Library(cache=cache, service=api) if cache is not None else None
 
     # 模式 cycle 顺序 + UI 显示名映射
     _MODE_ORDER = [
@@ -169,6 +171,9 @@ def main() -> None:
             logger.info("缓存的凭据仍然有效")
             ui.show_message("凭据已加载，可直接使用")
             ui.set_authenticated(True)
+            # 启动期后台同步"我喜欢"
+            if library is not None:
+                runner.submit(library.sync_from_remote())
     else:
         logger.info("未找到缓存的凭据，首次运行需要登录")
 
@@ -242,6 +247,9 @@ def main() -> None:
             # MPRIS 元数据 + 状态推送
             mpris.push_metadata(song)
             mpris.push_playback_status("play")
+            # 同步当前歌的喜欢态到 UI ❤️
+            if library is not None:
+                ui.set_liked_state(song.mid, library.is_liked(song.mid))
             # 后台并发拉歌词, 失败不影响播放
             runner.submit(_fetch_lyric_for(song))
             return
@@ -345,6 +353,9 @@ def main() -> None:
                 await api.save_credential()
             except Exception as exc:
                 logger.warning("保存凭据失败: %s", exc)
+            # 同步"我喜欢"到本地
+            if library is not None:
+                runner.submit(library.sync_from_remote())
         else:
             ui.show_message("登录失败或已取消", level="error")
             ui.show_welcome()
@@ -388,6 +399,22 @@ def main() -> None:
     ui.on("login", lambda: runner.submit(_on_login()))
     ui.on("logout", lambda: runner.submit(_on_logout()))
     ui.on("set_quality", lambda pref: set_quality_preference(pref))
+
+    # ❤️ 喜欢 (作用于 queue.current())
+    async def _toggle_like_current() -> None:
+        if library is None:
+            ui.show_message("缓存不可用, 无法记录喜欢", level="warning")
+            return
+        song = queue.current()
+        if song is None:
+            return
+        new_state = await library.toggle_like(song)
+        ui.set_liked_state(song.mid, new_state)
+        ui.show_message(
+            "已加入「我喜欢」" if new_state else "已取消喜欢"
+        )
+
+    ui.on("toggle_like_current", lambda: runner.submit(_toggle_like_current()))
 
     # 详情页 (P0.3): 拉详情 → push 详情视图
     async def _open_album(album_brief) -> None:

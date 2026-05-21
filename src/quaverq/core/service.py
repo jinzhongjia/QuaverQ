@@ -587,6 +587,56 @@ class QuaverService:
         return f"https://isure.stream.qqmusic.qq.com/{purl}"
 
     # ------------------------------------------------------------------
+    # 用户库 (P1.2 我喜欢 + 我创建的歌单)
+    # ------------------------------------------------------------------
+
+    # 0.6 QQ "我喜欢" 歌单的固定 dirid (所有账号都是 201)
+    FAV_DIRID = 201
+
+    async def get_liked_songs(
+        self, *, limit: int = 500
+    ) -> list[Song]:
+        """拉远端"我喜欢"歌单的歌. 需要登录态."""
+        cred = self._effective_credential()
+        if cred is None or not cred.encrypt_uin:
+            return []
+        resp = await self.client.user.get_fav_song(
+            cred.encrypt_uin, num=limit, page=1, credential=cred
+        )
+        songs = getattr(resp, "songs", None) or []
+        return [self._to_song(s) for s in songs]
+
+    async def like_song(self, song: Song) -> bool:
+        """把歌加到"我喜欢"歌单. song.id 需是 QQ 数字 ID."""
+        cred = self._effective_credential()
+        if cred is None or not cred.musickey:
+            return False
+        if song.id == 0:
+            logger.warning("like_song: %s 缺数字 id, 跳过", song.name)
+            return False
+        try:
+            ok = await self.client.songlist.add_songs(
+                self.FAV_DIRID, [(song.id, 1)], credential=cred
+            )
+            return bool(ok)
+        except Exception as exc:
+            logger.warning("like_song API 失败: %s", exc)
+            return False
+
+    async def unlike_song(self, song: Song) -> bool:
+        cred = self._effective_credential()
+        if cred is None or not cred.musickey or song.id == 0:
+            return False
+        try:
+            ok = await self.client.songlist.del_songs(
+                self.FAV_DIRID, [(song.id, 1)], credential=cred
+            )
+            return bool(ok)
+        except Exception as exc:
+            logger.warning("unlike_song API 失败: %s", exc)
+            return False
+
+    # ------------------------------------------------------------------
     # 凭据持久化
     # ------------------------------------------------------------------
 
@@ -664,6 +714,7 @@ class QuaverService:
             duration=int(QuaverService._g(raw, "interval", 0) or 0),
             pay_play=pay_play,
             media_mid=media_mid,
+            id=int(QuaverService._g(raw, "id", 0) or 0),
         )
 
     @staticmethod

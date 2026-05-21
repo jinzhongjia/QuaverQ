@@ -126,6 +126,12 @@ CREATE TABLE IF NOT EXISTS artist_meta (
   data TEXT NOT NULL,
   fetched_at INTEGER NOT NULL
 );
+-- 我喜欢的歌 (用户态镜像, 没 TTL)
+CREATE TABLE IF NOT EXISTS liked_song (
+  mid TEXT PRIMARY KEY,
+  song_data TEXT NOT NULL,   -- 完整 Song JSON, 离线显示用
+  added_at INTEGER NOT NULL
+);
 """
 
 
@@ -214,6 +220,56 @@ class Cache:
 
     def invalidate_artist(self, mid: str) -> None:
         self._delete("artist_meta", "mid", mid)
+
+    # ------------------------------------------------------------------ Liked songs (P1.2)
+
+    def is_liked(self, mid: str) -> bool:
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                "SELECT 1 FROM liked_song WHERE mid = ?", (mid,)
+            ).fetchone()
+        return row is not None
+
+    def put_liked(self, song: Song) -> None:
+        """记录某首歌为'我喜欢'(本地, 无 TTL)."""
+        with self._lock:
+            assert self._conn is not None
+            now = int(time.time())
+            self._conn.execute(
+                "INSERT INTO liked_song (mid, song_data, added_at) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(mid) DO UPDATE SET "
+                "  song_data=excluded.song_data, added_at=excluded.added_at",
+                (song.mid, _dump(song), now),
+            )
+            self._conn.commit()
+
+    def remove_liked(self, mid: str) -> None:
+        with self._lock:
+            assert self._conn is not None
+            self._conn.execute("DELETE FROM liked_song WHERE mid = ?", (mid,))
+            self._conn.commit()
+
+    def list_liked(self) -> list[Song]:
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                "SELECT song_data FROM liked_song ORDER BY added_at DESC"
+            ).fetchall()
+        return [_song_from_dict(json.loads(r["song_data"])) for r in rows]
+
+    def replace_liked(self, songs: list[Song]) -> None:
+        """整批替换 (远端 sync 用); 单事务删旧+插新."""
+        with self._lock:
+            assert self._conn is not None
+            now = int(time.time())
+            self._conn.execute("DELETE FROM liked_song")
+            self._conn.executemany(
+                "INSERT INTO liked_song (mid, song_data, added_at) VALUES (?, ?, ?)",
+                [(s.mid, _dump(s), now) for s in songs],
+            )
+            self._conn.commit()
 
     # ------------------------------------------------------------------ 内部
 

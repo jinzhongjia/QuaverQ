@@ -149,6 +149,10 @@ class UIBase(ABC):
         """同步当前音质偏好到 UI (high/balanced/standard), settings view 用."""
 
     @abstractmethod
+    def set_liked_state(self, mid: str, liked: bool) -> None:
+        """同步某首歌的"喜欢"状态到 UI (底栏 ❤️ + 歌曲行 suffix)."""
+
+    @abstractmethod
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         """更新进度条."""
 

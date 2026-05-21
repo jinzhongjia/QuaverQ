@@ -180,6 +180,57 @@ def test_invalidate_removes_entry(cache: Cache):
 
 # ============================================================== thread safety
 
+# ============================================================== liked_song (P1.2)
+
+def test_is_liked_empty_returns_false(cache: Cache):
+    assert cache.is_liked("nope") is False
+
+
+def test_put_liked_and_is_liked(cache: Cache):
+    s = Song(mid="m1", name="晴天", id=97773)
+    cache.put_liked(s)
+    assert cache.is_liked("m1") is True
+    assert cache.is_liked("other") is False
+
+
+def test_remove_liked(cache: Cache):
+    cache.put_liked(Song(mid="m1", name="x"))
+    cache.remove_liked("m1")
+    assert cache.is_liked("m1") is False
+
+
+def test_list_liked_returns_all(cache: Cache):
+    cache.put_liked(Song(mid="m1", name="A", singers=[Singer(mid="s", name="周杰伦")]))
+    cache.put_liked(Song(mid="m2", name="B"))
+    liked = cache.list_liked()
+    assert {s.mid for s in liked} == {"m1", "m2"}
+    # 数据完整 (含 singers 嵌套)
+    m1 = next(s for s in liked if s.mid == "m1")
+    assert m1.singers == [Singer(mid="s", name="周杰伦")]
+
+
+def test_replace_liked_bulk(cache: Cache):
+    """远端 sync 走 bulk replace 而非逐条 put."""
+    cache.put_liked(Song(mid="old1", name="x"))
+    cache.put_liked(Song(mid="old2", name="y"))
+    cache.replace_liked([
+        Song(mid="new1", name="a"),
+        Song(mid="new2", name="b"),
+    ])
+    assert cache.is_liked("old1") is False
+    assert cache.is_liked("old2") is False
+    assert cache.is_liked("new1") is True
+    assert cache.is_liked("new2") is True
+
+
+def test_put_liked_idempotent(cache: Cache):
+    """重复 put 同一 mid 不抛错."""
+    s = Song(mid="m", name="x")
+    cache.put_liked(s)
+    cache.put_liked(s)
+    assert cache.is_liked("m") is True
+
+
 def test_cache_works_across_threads(tmp_path: Path):
     """主线程 open, 后台线程读写, 不抛 ProgrammingError (跨线程回归)."""
     import threading

@@ -31,6 +31,7 @@ class Song:
     pay_play: int = 0          # 0 免费 / 1 VIP / 2 单独购买
     file_qualities: set[str] = field(default_factory=set)  # {"MP3_128", "FLAC", ...}
     media_mid: str = ""        # get_song_urls 所需
+    id: int = 0                # QQ 数字 ID, like/unlike API 需要 (mid 不够)
 
     @property
     def singer_names(self) -> list[str]:

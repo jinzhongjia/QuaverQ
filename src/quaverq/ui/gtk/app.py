@@ -207,6 +207,12 @@ class GtkUI(UIBase):
                 self._window.set_quality_preference(pref)
         self._glib_idle(_do)
 
+    def set_liked_state(self, mid: str, liked: bool) -> None:
+        def _do() -> None:
+            if self._window:
+                self._window.set_liked_state(mid, liked)
+        self._glib_idle(_do)
+
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         def _do() -> None:
             if self._window:
@@ -339,6 +345,10 @@ class _MainWindow(Adw.ApplicationWindow):
         # Settings 状态
         self._quality_pref: str = "balanced"
         self._authenticated: bool = False
+
+        # 当前播放歌的 mid + 喜欢态 (UI 内本地, 跟 library 同步)
+        self._current_mid: str = ""
+        self._current_liked: bool = False
 
     # ------------------------------------------------------------------
     # 各分页构建
@@ -665,6 +675,17 @@ class _MainWindow(Adw.ApplicationWindow):
             "clicked", lambda _b: self._ui._emit("cycle_play_mode")
         )
 
+        # 收藏按钮 — 用 star 系列, 空心 vs 实心对比明显
+        # 未播放时禁用
+        self._like_btn = Gtk.Button.new_from_icon_name("non-starred-symbolic")
+        self._like_btn.add_css_class("flat")
+        self._like_btn.set_valign(Gtk.Align.CENTER)
+        self._like_btn.set_tooltip_text("加入「我喜欢」")
+        self._like_btn.set_sensitive(False)
+        self._like_btn.connect(
+            "clicked", lambda _b: self._ui._emit("toggle_like_current")
+        )
+
         # 右：时间 - 进度 - 时间
         self._time_curr = self._make_time_label(align_right=True)
         self._time_total = self._make_time_label(align_right=False)
@@ -692,6 +713,7 @@ class _MainWindow(Adw.ApplicationWindow):
         transport.append(self._play_btn)
         transport.append(self._next_btn)
         transport.append(self._mode_btn)
+        transport.append(self._like_btn)
 
         control_box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL, spacing=16
@@ -1186,6 +1208,25 @@ class _MainWindow(Adw.ApplicationWindow):
     def set_now_playing(self, song: Song) -> None:
         self._now_title.set_label(song.name)
         self._now_artist.set_label(" / ".join(song.singer_names))
+        # 切歌后 like 按钮可用; 喜欢态等 controller 调 set_liked_state 来同步
+        self._current_mid = song.mid
+        self._like_btn.set_sensitive(True)
+
+    def set_liked_state(self, mid: str, liked: bool) -> None:
+        # 只在该歌当前播放时反映 UI (列表 per-row suffix 暂未实现)
+        if mid != self._current_mid:
+            return
+        self._current_liked = liked
+        if liked:
+            # 实心星 + 高亮 = 已收藏
+            self._like_btn.set_icon_name("starred-symbolic")
+            self._like_btn.add_css_class("accent")
+            self._like_btn.set_tooltip_text("从「我喜欢」移除")
+        else:
+            # 空心星 + dim = 未收藏
+            self._like_btn.set_icon_name("non-starred-symbolic")
+            self._like_btn.remove_css_class("accent")
+            self._like_btn.set_tooltip_text("加入「我喜欢」")
 
     def set_play_state(self, playing: bool) -> None:
         if playing:
