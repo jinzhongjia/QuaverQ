@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "qqmusic-api-python>=0.4.1,<0.5",
+    "qqmusic-api-python>=0.6.1,<0.7",
     "tomli-w>=1.0",
     "dbus-next>=0.2.3",   # MPRIS2 D-Bus 集成 (媒体键 / GNOME Now Playing)
 ]

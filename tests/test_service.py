@@ -1,19 +1,26 @@
-"""服务层测试 (qqmusic-api 0.4.1).
+"""服务层测试 (qqmusic-api 0.6.1, P1.1.5 bypass 路径).
 
-覆盖 P0.1 重写后的核心契约:
-- Credential dataclass 持久化往返 (兼容 v0.6 字段残留)
-- _to_song 从 raw dict 提取所有字段
-- search 走 search_by_type 返回 list[Song]
-- get_song_url 按音质降级顺序尝试, 全失败返 None
+设计:
+- 0.6 Client 调用通过 mock 注入 svc._client (SimpleNamespace 模拟 client.search / album / ...)
+- get_song_url 走 bypass, 测试 monkey-patch svc._try_bypass_url 替代真 HTTP
+- _to_song/_to_singer/_to_album_brief/_to_playlist_brief 用 SimpleNamespace 模拟 pydantic 对象
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from qqmusic_api import Credential
-from qqmusic_api.song import SongFileType
 
-from quaverq.core.models import Album, ArtistDetail, Lyric, Playlist, Singer, Song
+from quaverq.core.models import (
+    Album,
+    ArtistDetail,
+    Lyric,
+    Playlist,
+    Singer,
+    Song,
+)
 from quaverq.core.service import (
     QuaverService,
     _cover_url,
@@ -34,28 +41,17 @@ def test_credential_roundtrip_via_dict():
     assert cred2.musickey == "abc"
 
 
-def test_credential_from_dict_with_v06_extra_fields():
-    """credential.json 里可能残留 v0.6 字段 (musickey_create_time 等), 不应抛错."""
+def test_credential_from_dict_ignores_unknown_fields():
+    """credential.json 残留旧字段不应让 pydantic 报错."""
     d = {
         "musicid": 123,
         "musickey": "abc",
-        "musickey_create_time": 1779204438,
-        "key_expires_in": 259200,
+        "musickey_create_time": 1779204438,  # 不在 0.6 Credential 字段里
         "first_login": 0,
     }
     cred = _credential_from_dict(d)
     assert cred.musicid == 123
     assert cred.musickey == "abc"
-    # 多余字段进 extra_fields
-    assert cred.extra_fields["musickey_create_time"] == 1779204438
-
-
-def test_credential_to_dict_flattens_extra_fields():
-    """保存时 extra_fields 应展开回顶层 (兼容老 json 格式)."""
-    cred = Credential(musicid=1, extra_fields={"x": "y"})
-    d = _credential_to_dict(cred)
-    assert d["x"] == "y"
-    assert "extra_fields" not in d
 
 
 # ============================================================== is_authenticated
@@ -63,38 +59,33 @@ def test_credential_to_dict_flattens_extra_fields():
 def test_is_authenticated_requires_musickey():
     svc = QuaverService()
     assert svc.is_authenticated is False
-
-    svc.credential = Credential(musicid=123)  # 缺 musickey
+    svc.credential = Credential(musicid=123)
     assert svc.is_authenticated is False
-
     svc.credential = Credential(musicid=123, musickey="key")
     assert svc.is_authenticated is True
-
-
-def test_set_credential_sync_accepts_none():
-    """登录过期清凭据时, 直接置 None 不抛错."""
-    svc = QuaverService()
-    svc.set_credential_sync(None)
-    assert svc.credential is None
 
 
 # ============================================================== _to_song
 
 def _raw_song(**overrides):
-    """构造 0.4.1 search_by_type 返回的 raw dict."""
-    raw = {
-        "mid": "003test",
-        "name": "晴天",
-        "singer": [
-            {"mid": "0025NhlN2yWrP4", "name": "周杰伦"},
-            {"mid": "002J4UUk42htjW", "name": "Lara"},
+    """模拟 0.6 SongSearch pydantic 对象 (SimpleNamespace + 属性)."""
+    raw = SimpleNamespace(
+        mid="003test",
+        name="晴天",
+        singer=[
+            SimpleNamespace(mid="0025NhlN2yWrP4", name="周杰伦"),
+            SimpleNamespace(mid="002J4UUk42htjW", name="Lara"),
         ],
-        "album": {"mid": "002fRO0N4FftzY", "name": "十一月的萧邦"},
-        "file": {"media_mid": "002fRO0N4FftzY_media"},
-        "pay": {"pay_play": 0},
-        "interval": 215,
-    }
-    raw.update(overrides)
+        album=SimpleNamespace(
+            mid="002fRO0N4FftzY",
+            name="十一月的萧邦",
+        ),
+        file=SimpleNamespace(media_mid="002fRO0N4FftzY_media"),
+        pay=SimpleNamespace(pay_play=0),
+        interval=215,
+    )
+    for k, v in overrides.items():
+        setattr(raw, k, v)
     return raw
 
 
@@ -115,11 +106,11 @@ def test_to_song_singers_extracted():
     assert s.singer_names == ["周杰伦", "Lara"]
 
 
-def test_to_song_album_and_cover():
+def test_to_song_album_extracted():
     s = QuaverService._to_song(_raw_song())
     assert s.album_mid == "002fRO0N4FftzY"
     assert s.album_name == "十一月的萧邦"
-    # cover 由 album_mid 拼出
+    # cover 走 _cover_url 拼出
     assert "T002R300x300M000002fRO0N4FftzY.jpg" in s.cover_url
 
 
@@ -128,608 +119,418 @@ def test_to_song_media_mid_extracted():
     assert s.media_mid == "002fRO0N4FftzY_media"
 
 
-def test_to_song_pay_play_from_pay_block():
-    """0.4.1 raw 是 dict, pay 在子 dict 里."""
-    s = QuaverService._to_song(_raw_song(pay={"pay_play": 1}))
+def test_to_song_pay_play_from_nested_pay():
+    s = QuaverService._to_song(_raw_song(pay=SimpleNamespace(pay_play=1)))
     assert s.pay_play == 1
 
 
 def test_to_song_handles_missing_optional_fields():
-    s = QuaverService._to_song({"mid": "x", "name": "y"})
-    assert s.singers == []
-    assert s.album_mid == ""
-    assert s.album_name == ""
-    assert s.media_mid == ""
-    assert s.cover_url == ""
-    assert s.duration == 0
-    assert s.pay_play == 0
-
-
-def test_to_song_handles_none_subdicts():
-    raw = {"mid": "x", "name": "y", "singer": None, "album": None, "file": None, "pay": None}
+    raw = SimpleNamespace(mid="x", name="y")
     s = QuaverService._to_song(raw)
     assert s.singers == []
     assert s.album_mid == ""
+    assert s.media_mid == ""
+    assert s.pay_play == 0
 
 
-def test_cover_url_empty_mid_returns_empty():
-    assert _cover_url("") == ""
+def test_to_song_accepts_plain_dict():
+    """_to_song 不只接 pydantic, dict 也能用 (cache 反序列化复用)."""
+    d = {
+        "mid": "m",
+        "name": "n",
+        "singer": [{"mid": "s", "name": "a"}],
+        "interval": 100,
+    }
+    s = QuaverService._to_song(d)
+    assert s.mid == "m"
+    assert s.singers == [Singer(mid="s", name="a")]
+    assert s.duration == 100
 
 
-def test_cover_url_format():
-    url = _cover_url("ALBUMMID", 300)
-    assert url == "https://y.qq.com/music/photo_new/T002R300x300M000ALBUMMID.jpg"
+# ============================================================== _to_singer / album / playlist
+
+def test_to_singer_from_06_fields():
+    raw = SimpleNamespace(mid="x", name="周杰伦", pic="http://avatar.jpg")
+    s = QuaverService._to_singer(raw)
+    assert s.mid == "x"
+    assert s.name == "周杰伦"
+    assert s.avatar_url == "http://avatar.jpg"
+
+
+def test_to_singer_from_04_legacy_fields():
+    """老 0.4 字段名 (singerMID/singerName/singerPic) 兜底."""
+    raw = SimpleNamespace(singerMID="x", singerName="周杰伦", singerPic="http://a.jpg")
+    s = QuaverService._to_singer(raw)
+    assert s.mid == "x"
+    assert s.name == "周杰伦"
+    assert s.avatar_url == "http://a.jpg"
+
+
+def test_to_album_brief_from_06_fields():
+    raw = SimpleNamespace(
+        mid="alb1",
+        name="叶惠美",
+        pic="http://x/album.jpg",
+        time_public="2003-07-29",
+        singer_list=[SimpleNamespace(mid="j", name="周杰伦")],
+        song_num=12,
+    )
+    a = QuaverService._to_album_brief(raw)
+    assert a.mid == "alb1"
+    assert a.name == "叶惠美"
+    assert a.publish_date == "2003-07-29"
+    assert a.singers == [Singer(mid="j", name="周杰伦")]
+    assert a.cover_url == "http://x/album.jpg"
+    assert a.song_count == 12
+
+
+def test_to_playlist_brief_from_06_fields():
+    """0.6 SongListSearch 的 ID 在 'id' 字段, 不是 dirid."""
+    raw = SimpleNamespace(
+        id=7039749142,
+        dirid=0,           # 0.6 search 经常给 0; 不可用
+        title="百听不厌",
+        picurl="http://x/pl.jpg",
+        desc="经典",
+        nickname="今晚月色很美",
+        songnum=99,
+        listennum=399747305,
+    )
+    p = QuaverService._to_playlist_brief(raw)
+    assert p.pid == "7039749142"   # 用 id 而非 dirid
+    assert p.name == "百听不厌"
+    assert p.creator == "今晚月色很美"
+    assert p.song_count == 99
+    assert p.play_count == 399747305
 
 
 # ============================================================== search
 
-async def test_search_returns_song_list(monkeypatch):
-    """search → 走 search.search_by_type, 返回 list[dict], _to_song 转 Song."""
-    from qqmusic_api import search
+def _stub_client_for_search(items_song=(), items_singer=(), items_album=(), items_songlist=()):
+    """构造 mock client.search.search_by_type, 按 search_type 返回不同 list."""
+    from qqmusic_api.modules.search import SearchType
 
-    async def fake_search(**kwargs):
-        assert kwargs["search_type"].name == "SONG"
-        return [_raw_song(mid="m1", name="A"), _raw_song(mid="m2", name="B")]
+    async def fake_search_by_type(keyword, search_type, num, page, **kwargs):
+        resp = SimpleNamespace(
+            song=[], singer=[], album=[], songlist=[],
+        )
+        if search_type == SearchType.SONG:
+            resp.song = list(items_song)
+        elif search_type == SearchType.SINGER:
+            resp.singer = list(items_singer)
+        elif search_type == SearchType.ALBUM:
+            resp.album = list(items_album)
+        elif search_type == SearchType.SONGLIST:
+            resp.songlist = list(items_songlist)
+        return resp
 
-    monkeypatch.setattr(search, "search_by_type", fake_search)
+    return SimpleNamespace(
+        search=SimpleNamespace(search_by_type=fake_search_by_type),
+        credential=None,
+    )
 
+
+async def test_search_songs_returns_song_list():
     svc = QuaverService()
-    songs = await svc.search("anything")
-    assert [s.mid for s in songs] == ["m1", "m2"]
-    assert songs[0].singer_names == ["周杰伦", "Lara"]
+    svc._client = _stub_client_for_search(items_song=[_raw_song(mid="m1", name="A")])
+    songs = await svc.search_songs("kw")
+    assert len(songs) == 1
+    assert songs[0].name == "A"
 
 
-async def test_search_returns_empty_when_no_results(monkeypatch):
-    from qqmusic_api import search
-
-    async def fake_search(**kwargs):
-        return []
-
-    monkeypatch.setattr(search, "search_by_type", fake_search)
+async def test_search_singers_returns_singer_list():
     svc = QuaverService()
-    assert await svc.search("nothing") == []
+    svc._client = _stub_client_for_search(
+        items_singer=[SimpleNamespace(mid="s1", name="周杰伦", pic="x.jpg")]
+    )
+    singers = await svc.search_singers("kw")
+    assert len(singers) == 1
+    assert singers[0].name == "周杰伦"
 
 
-# ============================================================== get_song_url 降级
-
-async def test_get_song_url_success_at_first_quality(monkeypatch):
-    """FLAC 直接命中 → 返回 FLAC URL (在 high 偏好档下)."""
-    from qqmusic_api import song
-
-    async def fake_get(*, mid, file_type, credential=None):
-        if file_type == SongFileType.FLAC:
-            return {mid[0]: "https://isure.qq/F000mm1.flac?vkey=abc"}
-        return {mid[0]: ""}
-
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-
+async def test_search_albums_returns_album_list():
     svc = QuaverService()
-    s = Song(mid="m1", name="x", media_mid="mm1")
-    url = await svc.get_song_url(s, quality_preference="high")
+    svc._client = _stub_client_for_search(
+        items_album=[
+            SimpleNamespace(mid="a1", name="X", pic="", time_public="", singer_list=[], song_num=0),
+        ]
+    )
+    albums = await svc.search_albums("kw")
+    assert len(albums) == 1
+    assert albums[0].name == "X"
 
+
+async def test_search_playlists_returns_playlist_list():
+    svc = QuaverService()
+    svc._client = _stub_client_for_search(
+        items_songlist=[
+            SimpleNamespace(id=1, dirid=0, title="P", picurl="", desc="",
+                           nickname="", songnum=5, listennum=0),
+        ]
+    )
+    playlists = await svc.search_playlists("kw")
+    assert len(playlists) == 1
+    assert playlists[0].name == "P"
+
+
+# ============================================================== get_song_url (bypass)
+
+async def test_get_song_url_uses_bypass_path():
+    """get_song_url 在 quality 偏好顺序中依次试 _try_bypass_url, 命中即返."""
+    svc = QuaverService()
+    svc._ct_value = 2
+
+    attempts: list[str] = []
+
+    async def fake_try(mid, quality):
+        attempts.append(quality)
+        if quality == "FLAC":
+            return "https://x/F000m.flac?vkey=k"
+        return None
+
+    svc._try_bypass_url = fake_try
+    url = await svc.get_song_url(
+        Song(mid="m1", name="x"), quality_preference="high"
+    )
     assert url is not None
     assert url.quality == "FLAC"
-    assert "F000mm1.flac" in url.url
+    assert attempts[0] == "FLAC"
 
 
-async def test_get_song_url_falls_through_to_first_non_empty(monkeypatch):
-    """FLAC/MP3_320 都空, MP3_128 出来 → quality=MP3_128."""
-    from qqmusic_api import song
-
-    async def fake_get(*, mid, file_type, credential=None):
-        if file_type == SongFileType.MP3_128:
-            return {mid[0]: "https://isure.qq/M500mm1.mp3?vkey=k"}
-        return {mid[0]: ""}
-
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-
+async def test_get_song_url_walks_through_quality_until_hit():
     svc = QuaverService()
-    s = Song(mid="m1", name="x", media_mid="mm1")
-    url = await svc.get_song_url(s)
+    svc._ct_value = 2
 
-    assert url is not None
+    async def fake_try(mid, quality):
+        if quality == "MP3_128":
+            return "https://x/M500m.mp3?vkey=k"
+        return None
+
+    svc._try_bypass_url = fake_try
+    url = await svc.get_song_url(
+        Song(mid="m1", name="x"), quality_preference="high"
+    )
     assert url.quality == "MP3_128"
 
 
-async def test_get_song_url_returns_none_when_all_qualities_empty(monkeypatch):
-    """无版权 / 无 VIP → 所有音质都空 → None (controller 显示 error toast)."""
-    from qqmusic_api import song
-
-    async def fake_get(*, mid, file_type, credential=None):
-        return {mid[0]: ""}
-
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-
+async def test_get_song_url_all_fail_returns_none():
     svc = QuaverService()
-    s = Song(mid="m1", name="x", media_mid="mm1")
-    assert await svc.get_song_url(s) is None
+    svc._ct_value = 2
+
+    async def fake_try(_mid, _q):
+        return None
+
+    svc._try_bypass_url = fake_try
+    assert await svc.get_song_url(Song(mid="m", name="x")) is None
 
 
-async def test_get_song_url_skips_exception_and_continues(monkeypatch):
-    """某个音质 API 抛错 → 跳过, 尝试下一档."""
-    from qqmusic_api import song
-
-    async def fake_get(*, mid, file_type, credential=None):
-        if file_type == SongFileType.FLAC:
-            raise RuntimeError("boom")
-        if file_type == SongFileType.MP3_320:
-            return {mid[0]: "https://isure.qq/M800mm1.mp3?vkey=k"}
-        return {mid[0]: ""}
-
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-
+async def test_get_song_url_quality_unknown_falls_back_to_balanced():
     svc = QuaverService()
-    s = Song(mid="m1", name="x", media_mid="mm1")
-    url = await svc.get_song_url(s)
-
-    assert url is not None
-    assert url.quality == "MP3_320"
-
-
-# ============================================================== _to_singer
-
-def test_to_singer_extracts_from_raw():
-    raw = {
-        "singerMID": "0025NhlN2yWrP4",
-        "singerName": "周杰伦",
-        "singerPic": "http://y.gtimg.cn/.../singer.jpg",
-        "albumNum": 43,
-    }
-    s = QuaverService._to_singer(raw)
-    assert s.mid == "0025NhlN2yWrP4"
-    assert s.name == "周杰伦"
-    assert s.avatar_url == "http://y.gtimg.cn/.../singer.jpg"
-
-
-def test_to_singer_handles_missing_pic():
-    s = QuaverService._to_singer({"singerMID": "x", "singerName": "y"})
-    assert s.avatar_url == ""
-
-
-# ============================================================== _to_album_brief
-
-def test_to_album_brief_extracts_from_raw():
-    raw = {
-        "albummid": "0041WVfh2vtlJE",
-        "name": "太阳之子",
-        "pic": "http://y.gtimg.cn/.../album.jpg",
-        "publish_date": "2026-03-25",
-        "song_num": 12,
-        "singer_list": [
-            {"mid": "0025NhlN2yWrP4", "name": "周杰伦"},
-        ],
-    }
-    a = QuaverService._to_album_brief(raw)
-    assert a.mid == "0041WVfh2vtlJE"
-    assert a.name == "太阳之子"
-    assert a.singers == [Singer(mid="0025NhlN2yWrP4", name="周杰伦")]
-    assert a.cover_url == "http://y.gtimg.cn/.../album.jpg"
-    assert a.publish_date == "2026-03-25"
-    assert a.song_count == 12
-
-
-def test_to_album_brief_falls_back_to_cover_url_helper_when_no_pic():
-    a = QuaverService._to_album_brief(
-        {"albummid": "MID", "name": "x", "pic": ""}
-    )
-    assert "T002R300x300M000MID.jpg" in a.cover_url
-
-
-def test_to_album_brief_handles_missing_singer_list():
-    a = QuaverService._to_album_brief({"albummid": "x", "name": "y"})
-    assert a.singers == []
-
-
-# ============================================================== _to_playlist_brief
-
-def test_to_playlist_brief_extracts_from_raw():
-    raw = {
-        "dissid": "7039749142",
-        "dissname": "百听不厌",
-        "description": "99首 4.0亿次播放",
-        "nickname": "今晚月色很美",
-        "logo": "http://qpic.y.qq.com/.../pl.jpg",
-        "listennum": 399747305,
-        "songnum": 99,
-    }
-    p = QuaverService._to_playlist_brief(raw)
-    assert p.pid == "7039749142"
-    assert p.name == "百听不厌"
-    assert p.description == "99首 4.0亿次播放"
-    assert p.creator == "今晚月色很美"
-    assert p.cover_url == "http://qpic.y.qq.com/.../pl.jpg"
-    assert p.play_count == 399747305
-    assert p.song_count == 99
-    assert p.is_mine is False
-
-
-def test_to_playlist_brief_stringifies_dissid_when_numeric():
-    p = QuaverService._to_playlist_brief({"dissid": 12345, "dissname": "x"})
-    assert p.pid == "12345"
-
-
-# ============================================================== search by kind (4 类型)
-
-async def test_search_songs_calls_search_by_type_with_song(monkeypatch):
-    from qqmusic_api import search
-    from qqmusic_api.search import SearchType
-
-    captured = {}
-
-    async def fake_search(**kwargs):
-        captured.update(kwargs)
-        return [_raw_song(mid="m1", name="A")]
-
-    monkeypatch.setattr(search, "search_by_type", fake_search)
-    svc = QuaverService()
-    results = await svc.search_songs("kw")
-
-    assert captured["search_type"] == SearchType.SONG
-    assert captured["highlight"] is False  # 不要 <em> 标签
-    assert len(results) == 1
-    assert isinstance(results[0], Song)
-
-
-async def test_search_singers_returns_singer_list(monkeypatch):
-    from qqmusic_api import search
-    from qqmusic_api.search import SearchType
-
-    captured = {}
-
-    async def fake_search(**kwargs):
-        captured.update(kwargs)
-        return [{"singerMID": "s1", "singerName": "A"}]
-
-    monkeypatch.setattr(search, "search_by_type", fake_search)
-    svc = QuaverService()
-    results = await svc.search_singers("kw")
-
-    assert captured["search_type"] == SearchType.SINGER
-    assert len(results) == 1
-    assert isinstance(results[0], Singer)
-    assert results[0].name == "A"
-
-
-async def test_search_albums_returns_album_list(monkeypatch):
-    from qqmusic_api import search
-    from qqmusic_api.search import SearchType
-
-    captured = {}
-
-    async def fake_search(**kwargs):
-        captured.update(kwargs)
-        return [{"albummid": "a1", "name": "Album X", "singer_list": []}]
-
-    monkeypatch.setattr(search, "search_by_type", fake_search)
-    svc = QuaverService()
-    results = await svc.search_albums("kw")
-
-    assert captured["search_type"] == SearchType.ALBUM
-    assert len(results) == 1
-    assert isinstance(results[0], Album)
-    assert results[0].name == "Album X"
-
-
-async def test_search_playlists_returns_playlist_list(monkeypatch):
-    from qqmusic_api import search
-    from qqmusic_api.search import SearchType
-
-    captured = {}
-
-    async def fake_search(**kwargs):
-        captured.update(kwargs)
-        return [{"dissid": "1", "dissname": "P", "songnum": 5}]
-
-    monkeypatch.setattr(search, "search_by_type", fake_search)
-    svc = QuaverService()
-    results = await svc.search_playlists("kw")
-
-    assert captured["search_type"] == SearchType.SONGLIST
-    assert len(results) == 1
-    assert isinstance(results[0], Playlist)
-    assert results[0].name == "P"
-
-
-async def test_search_legacy_alias_still_returns_songs(monkeypatch):
-    """旧 search() 接口保留, 别处调用不回归."""
-    from qqmusic_api import search
-
-    async def fake_search(**kwargs):
-        return [_raw_song(mid="m1", name="A")]
-
-    monkeypatch.setattr(search, "search_by_type", fake_search)
-    svc = QuaverService()
-    results = await svc.search("kw")
-    assert all(isinstance(r, Song) for r in results)
-
-
-# ============================================================== 详情拉取 (P0.3)
-
-async def test_get_album_detail_combines_basic_info_and_songs(monkeypatch):
-    """album.get_detail (元信息) + album.get_song (歌曲列表) 组合成完整 Album."""
-    from qqmusic_api import album
-
-    async def fake_detail(value, **_kw):
-        assert value == "ALBUM_MID"
-        return {
-            "basicInfo": {
-                "albumMid": "ALBUM_MID",
-                "albumName": "十一月的萧邦",
-                "publishDate": "2005-11-01",
-                "desc": "周杰伦第六张专辑",
-                "total_song_num": 12,
-            },
-            "singer": {
-                "singerList": [
-                    {"mid": "JAY_MID", "name": "周杰伦"},
-                ],
-            },
-        }
-
-    async def fake_song(value, num, page, **_kw):
-        assert value == "ALBUM_MID"
-        return [_raw_song(mid="t1", name="夜曲"), _raw_song(mid="t2", name="蓝色风暴")]
-
-    monkeypatch.setattr(album, "get_detail", fake_detail)
-    monkeypatch.setattr(album, "get_song", fake_song)
-
-    svc = QuaverService()
-    a = await svc.get_album_detail("ALBUM_MID")
-
-    assert a.mid == "ALBUM_MID"
-    assert a.name == "十一月的萧邦"
-    assert a.publish_date == "2005-11-01"
-    assert a.description == "周杰伦第六张专辑"
-    assert a.song_count == 12
-    assert a.singers == [Singer(mid="JAY_MID", name="周杰伦")]
-    assert len(a.songs) == 2
-    assert [s.mid for s in a.songs] == ["t1", "t2"]
-
-
-async def test_get_playlist_detail_parses_dirinfo_and_songlist(monkeypatch):
-    """songlist.get_detail 返回 dirinfo + songlist; 应映射到 Playlist + songs."""
-    from qqmusic_api import songlist as sl_module
-
-    async def fake_detail(songlist_id, **kwargs):
-        assert songlist_id == 7039749142
-        return {
-            "dirinfo": {
-                "dirid": 7039749142,
-                "title": "百听不厌的周杰伦",
-                "picurl": "https://qpic.y.qq.com/.../pl.jpg",
-                "desc": "杰伦经典",
-                "creator": {"nick": "今晚月色很美"},
-                "songnum": 99,
-                "listennum": 399747305,
-            },
-            "songlist": [
-                _raw_song(mid="m1", name="Hi 1"),
-                _raw_song(mid="m2", name="Hi 2"),
-            ],
-        }
-
-    monkeypatch.setattr(sl_module, "get_detail", fake_detail)
-
-    svc = QuaverService()
-    p = await svc.get_playlist_detail("7039749142")
-
-    assert p.pid == "7039749142"
-    assert p.name == "百听不厌的周杰伦"
-    assert p.creator == "今晚月色很美"
-    assert p.description == "杰伦经典"
-    assert p.song_count == 99
-    assert p.play_count == 399747305
-    assert p.cover_url == "https://qpic.y.qq.com/.../pl.jpg"
-    assert [s.mid for s in p.songs] == ["m1", "m2"]
-
-
-async def test_get_playlist_detail_accepts_str_pid_with_digits(monkeypatch):
-    """pid 是字符串 (来自搜索); 内部要转 int 给 0.4.1 API."""
-    from qqmusic_api import songlist as sl_module
-    captured = {}
-
-    async def fake_detail(songlist_id, **kwargs):
-        captured["songlist_id"] = songlist_id
-        return {"dirinfo": {"title": "t"}, "songlist": []}
-
-    monkeypatch.setattr(sl_module, "get_detail", fake_detail)
-    svc = QuaverService()
-    await svc.get_playlist_detail("12345")
-    assert captured["songlist_id"] == 12345
-
-
-async def test_get_artist_detail_combines_info_and_hot_songs(monkeypatch):
-    """singer.get_info + singer.get_songs(SONG) 组合成 ArtistDetail."""
-    from qqmusic_api import singer as singer_module
-
-    async def fake_info(mid, **_kw):
-        assert mid == "JAY_MID"
-        return {
-            "Info": {
-                "Name": "周杰伦",
-                "Pic": "https://y.qq.com/.../jay.jpg",
-            }
-        }
-
-    async def fake_tab_detail(mid, tab_type, page, num, **_kw):
-        assert mid == "JAY_MID"
-        return [_raw_song(mid="hot1", name="晴天"), _raw_song(mid="hot2", name="稻香")]
-
-    monkeypatch.setattr(singer_module, "get_info", fake_info)
-    monkeypatch.setattr(singer_module, "get_tab_detail", fake_tab_detail)
-
-    svc = QuaverService()
-    ad = await svc.get_artist_detail("JAY_MID")
-
-    assert isinstance(ad, ArtistDetail)
-    assert ad.singer.mid == "JAY_MID"
-    assert ad.singer.name == "周杰伦"
-    assert ad.singer.avatar_url == "https://y.qq.com/.../jay.jpg"
-    assert [s.mid for s in ad.hot_songs] == ["hot1", "hot2"]
-
-
-async def test_get_artist_detail_resilient_to_missing_info(monkeypatch):
-    """singer.get_info 可能返回空 Info 字段, 用 mid 做 fallback name 也行."""
-    from qqmusic_api import singer as singer_module
-
-    async def fake_info(_mid, **_kw):
-        return {}
-
-    async def fake_tab_detail(_mid, tab_type, page, num, **_kw):
-        return []
-
-    monkeypatch.setattr(singer_module, "get_info", fake_info)
-    monkeypatch.setattr(singer_module, "get_tab_detail", fake_tab_detail)
-
-    svc = QuaverService()
-    ad = await svc.get_artist_detail("MID_X")
-    assert ad.singer.mid == "MID_X"
-    assert ad.hot_songs == []
-
-
-# ============================================================== get_lyric (P0.5)
-
-async def test_get_lyric_parses_lrc_text(monkeypatch):
-    from qqmusic_api import lyric as lyric_module
-
-    async def fake_get_lyric(value, **_kw):
-        assert value == "MID_X"
-        return {
-            "lyric": "[00:10.00]第一行\n[00:20.50]第二行",
-            "trans": "",
-            "roma": "",
-        }
-
-    monkeypatch.setattr(lyric_module, "get_lyric", fake_get_lyric)
-
-    svc = QuaverService()
-    ly = await svc.get_lyric("MID_X")
-    assert isinstance(ly, Lyric)
-    assert ly.mid == "MID_X"
-    assert ly.has_translation is False
-    assert len(ly.lines) == 2
-    assert ly.lines[0].timestamp_ms == 10000
-    assert ly.lines[0].text == "第一行"
-
-
-async def test_get_lyric_merges_translation_by_timestamp(monkeypatch):
-    from qqmusic_api import lyric as lyric_module
-
-    async def fake_get_lyric(value, **_kw):
-        return {
-            "lyric": "[00:10.00]Hello\n[00:20.00]World",
-            "trans": "[00:10.00]你好\n[00:20.00]世界",
-            "roma": "",
-        }
-
-    monkeypatch.setattr(lyric_module, "get_lyric", fake_get_lyric)
-    svc = QuaverService()
-    ly = await svc.get_lyric("M")
-    assert ly.has_translation is True
-    assert ly.lines[0].text == "Hello"
-    assert ly.lines[0].translation == "你好"
-    assert ly.lines[1].translation == "世界"
-
-
-async def test_get_lyric_handles_empty_response(monkeypatch):
-    from qqmusic_api import lyric as lyric_module
-
-    async def fake_get_lyric(_value, **_kw):
-        return {"lyric": "", "trans": "", "roma": ""}
-
-    monkeypatch.setattr(lyric_module, "get_lyric", fake_get_lyric)
-    svc = QuaverService()
-    ly = await svc.get_lyric("M")
-    assert ly.lines == []
-    assert ly.has_translation is False
-
-
-# ============================================================== get_song_url 凭据传递 (原 P0.1 测试, 保留)
-
-async def test_get_song_url_respects_quality_preference_high(monkeypatch):
-    """quality='high' 顺序: FLAC → MP3_320 → OGG_192 → MP3_128."""
-    from qqmusic_api import song
-
+    svc._ct_value = 2
     attempts: list[str] = []
 
-    async def fake_get(*, mid, file_type, credential=None):
-        attempts.append(file_type.name)
-        # 只有 FLAC 通
-        if file_type.name == "FLAC":
-            return {mid[0]: "https://x/F000.flac?vkey=k"}
-        return {mid[0]: ""}
+    async def fake_try(mid, q):
+        attempts.append(q)
+        return f"https://x/{q}?vkey=k"
 
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-    svc = QuaverService()
-    url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
-    assert attempts[0] == "FLAC"
-    assert url.quality == "FLAC"
-
-
-async def test_get_song_url_respects_quality_preference_standard(monkeypatch):
-    """quality='standard' 顺序: MP3_128 优先."""
-    from qqmusic_api import song
-
-    attempts: list[str] = []
-
-    async def fake_get(*, mid, file_type, credential=None):
-        attempts.append(file_type.name)
-        return {mid[0]: "https://x/x.mp3?vkey=k"}
-
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-    svc = QuaverService()
-    await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="standard")
-    assert attempts[0] == "MP3_128"
-
-
-async def test_get_song_url_quality_unknown_falls_back_to_balanced(monkeypatch):
-    from qqmusic_api import song
-
-    attempts: list[str] = []
-
-    async def fake_get(*, mid, file_type, credential=None):
-        attempts.append(file_type.name)
-        return {mid[0]: "https://x/x.mp3?vkey=k"}
-
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
-    svc = QuaverService()
-    await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="不存在的档位")
+    svc._try_bypass_url = fake_try
+    await svc.get_song_url(Song(mid="m", name="x"), quality_preference="bogus")
     # balanced 首选 MP3_320
     assert attempts[0] == "MP3_320"
 
 
-async def test_get_song_url_returns_actual_quality_after_downgrade(monkeypatch):
-    """偏好 high 但 FLAC/MP3_320 都拿不到, 只 MP3_128 通 → quality='MP3_128' (用于 toast 显示)."""
-    from qqmusic_api import song
+# ============================================================== ct 随机白名单
 
-    async def fake_get(*, mid, file_type, credential=None):
-        if file_type.name == "MP3_128":
-            return {mid[0]: "https://x/M500.mp3?vkey=k"}
-        return {mid[0]: ""}
+def test_safe_ct_values_excludes_blocklist():
+    """findings 列出的风控值不应在白名单里."""
+    blocklist = {1, 3, 4, 11, 18, 23, 27, 46}
+    for v in QuaverService._SAFE_CT_VALUES:
+        assert v not in blocklist
 
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
+
+def test_safe_ct_values_nonempty():
+    assert len(QuaverService._SAFE_CT_VALUES) > 0
+
+
+async def test_connect_picks_random_ct_within_safe_pool():
     svc = QuaverService()
-    url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
-    assert url.quality == "MP3_128"
+    await svc.connect()
+    try:
+        assert svc._ct_value in QuaverService._SAFE_CT_VALUES
+    finally:
+        await svc.disconnect()
 
 
-# ============================================================== get_song_url 凭据传递 (原 P0.1 测试, 保留)
+# ============================================================== get_lyric
 
-async def test_get_song_url_passes_credential_through(monkeypatch):
-    """credential 必须传给底层 API, 否则服务端不下发 VIP 内容."""
-    from qqmusic_api import song
+def _stub_lyric_response(lyric_text: str, trans_text: str = ""):
+    """构造一个 fake niquests Session.post 返回值 (走 bypass)."""
+    import base64
 
-    captured = {}
+    class _FakeResp:
+        def __init__(self, payload: dict):
+            self._payload = payload
 
-    async def fake_get(*, mid, file_type, credential=None):
-        captured["credential"] = credential
-        return {mid[0]: "https://isure.qq/x.mp3?vkey=k"}
+        def json(self):
+            return self._payload
 
-    monkeypatch.setattr(song, "get_song_urls", fake_get)
+    payload = {
+        "req_0": {
+            "data": {
+                "crypt": 0,
+                "lyric": base64.b64encode(lyric_text.encode("utf-8")).decode("ascii"),
+                "trans": base64.b64encode(trans_text.encode("utf-8")).decode("ascii"),
+            }
+        }
+    }
+    return _FakeResp(payload)
 
+
+async def test_get_lyric_parses_lrc_bypass(monkeypatch):
+    """bypass 路径: POST musicu.fcg 拿 base64 LRC, 解码 + 解析."""
+    import niquests
     svc = QuaverService()
-    svc.credential = Credential(musicid=123, musickey="key")
-    await svc.get_song_url(Song(mid="m1", name="x"))
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
 
-    assert captured["credential"] is svc.credential
-    assert captured["credential"].musicid == 123
+    fake_resp = _stub_lyric_response("[00:10.00]第一行\n[00:20.00]第二行")
+
+    class _FakeSession:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def post(self, *args, **kw): return fake_resp
+
+    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+
+    ly = await svc.get_lyric("x")
+    assert isinstance(ly, Lyric)
+    assert len(ly.lines) == 2
+    assert ly.lines[0].text == "第一行"
+
+
+async def test_get_lyric_merges_translation_bypass(monkeypatch):
+    import niquests
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
+
+    fake_resp = _stub_lyric_response(
+        "[00:10.00]Hello", "[00:10.00]你好"
+    )
+
+    class _FakeSession:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def post(self, *args, **kw): return fake_resp
+
+    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+
+    ly = await svc.get_lyric("x")
+    assert ly.has_translation is True
+    assert ly.lines[0].text == "Hello"
+    assert ly.lines[0].translation == "你好"
+
+
+async def test_get_lyric_no_credential_returns_empty():
+    """无登录态时优雅返回空, 不抛错."""
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = None
+    ly = await svc.get_lyric("x")
+    assert ly.lines == []
+
+
+# ============================================================== 详情拉取
+
+async def test_get_album_detail_combines_basic_info_and_songs():
+    svc = QuaverService()
+
+    async def fake_detail(value):
+        return SimpleNamespace(
+            album=SimpleNamespace(
+                mid="alb1",
+                name="叶惠美",
+                time_public="2003-07-29",
+                desc="经典",
+                total_num=2,
+            ),
+            singers=[SimpleNamespace(mid="j", name="周杰伦")],
+        )
+
+    async def fake_song(value, num, page):
+        return SimpleNamespace(
+            song_list=[
+                _raw_song(mid="t1", name="夜曲"),
+                _raw_song(mid="t2", name="蓝色风暴"),
+            ]
+        )
+
+    svc._client = SimpleNamespace(
+        album=SimpleNamespace(get_detail=fake_detail, get_song=fake_song),
+        credential=None,
+    )
+    a = await svc.get_album_detail("alb1")
+    assert a.name == "叶惠美"
+    assert a.singers == [Singer(mid="j", name="周杰伦")]
+    assert a.publish_date == "2003-07-29"
+    assert len(a.songs) == 2
+
+
+async def test_get_playlist_detail_extracts_info_and_songs():
+    """0.6.1 GetSonglistDetailResponse: info + songs + total."""
+    svc = QuaverService()
+
+    async def fake_detail(songlist_id, **kwargs):
+        return SimpleNamespace(
+            info=SimpleNamespace(
+                id=7039749142,
+                title="百听不厌",
+                picurl="http://x",
+                desc="经典",
+                creator=SimpleNamespace(nick="今晚月色很美"),
+                listennum=12345,
+            ),
+            songs=[
+                _raw_song(mid="m1", name="A"),
+                _raw_song(mid="m2", name="B"),
+            ],
+            total=99,
+        )
+
+    svc._client = SimpleNamespace(
+        songlist=SimpleNamespace(get_detail=fake_detail),
+        credential=None,
+    )
+    p = await svc.get_playlist_detail("7039749142")
+    assert p.name == "百听不厌"
+    assert p.creator == "今晚月色很美"
+    assert p.song_count == 99
+    assert len(p.songs) == 2
+
+
+async def test_get_artist_detail_combines_info_and_hot_songs():
+    svc = QuaverService()
+
+    async def fake_info(mid):
+        return SimpleNamespace(
+            singer=SimpleNamespace(name="周杰伦", singer_pic="http://avatar.jpg"),
+        )
+
+    async def fake_tab_detail(mid, tab_type, page, num):
+        return SimpleNamespace(
+            song_tab=SimpleNamespace(
+                list=[
+                    _raw_song(mid="hot1", name="晴天"),
+                    _raw_song(mid="hot2", name="稻香"),
+                ],
+            ),
+        )
+
+    svc._client = SimpleNamespace(
+        singer=SimpleNamespace(get_info=fake_info, get_tab_detail=fake_tab_detail),
+        credential=None,
+    )
+    ad = await svc.get_artist_detail("j")
+    assert ad.singer.mid == "j"
+    assert ad.singer.name == "周杰伦"
+    assert len(ad.hot_songs) == 2

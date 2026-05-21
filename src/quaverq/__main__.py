@@ -358,15 +358,30 @@ def main() -> None:
         if queue.prev() is not None:
             await _play_current()
 
+    async def _ui_pause() -> None:
+        await player.pause()
+        ui.set_play_state(False)
+        mpris.push_playback_status("pause")
+
+    async def _ui_resume() -> None:
+        await player.resume()
+        ui.set_play_state(True)
+        mpris.push_playback_status("play")
+
+    async def _ui_stop() -> None:
+        await player.stop()
+        ui.set_play_state(False)
+        mpris.push_playback_status("stop")
+
     # 注册 UI 回调 → 提交到后台协程 (fire-and-forget)
     ui.on("search", lambda kw: runner.submit(_on_search(kw)))
     ui.on(
         "play_song",
         lambda song, song_list=None: runner.submit(_on_play(song, song_list)),
     )
-    ui.on("pause", lambda: runner.submit(player.pause()))
-    ui.on("resume", lambda: runner.submit(player.resume()))
-    ui.on("stop", lambda: runner.submit(player.stop()))
+    ui.on("pause", lambda: runner.submit(_ui_pause()))
+    ui.on("resume", lambda: runner.submit(_ui_resume()))
+    ui.on("stop", lambda: runner.submit(_ui_stop()))
     ui.on("next", lambda: runner.submit(_on_next()))
     ui.on("prev", lambda: runner.submit(_on_prev()))
     ui.on("cycle_play_mode", lambda: cycle_play_mode())
