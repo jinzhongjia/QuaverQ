@@ -416,6 +416,31 @@ def main() -> None:
 
     ui.on("toggle_like_current", lambda: runner.submit(_toggle_like_current()))
 
+    # 资料库视图 (P1.3): 4 Tab 并发拉取数据
+    async def _on_open_library() -> None:
+        ui.show_message("加载资料库…")
+        liked = library.list_liked() if library is not None else []
+        # 远端 3 个 API 并发拉
+        try:
+            my_playlists = await api.get_my_playlists()
+        except Exception as exc:
+            logger.warning("get_my_playlists 失败: %s", exc)
+            my_playlists = []
+        try:
+            fav_albums = await api.get_fav_albums()
+        except Exception as exc:
+            logger.warning("get_fav_albums 失败: %s", exc)
+            fav_albums = []
+        try:
+            followed = await api.get_followed_singers()
+        except Exception as exc:
+            logger.warning("get_followed_singers 失败: %s", exc)
+            followed = []
+
+        ui.show_library(liked, my_playlists, fav_albums, followed)
+
+    ui.on("open_library", lambda: runner.submit(_on_open_library()))
+
     # 详情页 (P0.3): 拉详情 → push 详情视图
     async def _open_album(album_brief) -> None:
         ui.show_message(f"加载专辑: {album_brief.name}…")

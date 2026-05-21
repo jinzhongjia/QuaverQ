@@ -213,6 +213,14 @@ class GtkUI(UIBase):
                 self._window.set_liked_state(mid, liked)
         self._glib_idle(_do)
 
+    def show_library(self, liked_songs, my_playlists, fav_albums, followed_singers) -> None:
+        def _do() -> None:
+            if self._window:
+                self._window.show_library(
+                    liked_songs, my_playlists, fav_albums, followed_singers
+                )
+        self._glib_idle(_do)
+
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         def _do() -> None:
             if self._window:
@@ -259,6 +267,17 @@ class _MainWindow(Adw.ApplicationWindow):
         self._back_btn = Gtk.Button.new_from_icon_name("go-previous-symbolic")
         self._back_btn.add_css_class("flat")
         self._back_btn.set_visible(False)
+
+        # 资料库入口 (HeaderBar 左侧, 仅登录后可见)
+        self._library_btn = Gtk.Button.new_from_icon_name(
+            "folder-music-symbolic"
+        )
+        self._library_btn.add_css_class("flat")
+        self._library_btn.set_tooltip_text("资料库")
+        self._library_btn.set_visible(False)
+        self._library_btn.connect(
+            "clicked", lambda _b: self._ui._emit("open_library")
+        )
         # 实际 click 处理在 _on_nav_page_changed 之后设置
         # (这里仅占位; nav_view 还没构造)
 
@@ -266,6 +285,7 @@ class _MainWindow(Adw.ApplicationWindow):
 
         header = Adw.HeaderBar()
         header.pack_start(self._back_btn)
+        header.pack_start(self._library_btn)
         header.set_title_widget(self._title_widget)
         header.pack_end(self._login_btn)
         header.pack_end(self._settings_btn)
@@ -373,6 +393,8 @@ class _MainWindow(Adw.ApplicationWindow):
 
     def _apply_auth_state(self, authed: bool) -> None:
         self._authenticated = authed
+        # 资料库入口跟登录态绑定
+        self._library_btn.set_visible(authed)
         if authed:
             self._welcome_page.set_title("已就绪")
             self._welcome_page.set_description(
@@ -1124,6 +1146,167 @@ class _MainWindow(Adw.ApplicationWindow):
         if pref not in self._QUALITY_KEYS:
             pref = "balanced"
         self._quality_pref = pref
+
+    # ------------------------------------------------------------------
+    # LibraryView (P1.3) — 4 Tabs 资料库
+    # ------------------------------------------------------------------
+
+    def show_library(
+        self,
+        liked_songs: list["Song"],
+        my_playlists: list["Playlist"],
+        fav_albums: list["Album"],
+        followed_singers: list["Singer"],
+    ) -> None:
+        # 已在 library 不重复 push
+        page = self._nav_view.get_visible_page()
+        if page is not None and page.get_tag() == "library":
+            return
+        self._nav_view.push(
+            self._build_library_page(
+                liked_songs, my_playlists, fav_albums, followed_singers
+            )
+        )
+
+    def _build_library_page(
+        self,
+        liked_songs: list["Song"],
+        my_playlists: list["Playlist"],
+        fav_albums: list["Album"],
+        followed_singers: list["Singer"],
+    ) -> Adw.NavigationPage:
+        view_stack = Adw.ViewStack()
+
+        # Tab 1: 我喜欢
+        view_stack.add_titled_with_icon(
+            self._build_library_songs_tab(liked_songs),
+            "liked", "我喜欢", "starred-symbolic",
+        )
+        # Tab 2: 我的歌单
+        view_stack.add_titled_with_icon(
+            self._build_library_playlists_tab(my_playlists),
+            "playlists", "我的歌单", "view-list-symbolic",
+        )
+        # Tab 3: 收藏的专辑
+        view_stack.add_titled_with_icon(
+            self._build_library_albums_tab(fav_albums),
+            "albums", "收藏的专辑", "media-optical-symbolic",
+        )
+        # Tab 4: 关注的歌手
+        view_stack.add_titled_with_icon(
+            self._build_library_singers_tab(followed_singers),
+            "singers", "关注的歌手", "avatar-default-symbolic",
+        )
+
+        switcher = Adw.ViewSwitcher()
+        switcher.set_stack(view_stack)
+        switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+        switcher.set_halign(Gtk.Align.CENTER)
+        switcher.set_margin_top(4)
+        switcher.set_margin_bottom(8)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.append(switcher)
+        box.append(view_stack)
+        box.set_vexpand(True)
+
+        page = Adw.NavigationPage.new(box, "资料库")
+        page.set_tag("library")
+        return page
+
+    def _build_library_songs_tab(self, songs: list["Song"]) -> Gtk.Widget:
+        # 复用 _make_song_row, 但用独立 song_data 闭包让点击播放走整个列表上下文
+        lib_data = list(songs)
+
+        def _on_activate(_lb, row):
+            idx = getattr(row, "_quaver_index", -1)
+            if 0 <= idx < len(lib_data):
+                self._ui._emit("play_song", lib_data[idx], lib_data)
+
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        lb.connect("row-activated", _on_activate)
+        for i, s in enumerate(lib_data):
+            lb.append(self._make_song_row(s, i))
+
+        return self._library_wrap(lb, empty_text="还没有喜欢的歌曲")
+
+    def _build_library_playlists_tab(self, playlists: list["Playlist"]) -> Gtk.Widget:
+        data = list(playlists)
+
+        def _on_activate(_lb, row):
+            idx = getattr(row, "_quaver_index", -1)
+            if 0 <= idx < len(data):
+                self._ui._emit("open_playlist", data[idx])
+
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        lb.connect("row-activated", _on_activate)
+        for i, p in enumerate(data):
+            lb.append(self._make_playlist_row(p, i))
+
+        return self._library_wrap(lb, empty_text="还没有创建的歌单")
+
+    def _build_library_albums_tab(self, albums: list["Album"]) -> Gtk.Widget:
+        data = list(albums)
+
+        def _on_activate(_lb, row):
+            idx = getattr(row, "_quaver_index", -1)
+            if 0 <= idx < len(data):
+                self._ui._emit("open_album", data[idx])
+
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        lb.connect("row-activated", _on_activate)
+        for i, a in enumerate(data):
+            lb.append(self._make_album_row(a, i))
+
+        return self._library_wrap(lb, empty_text="还没有收藏的专辑")
+
+    def _build_library_singers_tab(self, singers: list["Singer"]) -> Gtk.Widget:
+        data = list(singers)
+
+        def _on_activate(_lb, row):
+            idx = getattr(row, "_quaver_index", -1)
+            if 0 <= idx < len(data):
+                self._ui._emit("open_singer", data[idx])
+
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        lb.connect("row-activated", _on_activate)
+        for i, s in enumerate(data):
+            lb.append(self._make_singer_row(s, i))
+
+        return self._library_wrap(lb, empty_text="还没有关注的歌手")
+
+    def _library_wrap(self, listbox: Gtk.ListBox, *, empty_text: str) -> Gtk.Widget:
+        """ListBox 包 ScrolledWindow + Clamp; 空时显示提示文字."""
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(800)
+        clamp.set_tightening_threshold(700)
+        clamp.set_margin_top(8)
+        clamp.set_margin_bottom(16)
+        clamp.set_margin_start(12)
+        clamp.set_margin_end(12)
+
+        # 空状态
+        if listbox.get_first_child() is None:
+            sp = Adw.StatusPage()
+            sp.set_icon_name("audio-x-generic-symbolic")
+            sp.set_title(empty_text)
+            sp.set_vexpand(True)
+            return sp
+
+        clamp.set_child(listbox)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_child(clamp)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        return scrolled
 
     def _push_settings_view(self) -> None:
         # 已经在 settings 不重复 push

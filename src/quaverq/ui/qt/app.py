@@ -209,6 +209,16 @@ class QtUI(UIBase):
         # Qt 端目前没 ❤️ 按钮, 静默接受 (P0.x 完整 Qt UI 时补)
         pass
 
+    def show_library(self, liked_songs, my_playlists, fav_albums, followed_singers) -> None:
+        # Qt 端简化: 状态栏摘要 (完整 LibraryView 留给后续 Qt 完善)
+        self._status.showMessage(
+            f"资料库: {len(liked_songs)} 喜欢 / "
+            f"{len(my_playlists)} 歌单 / "
+            f"{len(fav_albums)} 专辑 / "
+            f"{len(followed_singers)} 歌手",
+            10000,
+        )
+
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         self._post(
             lambda: self._window.set_position(position_ms, duration_ms)

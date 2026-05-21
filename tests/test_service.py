@@ -440,6 +440,98 @@ async def test_get_lyric_no_credential_returns_empty():
     assert ly.lines == []
 
 
+# ============================================================== Library APIs (P1.3)
+
+async def test_get_my_playlists_excludes_fav_dir():
+    """get_my_playlists 排除 dirid=201 (我喜欢, 独立成 Tab)."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k", str_musicid="1")
+
+    async def fake_created(uin, **kw):
+        return SimpleNamespace(playlists=[
+            SimpleNamespace(id=2530, dirid=201, title="我喜欢", picurl="", desc="", songnum=308, listennum=0),
+            SimpleNamespace(id=8899, dirid=1, title="啊浪的歌单", picurl="x", desc="", songnum=24, listennum=0),
+            SimpleNamespace(id=1234, dirid=2, title="另一个", picurl="y", desc="", songnum=10, listennum=0),
+        ])
+
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_created_songlist=fake_created),
+        credential=svc.credential,
+    )
+    pls = await svc.get_my_playlists()
+    # 排除我喜欢
+    assert len(pls) == 2
+    assert all(p.name != "我喜欢" for p in pls)
+    assert pls[0].name == "啊浪的歌单"
+    assert pls[0].is_mine is True
+
+
+async def test_get_my_playlists_no_credential_returns_empty():
+    svc = QuaverService()
+    svc.credential = None
+    assert await svc.get_my_playlists() == []
+
+
+async def test_get_followed_singers_extracts_users():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k", encrypt_uin="EUIN")
+
+    async def fake_follow(euin, **kw):
+        return SimpleNamespace(users=[
+            SimpleNamespace(mid="s1", name="周杰伦", avatar_url="http://a.jpg"),
+            SimpleNamespace(mid="s2", name="林俊杰", avatar_url=""),
+        ])
+
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_follow_singers=fake_follow),
+        credential=svc.credential,
+    )
+    singers = await svc.get_followed_singers()
+    assert len(singers) == 2
+    assert singers[0].name == "周杰伦"
+    assert singers[0].avatar_url == "http://a.jpg"
+
+
+async def test_get_fav_albums_tolerates_lib_pydantic_error():
+    """0.6.1 lib 在用户有 0 或 1 个专辑时 pydantic 校验报错, 应被 try/except 吃掉."""
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k", encrypt_uin="EUIN")
+
+    async def fake_fav_album(euin, **kw):
+        raise ValueError("pydantic validation error")
+
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_fav_album=fake_fav_album),
+        credential=svc.credential,
+    )
+    # 不抛, 返回空
+    assert await svc.get_fav_albums() == []
+
+
+async def test_get_fav_albums_extracts_when_available():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k", encrypt_uin="EUIN")
+
+    async def fake_fav_album(euin, **kw):
+        return SimpleNamespace(albums=[
+            SimpleNamespace(
+                mid="alb1", name="叶惠美",
+                singer=SimpleNamespace(mid="j", name="周杰伦"),
+                pic_url="http://a.jpg", time_public="2003-07-29",
+                song_num=12,
+            ),
+        ])
+
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_fav_album=fake_fav_album),
+        credential=svc.credential,
+    )
+    albums = await svc.get_fav_albums()
+    assert len(albums) == 1
+    assert albums[0].name == "叶惠美"
+    assert albums[0].singers[0].name == "周杰伦"
+
+
 # ============================================================== 详情拉取
 
 async def test_get_album_detail_combines_basic_info_and_songs():

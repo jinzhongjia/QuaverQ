@@ -153,6 +153,16 @@ class UIBase(ABC):
         """同步某首歌的"喜欢"状态到 UI (底栏 ❤️ + 歌曲行 suffix)."""
 
     @abstractmethod
+    def show_library(
+        self,
+        liked_songs: list[Song],
+        my_playlists: list[Playlist],
+        fav_albums: list[Album],
+        followed_singers: list[Singer],
+    ) -> None:
+        """打开资料库视图, 4 Tabs 同时填充."""
+
+    @abstractmethod
     def set_position(self, position_ms: int, duration_ms: int) -> None:
         """更新进度条."""
 

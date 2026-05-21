@@ -623,6 +623,102 @@ class QuaverService:
             logger.warning("like_song API 失败: %s", exc)
             return False
 
+    async def get_my_playlists(self) -> list[Playlist]:
+        """我创建的歌单 (排除 dirid=201 那个"我喜欢", 后者走 library)."""
+        cred = self._effective_credential()
+        if cred is None or not cred.musicid:
+            return []
+        try:
+            resp = await self.client.user.get_created_songlist(
+                int(cred.musicid), credential=cred
+            )
+        except Exception as exc:
+            logger.warning("get_created_songlist 失败: %s", exc)
+            return []
+        out: list[Playlist] = []
+        for p in (resp.playlists or []):
+            if getattr(p, "dirid", 0) == self.FAV_DIRID:
+                continue  # 我喜欢单独成 Tab
+            out.append(
+                Playlist(
+                    pid=str(getattr(p, "id", "") or ""),
+                    name=getattr(p, "title", "") or "",
+                    cover_url=getattr(p, "picurl", "") or "",
+                    description=getattr(p, "desc", "") or "",
+                    creator="",  # 自己
+                    song_count=int(getattr(p, "songnum", 0) or 0),
+                    play_count=int(getattr(p, "listennum", 0) or 0),
+                    is_mine=True,
+                )
+            )
+        return out
+
+    async def get_fav_albums(self) -> list[Album]:
+        """收藏的专辑. 0.6.1 lib 在用户只有 0/1 个专辑时 pydantic 校验报错, try/except 容错."""
+        cred = self._effective_credential()
+        if cred is None or not cred.encrypt_uin:
+            return []
+        try:
+            resp = await self.client.user.get_fav_album(
+                cred.encrypt_uin, page=1, num=200, credential=cred
+            )
+        except Exception as exc:
+            logger.warning("get_fav_album 失败 (lib 校验问题或无数据): %s", exc)
+            return []
+        out: list[Album] = []
+        for a in (getattr(resp, "albums", None) or []):
+            mid = getattr(a, "mid", "") or ""
+            singer_obj = getattr(a, "singer", None)
+            singers: list[Singer] = []
+            if singer_obj is not None:
+                # 可能是单个或列表
+                items = (
+                    singer_obj if isinstance(singer_obj, list) else [singer_obj]
+                )
+                for s in items:
+                    singers.append(
+                        Singer(
+                            mid=getattr(s, "mid", "") or "",
+                            name=getattr(s, "name", "") or "",
+                        )
+                    )
+            out.append(
+                Album(
+                    mid=mid,
+                    name=getattr(a, "name", "") or "",
+                    singers=singers,
+                    cover_url=getattr(a, "pic_url", None)
+                        or getattr(a, "pic", None)
+                        or _cover_url(mid, 300),
+                    publish_date=getattr(a, "time_public", "") or "",
+                    song_count=int(getattr(a, "song_num", 0) or 0),
+                )
+            )
+        return out
+
+    async def get_followed_singers(self) -> list[Singer]:
+        """关注的歌手."""
+        cred = self._effective_credential()
+        if cred is None or not cred.encrypt_uin:
+            return []
+        try:
+            resp = await self.client.user.get_follow_singers(
+                cred.encrypt_uin, page=1, num=200, credential=cred
+            )
+        except Exception as exc:
+            logger.warning("get_follow_singers 失败: %s", exc)
+            return []
+        out: list[Singer] = []
+        for s in (getattr(resp, "users", None) or []):
+            out.append(
+                Singer(
+                    mid=getattr(s, "mid", "") or "",
+                    name=getattr(s, "name", "") or "",
+                    avatar_url=getattr(s, "avatar_url", "") or "",
+                )
+            )
+        return out
+
     async def unlike_song(self, song: Song) -> bool:
         cred = self._effective_credential()
         if cred is None or not cred.musickey or song.id == 0:
