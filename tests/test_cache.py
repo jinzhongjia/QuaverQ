@@ -180,7 +180,7 @@ def test_invalidate_removes_entry(cache: Cache):
 
 # ============================================================== thread safety
 
-# ============================================================== liked_song (P1.2)
+# ============================================================== liked_song
 
 def test_is_liked_empty_returns_false(cache: Cache):
     assert cache.is_liked("nope") is False

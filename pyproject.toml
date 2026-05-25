@@ -1,15 +1,15 @@
 [project]
 name = "quaverq"
 version = "0.1.0"
-description = "QuaverQ — QQ 音乐桌面客户端 (GTK 4 + Libadwaita)"
+description = "QuaverQ — QQ 音乐桌面客户端 (PySide6 + Qt Quick, Linux 优先)"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
 authors = [{ name = "Jin", email = "jinzhongjia@qq.com" }]
-keywords = ["qqmusic", "music", "player", "gtk"]
+keywords = ["qqmusic", "music", "player", "qt", "pyside6", "qml"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "Environment :: X11 Applications :: GTK",
+    "Environment :: X11 Applications :: Qt",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Natural Language :: Chinese (Simplified)",
@@ -22,11 +22,13 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Players",
 ]
 
+# 依赖见 docs/design.md §13. v1 Linux only; Windows / macOS 见 §1.3 deferred.
 dependencies = [
     "qqmusic-api-python>=0.6.1,<0.7",
     "tomli-w>=1.0",
-    "dbus-next>=0.2.3",   # MPRIS2 D-Bus 集成 (媒体键 / GNOME Now Playing)
-    "PyGObject>=3.50",
+    "dbus-next>=0.2.3",     # MPRIS2 D-Bus 集成 (媒体键 / GNOME Now Playing)
+    "PySide6>=6.6",          # Qt for Python (QML + QtMultimedia)
+    "qasync>=0.27",          # asyncio ↔ Qt event loop 桥 (见 design §8.4)
 ]
 
 [dependency-groups]
@@ -39,12 +41,6 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-ra -q"
-filterwarnings = [
-    # PyGObject 内部加载 GLib proxy 时遍历到 deprecated alias 触发,
-    # 不是我们代码直接调用 — 我们已经用 GLibUnix.signal_add_full.
-    "ignore::DeprecationWarning:gi.overrides",
-]
-
 [project.urls]
 repository = "https://github.com/jinzhongjia/quaverq"
 

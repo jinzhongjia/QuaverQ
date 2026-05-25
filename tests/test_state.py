@@ -1,4 +1,4 @@
-"""SessionState (P1.4) 测试 - 启动/退出快照, 恢复 queue + position + mode."""
+"""SessionState 测试 - 启动/退出快照, 恢复 queue + position + mode."""
 
 from __future__ import annotations
 

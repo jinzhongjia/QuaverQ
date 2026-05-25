@@ -1,4 +1,4 @@
-"""SQLite cache 层 (P1.1).
+"""SQLite cache 层.
 
 - 4 个表: song_meta / album_meta / playlist_meta / artist_meta
 - 每条记录: 主键 + JSON blob + fetched_at
@@ -221,7 +221,7 @@ class Cache:
     def invalidate_artist(self, mid: str) -> None:
         self._delete("artist_meta", "mid", mid)
 
-    # ------------------------------------------------------------------ Liked songs (P1.2)
+    # ------------------------------------------------------------------ Liked songs
 
     def is_liked(self, mid: str) -> bool:
         with self._lock:

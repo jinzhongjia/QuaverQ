@@ -1,4 +1,4 @@
-"""MPRIS2 D-Bus 集成 (P0.7).
+"""MPRIS2 D-Bus 集成.
 
 把 QuaverQ 注册为 `org.mpris.MediaPlayer2.quaverq`, 桌面媒体控件/媒体键
 能控制播放并显示元数据.
@@ -191,7 +191,7 @@ def _build_interfaces(cb: MprisCallbacks):
 
         @method()
         def Seek(self, _offset: "x"):  # noqa: N802
-            pass  # P0.7 不支持 seek
+            pass  # 暂不支持 seek
 
         @method()
         def SetPosition(self, _track_id: "o", _position: "x"):  # noqa: N802

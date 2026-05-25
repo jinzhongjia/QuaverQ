@@ -1,4 +1,4 @@
-"""会话快照 (P1.4): 退出存 / 启动恢复 queue + current_index + position + mode.
+"""会话快照: 退出存 / 启动恢复 queue + current_index + position + mode.
 
 文件位置: ~/.config/quaverq/state.json (controller 注入路径)
 

@@ -1,4 +1,4 @@
-"""Library (P1.2) 测试 — 本地 cache 即写 + 远端容错 sync."""
+"""Library 测试 — 本地 cache 即写 + 远端容错 sync."""
 
 from __future__ import annotations
 

@@ -1,79 +1,43 @@
-# QuaverQ 🎵
+# QuaverQ
 
-QQ 音乐桌面客户端 — **GTK 4 + Libadwaita** (GNOME/XFCE/Cinnamon/KDE 均可)。
+QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Windows / macOS 后续支持，见 [design §1.3](docs/design.md)）**。
 
-基于 [QQMusicApi](https://github.com/L-1124/QQMusicApi) 封装，使用 Python 编写，支持 Nuitka 编译为原生二进制。
+后端基于 [qqmusic-api-python](https://github.com/luren-dc/qqmusic-api-python) 0.6 系列封装，前端用 Qt Quick 写，**明暗双主题（默认跟随系统）**，整体风格参考主流流媒体音乐应用的三栏布局。
 
-## ✨ 特性
+## 状态
 
-- 🔍 歌曲 / 歌手 / 专辑 / 歌单搜索
-- 🎧 在线播放 (GStreamer 后端)
-- 🖥️ GTK 4 + Libadwaita 现代界面
-- 📦 Nuitka 原生编译为二进制，无运行时解压
-- ⚙️ TOML 配置文件
+- **后端核心已完成**：搜索 / 详情 / 推荐 / 排行榜 / 喜欢同步 / 歌词 / 播放队列 / MPRIS / 会话快照 / 封面磁盘缓存 / SQLite TTL cache（`uv run pytest` 全绿）
+- **UI 待重建**：旧实现已清理；PySide6 + Qt Quick 方案分期 Q0–Q11 落地，见 [`docs/design.md`](docs/design.md) §14
+- 目前 `uv run quaverq` 入口尚未接 PySide6 启动（Q0 计划项），仅 core 层可用、测试可跑
 
-## 🚀 快速开始
+## 环境
 
-### 安装依赖
+- Linux（Arch / Fedora / Ubuntu 22.04+ 均测）
+- Python ≥ 3.10
+- Qt 6.6+、PySide6 6.6+
+- 系统包：Qt Quick / QtMultimedia / GStreamer codecs（QtMultimedia 在 Linux 走 GStreamer 后端）
 
 ```bash
 uv sync
+uv run pytest        # core 层测试
+# uv run quaverq     # Q0 落地后再可用
 ```
 
-需要系统装好 GTK 4 / libadwaita / PyGObject 运行时 (各发行版包名不同, 如 Arch: `gtk4 libadwaita python-gobject`).
+## 配置
 
-### 运行
-
-```bash
-uv run quaverq
-```
-
-### 编译为二进制
-
-```bash
-# 安装 Nuitka
-uv add --dev nuitka
-
-# standalone 编译 (输出到 dist/)
-python build.py
-
-# 单文件编译
-python build.py --onefile
-```
-
-## 📁 项目结构
-
-```
-quaverq/
-├── src/quaverq/
-│   ├── __init__.py          # 包信息
-│   ├── __main__.py          # 入口 + Controller
-│   ├── config.py            # 配置管理
-│   ├── core/
-│   │   ├── service.py       # QQMusicApi 封装
-│   │   ├── player.py        # 播放器抽象 (GStreamer)
-│   │   └── models.py        # 数据模型
-│   └── ui/
-│       ├── __init__.py      # GTK 后端入口
-│       ├── base.py          # UI 抽象接口
-│       └── gtk/app.py       # GTK 4 + Libadwaita 实现
-├── build.py                 # Nuitka 编译脚本
-└── pyproject.toml
-```
-
-## ⚙️ 配置
-
-配置文件位于 `~/.config/quaverq/config.toml`：
+`~/.config/quaverq/config.toml`
 
 ```toml
-[api]
-cookie_file = ""  # QQ 音乐 cookie 文件路径 (可选)
-
 [player]
-volume = 0.8
-quality = "balanced"  # high | balanced | standard
+quality = "balanced"   # high | balanced | standard
 ```
 
-## 📄 许可证
+凭据 / 会话快照 / SQLite cache 也都放在 `~/.config/quaverq/`，封面缓存在 `~/.cache/quaverq/covers/`。
+
+## 设计与路线
+
+见 [`docs/design.md`](docs/design.md)。
+
+## 许可证
 
 GPL-3.0-or-later

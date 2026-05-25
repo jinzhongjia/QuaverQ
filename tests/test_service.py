@@ -1,4 +1,4 @@
-"""服务层测试 (qqmusic-api 0.6.1, P1.1.5 bypass 路径).
+"""服务层测试 (qqmusic-api 0.6.1, bypass 路径).
 
 设计:
 - 0.6 Client 调用通过 mock 注入 svc._client (SimpleNamespace 模拟 client.search / album / ...)

@@ -7,7 +7,7 @@
 - ct 在 service 启动时从合法白名单 random.choice 选一个, 实例生命周期固定,
   既避免高风险值 (1/3/4/11/18/23/27/46), 也防止固定值被未来收紧.
 
-见 docs/integration-plan.md P1.1.5 与 findings.md.
+ct 风控背景见 findings.md 第三节; 整体落地节奏见 docs/design.md §14.
 """
 
 from __future__ import annotations
@@ -598,7 +598,7 @@ class QuaverService:
         return f"https://isure.stream.qqmusic.qq.com/{purl}"
 
     # ------------------------------------------------------------------
-    # 用户库 (P1.2 我喜欢 + 我创建的歌单)
+    # 用户库 (我喜欢 + 我创建的歌单)
     # ------------------------------------------------------------------
 
     # 0.6 QQ "我喜欢" 歌单的固定 dirid (所有账号都是 201)

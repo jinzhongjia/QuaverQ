@@ -1,4 +1,4 @@
-"""封面磁盘缓存 (P1.5).
+"""封面磁盘缓存.
 
 文件位置: ~/.cache/quaverq/covers/  (controller 注入路径)
 文件名: sha1(url) + 原 URL 的扩展名 (.jpg / .png; 未知默认 .jpg)
