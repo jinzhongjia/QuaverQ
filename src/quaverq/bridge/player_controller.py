@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -11,6 +12,7 @@ from qasync import asyncSlot
 
 from quaverq.core.models import Song
 from quaverq.core.queue import PlayMode, PlayQueue
+from quaverq.core.state import SessionState
 
 from .models import SongListModel, song_from_map, song_to_map
 from .service_controller import ServiceController
@@ -51,10 +53,12 @@ class PlayerController(QObject):
     def __init__(
         self,
         service_controller: ServiceController,
+        session_state: SessionState | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
+        self._session_state = session_state
         self._queue = PlayQueue()
         self._queue_model = SongListModel(self)
         self._source_url = ""
@@ -65,6 +69,7 @@ class PlayerController(QObject):
         self._loading = False
         self._error_message = ""
         self._load_generation = 0
+        self._restore_session_snapshot()
 
     @Property("QVariant", notify=currentSongChanged)
     def currentSong(self) -> dict[str, Any]:
@@ -195,7 +200,22 @@ class PlayerController(QObject):
 
     @Slot()
     def play(self) -> None:
+        if self._source_url:
+            self.playRequested.emit()
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self.play_async())
+
+    async def play_async(self) -> None:
         if not self._source_url:
+            if self._queue.current() is not None:
+                await self._load_current(
+                    play_when_ready=True,
+                    resume_position_ms=self._position_ms,
+                )
             return
         self.playRequested.emit()
 
@@ -252,15 +272,31 @@ class PlayerController(QObject):
     def updatePlaybackState(self, state: str) -> None:
         self._set_playback_state(state)
 
-    async def _load_current(self, *, play_when_ready: bool) -> None:
+    @Slot()
+    def saveSessionSnapshot(self) -> None:
+        if self._session_state is None:
+            return
+        self._session_state.save(
+            self._queue,
+            position_ms=self._position_ms,
+            volume=self._volume,
+        )
+
+    async def _load_current(
+        self,
+        *,
+        play_when_ready: bool,
+        resume_position_ms: int = 0,
+    ) -> None:
         song = self._queue.current()
         if song is None:
             self.stop()
             return
         self._load_generation += 1
         generation = self._load_generation
+        resume_position_ms = max(0, int(resume_position_ms))
         self._set_source_url("")
-        self._set_position_ms(0)
+        self._set_position_ms(resume_position_ms)
         self.updateDuration(song.duration * 1000)
         self._set_error_message("")
         self._set_loading(True)
@@ -297,8 +333,26 @@ class PlayerController(QObject):
             return
 
         self._set_source_url(song_url.url)
+        if resume_position_ms > 0:
+            self.seekRequested.emit(resume_position_ms)
         if play_when_ready:
             self.playRequested.emit()
+
+    def _restore_session_snapshot(self) -> None:
+        if self._session_state is None:
+            return
+        snapshot = self._session_state.restore()
+        if snapshot is None:
+            return
+        snapshot.apply_to(self._queue)
+        self._sync_queue_model()
+        self._set_position_ms(snapshot.position_ms)
+        self.setVolume(snapshot.volume)
+        song = self._queue.current()
+        if song is not None:
+            self.updateDuration(song.duration * 1000)
+        self._emit_current_changed()
+        self.modeChanged.emit()
 
     def _songs_from_model(self, model: QObject) -> list[Song]:
         if isinstance(model, SongListModel):

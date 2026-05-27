@@ -24,6 +24,21 @@ ApplicationWindow {
     readonly property var serviceController: ServiceController
     readonly property var playerController: PlayerController
     property bool queuePanelOpen: false
+    property int pendingSeekMs: -1
+    property bool playAfterPendingSeek: false
+
+    function applyPendingSeek() {
+        if (root.pendingSeekMs < 0 || !mediaPlayer.seekable)
+            return false
+        const target = root.pendingSeekMs
+        root.pendingSeekMs = -1
+        mediaPlayer.setPosition(target)
+        if (root.playAfterPendingSeek) {
+            root.playAfterPendingSeek = false
+            mediaPlayer.play()
+        }
+        return true
+    }
 
     AudioOutput {
         id: audioOutput
@@ -44,7 +59,9 @@ ApplicationWindow {
         onDurationChanged: {
             if (root.playerController)
                 root.playerController.updateDuration(mediaPlayer.duration)
+            root.applyPendingSeek()
         }
+        onSeekableChanged: root.applyPendingSeek()
         onPlaybackStateChanged: {
             if (root.playerController) {
                 if (playbackState === MediaPlayer.PlayingState) {
@@ -57,6 +74,7 @@ ApplicationWindow {
             }
         }
         onMediaStatusChanged: {
+            root.applyPendingSeek()
             if (root.playerController && mediaStatus === MediaPlayer.EndOfMedia)
                 root.playerController.handleEndOfMedia()
         }
@@ -66,8 +84,13 @@ ApplicationWindow {
         target: root.playerController
 
         function onPlayRequested() {
-            if (root.playerController && root.playerController.sourceUrl.length > 0)
-                mediaPlayer.play()
+            if (!root.playerController || root.playerController.sourceUrl.length <= 0)
+                return
+            if (root.pendingSeekMs >= 0 && !root.applyPendingSeek()) {
+                root.playAfterPendingSeek = true
+                return
+            }
+            mediaPlayer.play()
         }
 
         function onPauseRequested() {
@@ -75,11 +98,14 @@ ApplicationWindow {
         }
 
         function onStopRequested() {
+            root.pendingSeekMs = -1
+            root.playAfterPendingSeek = false
             mediaPlayer.stop()
         }
 
         function onSeekRequested(positionMs) {
-            mediaPlayer.setPosition(positionMs)
+            root.pendingSeekMs = Math.max(0, positionMs)
+            root.applyPendingSeek()
         }
     }
 

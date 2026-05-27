@@ -67,6 +67,7 @@ class SessionSnapshot:
     current_index: int = -1
     position_ms: int = 0
     play_mode: PlayMode = PlayMode.SEQUENCE
+    volume: float = 0.8
 
     def apply_to(self, queue: PlayQueue) -> None:
         """把快照状态写回一个空白 PlayQueue."""
@@ -92,7 +93,13 @@ class SessionState:
     def __init__(self, path):
         self.path = Path(path)
 
-    def save(self, queue: PlayQueue, *, position_ms: int = 0) -> None:
+    def save(
+        self,
+        queue: PlayQueue,
+        *,
+        position_ms: int = 0,
+        volume: float = 0.8,
+    ) -> None:
         """退出时调; 写 state.json. 失败只 log, 不抛."""
         try:
             data = {
@@ -100,6 +107,7 @@ class SessionState:
                 "current_index": queue.current_index,
                 "position_ms": int(position_ms),
                 "play_mode": queue.mode.name,
+                "volume": max(0.0, min(1.0, float(volume))),
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.path, "w") as f:
@@ -122,6 +130,7 @@ class SessionState:
         songs = [_song_from_dict(x) for x in (d.get("queue") or [])]
         ci = int(d.get("current_index", -1) or -1)
         pos = int(d.get("position_ms", 0) or 0)
+        volume = max(0.0, min(1.0, float(d.get("volume", 0.8) or 0.8)))
 
         mode_name = d.get("play_mode", "SEQUENCE")
         try:
@@ -136,6 +145,7 @@ class SessionState:
             current_index=ci,
             position_ms=pos,
             play_mode=mode,
+            volume=volume,
         )
 
     def clear(self) -> None:

@@ -57,12 +57,13 @@ def test_save_creates_file(state_path: Path):
     assert data["current_index"] == 1
     assert data["position_ms"] == 12345
     assert data["play_mode"] == "SEQUENCE"
+    assert data["volume"] == 0.8
 
 
 def test_roundtrip_queue_with_songs(state_path: Path):
     s = SessionState(state_path)
     q = _make_queue(3, mode=PlayMode.SHUFFLE)
-    s.save(q, position_ms=5000)
+    s.save(q, position_ms=5000, volume=0.35)
 
     snap = s.restore()
     assert isinstance(snap, SessionSnapshot)
@@ -73,6 +74,21 @@ def test_roundtrip_queue_with_songs(state_path: Path):
     assert snap.current_index == 1
     assert snap.position_ms == 5000
     assert snap.play_mode == PlayMode.SHUFFLE
+    assert snap.volume == 0.35
+
+
+def test_restore_clamps_volume(state_path: Path):
+    state_path.write_text(json.dumps({
+        "queue": [],
+        "current_index": -1,
+        "position_ms": 0,
+        "play_mode": "SEQUENCE",
+        "volume": 2.0,
+    }))
+    s = SessionState(state_path)
+    snap = s.restore()
+    assert snap is not None
+    assert snap.volume == 1.0
 
 
 def test_roundtrip_empty_queue(state_path: Path):

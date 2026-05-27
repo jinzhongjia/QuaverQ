@@ -759,7 +759,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q3.2 二维码登录
 - [x] Q4a 队列面板
 - [x] Q4a.1 搜索结果分页
-- [ ] Q4b 自动续播 + 会话恢复
+- [x] Q4b 自动续播 + 会话恢复
 - [ ] Q5 导航 + 全视图
 - [ ] Q6 喜欢同步
 - [ ] Q7 歌词

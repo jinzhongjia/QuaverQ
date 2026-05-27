@@ -14,7 +14,8 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from .bridge import AppController, PlayerController, ServiceController
-from .config import load as load_config
+from .config import CONFIG_DIR, load as load_config
+from .core.state import SessionState
 
 logger = logging.getLogger("quaverq")
 
@@ -71,7 +72,11 @@ def main() -> None:
 
     service_controller = ServiceController()
     app_controller = AppController(service_controller)
-    player_controller = PlayerController(service_controller)
+    player_controller = PlayerController(
+        service_controller,
+        session_state=SessionState(CONFIG_DIR / "state.json"),
+    )
+    app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
