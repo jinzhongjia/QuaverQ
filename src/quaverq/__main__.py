@@ -13,6 +13,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
+from .bridge import AppController, ServiceController
 from .config import load as load_config
 
 logger = logging.getLogger("quaverq")
@@ -42,8 +43,13 @@ def main() -> None:
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
+    app_controller = AppController()
+    service_controller = ServiceController()
+
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
+    engine.rootContext().setContextProperty("AppController", app_controller)
+    engine.rootContext().setContextProperty("ServiceController", service_controller)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
@@ -52,6 +58,7 @@ def main() -> None:
 
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
+        loop.create_task(service_controller.start())
         loop.run_forever()
 
 

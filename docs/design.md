@@ -648,9 +648,10 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 
 | # | 步骤 | 关键文件 | 验证 |
 |---|---|---|---|
-| **Q0** | 依赖切换 + 最小 Hello window | `pyproject.toml`、`__main__.py`、`qml/Main.qml` | `uv run quaverq` 出空窗口；pytest 既有 174 测试不掉 |
+| **Q0** | 依赖切换 + 最小 Hello window | `pyproject.toml`、`__main__.py`、`qml/Main.qml` | `uv run quaverq` 出空窗口；pytest 全绿 |
 | **Q1** | Theme singleton (Palette / TypeScale / Spacing / Motion) + 验收用 demo 组件 | `qml/Theme/*` | QML 端 import 走通；Palette 切换暗 / 亮可见 |
 | **Q2** | `AppController` + `ServiceController` 骨架 + qasync 接入；QML 搜索框 → SongList 渲染 | `bridge/app_controller.py`、`bridge/service_controller.py`、`bridge/models.py`、`qml/views/SearchView.qml` | 输入 "周杰伦"，列表回填 |
+| **Q2.5** | 基础视觉组件 polish：SearchField / NavItem / SongRow / PlayerBar shell | `qml/components/*`、`qml/Main.qml`、`qml/views/SearchView.qml` | 去除 Qt Basic 默认表单感；搜索页和底栏具备可继续扩展的组件基线 |
 | **Q3** | `PlayerController` + `MediaPlayer` 绑定 + PlayerBar；点歌出声 | `bridge/player_controller.py`、`qml/panels/PlayerBar.qml` | 点歌播；transport 全功能；模式切换 |
 | **Q4** | 队列面板 + 自动续播 + 会话恢复 | `qml/panels/QueuePanel.qml`、`state.py` 接入 | 续播 / 重启恢复 |
 | **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail / NowPlaying 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回；PlayerBar 可进入 NowPlaying |
@@ -667,8 +668,9 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 2. 跑红
 3. 写实现（必要时再写 QML）
 4. 跑绿
-5. 给用户**手动验证清单**
-6. 等"过了"再推 next
+5. 对 UI 改动跑 offscreen 截图检查（见 §14.3）
+6. 给用户**手动验证清单**
+7. 等"过了"再推 next
 
 ### 14.2 风险登记
 
@@ -681,13 +683,67 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | 凭据过期 race | `AppController.checkCredentialExpired` 启动跑一次 + 失败拦截重试 |
 | QQ 音乐扩大 `ct` 风控范围 | 保持 `_SAFE_CT_VALUES` 黑名单测试；监控取链失败码，必要时重新跑稳定性矩阵并更新 safe 池 |
 
+### 14.3 UI 截图验证
+
+每个 UI 阶段至少跑一次 headless QML 截图，确认窗口能加载、关键区域非空、布局没有明显错位。默认输出到 `/tmp/quaverq-ui.png`，必要时填充 fake model 数据。
+
+```bash
+QT_QPA_PLATFORM=offscreen uv run python - <<'PY'
+from pathlib import Path
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtWidgets import QApplication
+
+from quaverq.__main__ import _qml_main_path, _qml_root_path
+from quaverq.bridge import AppController, ServiceController
+from quaverq.core.models import Singer, Song
+
+out = Path("/tmp/quaverq-ui.png")
+
+QQuickStyle.setStyle("Basic")
+app = QApplication([])
+app_controller = AppController()
+service_controller = ServiceController()
+service_controller.songResults.set_songs([
+    Song(mid="m1", name="晴天", singers=[Singer(mid="s1", name="周杰伦")], album_name="叶惠美", duration=269),
+    Song(mid="m2", name="七里香", singers=[Singer(mid="s1", name="周杰伦")], album_name="七里香", duration=299),
+    Song(mid="m3", name="搁浅", singers=[Singer(mid="s1", name="周杰伦")], album_name="七里香", duration=240),
+])
+
+engine = QQmlApplicationEngine()
+engine.addImportPath(str(_qml_root_path()))
+engine.rootContext().setContextProperty("AppController", app_controller)
+engine.rootContext().setContextProperty("ServiceController", service_controller)
+engine.load(QUrl.fromLocalFile(str(_qml_main_path())))
+root = engine.rootObjects()[0]
+root.show()
+
+def grab():
+    image = root.grabWindow()
+    ok = image.save(str(out))
+    print("saved", out, ok, image.size())
+    app.quit()
+
+QTimer.singleShot(250, grab)
+app.exec()
+PY
+```
+
+辅助启动检查：
+
+```bash
+QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
+```
+
 ---
 
 ## 15. 验收看板（按期勾选）
 
 - [x] Q0 依赖与最小窗口
 - [x] Q1 Theme tokens
-- [ ] Q2 Service + 搜索
+- [x] Q2 Service + 搜索
+- [x] Q2.5 基础视觉组件 polish
 - [ ] Q3 播放器
 - [ ] Q4 队列 + 会话恢复
 - [ ] Q5 导航 + 全视图

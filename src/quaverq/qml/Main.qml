@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "components" as Components
 import "Theme" as ThemeTokens
+import "views" as Views
 
 ApplicationWindow {
     id: root
@@ -14,79 +16,71 @@ ApplicationWindow {
     title: qsTr("QuaverQ")
     color: ThemeTokens.Palette.background
 
-    Rectangle {
-        anchors.fill: parent
-        color: ThemeTokens.Palette.background
+    Shortcut {
+        sequence: "Ctrl+F"
+        onActivated: searchField.focusInput()
+    }
 
-        ColumnLayout {
-            anchors.centerIn: parent
+    Rectangle {
+        id: headerBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: ThemeTokens.Spacing.headerHeight
+        color: ThemeTokens.Palette.surface
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: ThemeTokens.Spacing.s5
+            anchors.rightMargin: ThemeTokens.Spacing.s5
             spacing: ThemeTokens.Spacing.s5
 
             Label {
-                Layout.alignment: Qt.AlignHCenter
                 text: qsTr("QuaverQ")
                 color: ThemeTokens.Palette.onSurface
-                font.pixelSize: ThemeTokens.TypeScale.display
+                font.pixelSize: ThemeTokens.TypeScale.h2
                 font.weight: ThemeTokens.TypeScale.medium
             }
 
-            Label {
-                Layout.alignment: Qt.AlignHCenter
-                text: qsTr("Qt Quick shell is ready")
-                color: ThemeTokens.Palette.onSurfaceVariant
-                font.pixelSize: ThemeTokens.TypeScale.body
-            }
+            Components.SearchField {
+                id: searchField
 
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.topMargin: ThemeTokens.Spacing.s3
-                implicitWidth: Math.min(root.width - ThemeTokens.Spacing.s8, ThemeTokens.Spacing.s8 * 8)
-                implicitHeight: ThemeTokens.Spacing.s8 * 2
-                radius: ThemeTokens.Spacing.radiusLg
-                color: ThemeTokens.Palette.surface
-                border.color: ThemeTokens.Palette.outline
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: ThemeTokens.Spacing.s5
-                    spacing: ThemeTokens.Spacing.s4
-
-                    Rectangle {
-                        Layout.preferredWidth: ThemeTokens.Spacing.s8
-                        Layout.preferredHeight: ThemeTokens.Spacing.s8
-                        radius: ThemeTokens.Spacing.radiusMd
-                        color: ThemeTokens.Palette.primaryContainer
-
-                        Label {
-                            anchors.centerIn: parent
-                            text: "Q"
-                            color: ThemeTokens.Palette.primary
-                            font.pixelSize: ThemeTokens.TypeScale.h1
-                            font.weight: ThemeTokens.TypeScale.medium
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: ThemeTokens.Spacing.s2
-
-                        Label {
-                            text: ThemeTokens.Theme.dark ? qsTr("Dark tokens active") : qsTr("Light tokens active")
-                            color: ThemeTokens.Palette.onSurface
-                            font.pixelSize: ThemeTokens.TypeScale.body
-                            font.weight: ThemeTokens.TypeScale.medium
-                        }
-
-                        Label {
-                            text: qsTr("Palette / TypeScale / Spacing / Motion")
-                            color: ThemeTokens.Palette.onSurfaceVariant
-                            font.pixelSize: ThemeTokens.TypeScale.caption
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                    }
+                Layout.fillWidth: true
+                Layout.maximumWidth: 520
+                placeholderText: qsTr("搜索歌曲、歌手、专辑")
+                text: "周杰伦"
+                loading: ServiceController.loading
+                onSearchRequested: function(keyword) {
+                    ServiceController.search(keyword)
                 }
             }
         }
+    }
+
+    RowLayout {
+        anchors.top: headerBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: playerBar.top
+        spacing: 0
+
+        Components.Sidebar {
+            Layout.preferredWidth: root.width < 920 ? 64 : 240
+            Layout.fillHeight: true
+            compact: root.width < 920
+            selectedRoute: "search"
+        }
+
+        Views.SearchView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+    }
+
+    Components.PlayerBar {
+        id: playerBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
     }
 }
