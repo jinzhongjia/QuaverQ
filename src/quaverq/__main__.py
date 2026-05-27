@@ -22,6 +22,10 @@ def _qml_main_path() -> Path:
     return Path(__file__).resolve().parent / "qml" / "Main.qml"
 
 
+def _qml_root_path() -> Path:
+    return Path(__file__).resolve().parent / "qml"
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -39,6 +43,7 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     engine = QQmlApplicationEngine()
+    engine.addImportPath(str(_qml_root_path()))
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():

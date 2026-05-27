@@ -118,6 +118,14 @@ qml/Theme/
 └── Motion.qml       动画时长 / 缓动
 ```
 
+当前源码按目录 singleton 导入：
+
+```qml
+import "Theme" as ThemeTokens
+```
+
+组件内通过 `ThemeTokens.Palette.background` / `ThemeTokens.TypeScale.body` / `ThemeTokens.Spacing.s5` 访问 token。后续若改成正式 QML module URI，需要同步调整 import path 与打包配置。
+
 **模式选择**：`Theme.dark` 默认绑定 `Application.styleHints.colorScheme === Qt.Dark`（Qt 6.5+ 跟随系统），用户也可在设置里强制 `Light / Dark / System` 三档，写入 `QSettings`。切换时只动 token，**不重建组件**——所有组件用 `Palette.background` 这种 binding 自动重绘。
 
 ### 4.2 调色板（角色令牌）
@@ -678,7 +686,7 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 ## 15. 验收看板（按期勾选）
 
 - [x] Q0 依赖与最小窗口
-- [ ] Q1 Theme tokens
+- [x] Q1 Theme tokens
 - [ ] Q2 Service + 搜索
 - [ ] Q3 播放器
 - [ ] Q4 队列 + 会话恢复

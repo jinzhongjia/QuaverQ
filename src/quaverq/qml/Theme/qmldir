@@ -1,0 +1,5 @@
+singleton Theme 1.0 Theme.qml
+singleton Palette 1.0 Palette.qml
+singleton TypeScale 1.0 TypeScale.qml
+singleton Spacing 1.0 Spacing.qml
+singleton Motion 1.0 Motion.qml
