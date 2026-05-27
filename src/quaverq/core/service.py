@@ -145,6 +145,7 @@ class QuaverService:
         "standard": ("MP3_128", "OGG_192"),
     }
     _DEFAULT_QUALITY = "balanced"
+    _VKEY_REQUEST_TIMEOUT_SEC = 4
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -545,6 +546,7 @@ class QuaverService:
         param: dict[str, Any],
         *,
         require_login: bool = False,
+        timeout: float = 10,
     ) -> dict[str, Any] | None:
         """通用 musicu.fcg POST: 用 self._ct_value 跳过库默认 ct=11 的降级响应.
 
@@ -570,7 +572,7 @@ class QuaverService:
                 r = s.post(
                     "https://u.y.qq.com/cgi-bin/musicu.fcg",
                     json=body,
-                    timeout=10,
+                    timeout=timeout,
                 )
                 return r.json()
 
@@ -607,6 +609,7 @@ class QuaverService:
                 "songtype": [0],
             },
             require_login=True,
+            timeout=self._VKEY_REQUEST_TIMEOUT_SEC,
         )
         if not data:
             return None

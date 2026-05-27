@@ -12,17 +12,24 @@ Rectangle {
     required property string albumName
     required property string durationText
     required property int index
+    property bool selected: false
+
+    readonly property string accessibleText: root.albumName
+        ? qsTr("%1, %2, %3").arg(root.name).arg(root.singers).arg(root.albumName)
+        : qsTr("%1, %2").arg(root.name).arg(root.singers)
 
     signal activated(var songData, int row)
 
     implicitHeight: 58
     radius: ThemeTokens.Spacing.radiusMd
-    color: hoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+    color: root.selected
+        ? ThemeTokens.Palette.stateSelected
+        : hoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent"
 
     Accessible.role: Accessible.ListItem
-    Accessible.name: root.albumName
-        ? qsTr("%1, %2, %3").arg(root.name).arg(root.singers).arg(root.albumName)
-        : qsTr("%1, %2").arg(root.name).arg(root.singers)
+    Accessible.name: root.selected
+        ? qsTr("正在播放，%1").arg(root.accessibleText)
+        : root.accessibleText
     activeFocusOnTab: true
 
     HoverHandler {
@@ -35,6 +42,16 @@ Rectangle {
 
     Keys.onReturnPressed: root.activated(root.song, root.index)
     Keys.onSpacePressed: root.activated(root.song, root.index)
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 3
+        visible: root.selected
+        radius: width / 2
+        color: ThemeTokens.Palette.primary
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -83,6 +100,7 @@ Rectangle {
                 text: root.name
                 color: ThemeTokens.Palette.onSurface
                 font.pixelSize: ThemeTokens.TypeScale.body
+                font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
                 elide: Text.ElideRight
             }
 

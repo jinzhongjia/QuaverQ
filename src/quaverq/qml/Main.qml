@@ -1,9 +1,12 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtMultimedia
 import "components" as Components
 import "dialogs" as Dialogs
+import "panels" as Panels
 import "Theme" as ThemeTokens
 import "views" as Views
 
@@ -20,6 +23,7 @@ ApplicationWindow {
     readonly property var appController: AppController
     readonly property var serviceController: ServiceController
     readonly property var playerController: PlayerController
+    property bool queuePanelOpen: false
 
     AudioOutput {
         id: audioOutput
@@ -156,6 +160,9 @@ ApplicationWindow {
         durationMs: root.playerController ? root.playerController.durationMs : 0
         volume: root.playerController ? root.playerController.volume : 0.8
         mode: root.playerController ? root.playerController.mode : "sequence"
+        queueCount: root.playerController && root.playerController.queueModel
+            ? root.playerController.queueModel.count
+            : 0
         loading: root.playerController ? root.playerController.loading : false
         errorMessage: root.playerController ? root.playerController.errorMessage : ""
         onPlayPauseRequested: {
@@ -181,6 +188,33 @@ ApplicationWindow {
         onModeRequested: function(value) {
             if (root.playerController)
                 root.playerController.setMode(value)
+        }
+        onQueueRequested: root.queuePanelOpen = !root.queuePanelOpen
+    }
+
+    Loader {
+        id: queuePanelLoader
+
+        active: root.queuePanelOpen
+        asynchronous: true
+        visible: active
+        anchors.top: headerBar.bottom
+        anchors.right: parent.right
+        anchors.bottom: playerBar.top
+        width: Math.min(360, root.width - 96)
+        z: 10
+
+        sourceComponent: Component {
+            Panels.QueuePanel {
+                anchors.fill: parent
+                queueModel: root.playerController ? root.playerController.queueModel : null
+                currentIndex: root.playerController ? root.playerController.currentIndex : -1
+                onCloseRequested: root.queuePanelOpen = false
+                onPlayIndexRequested: function(row) {
+                    if (root.playerController)
+                        root.playerController.playQueueIndex(row)
+                }
+            }
         }
     }
 

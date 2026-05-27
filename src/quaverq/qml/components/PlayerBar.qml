@@ -14,6 +14,7 @@ Rectangle {
     property string mode: "sequence"
     property bool loading: false
     property string errorMessage: ""
+    property int queueCount: 0
 
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -30,6 +31,7 @@ Rectangle {
     signal seekRequested(int positionMs)
     signal volumeRequested(real volume)
     signal modeRequested(string mode)
+    signal queueRequested()
 
     height: ThemeTokens.Spacing.playerBarHeight
     color: ThemeTokens.Palette.surface
@@ -278,6 +280,31 @@ Rectangle {
                         font.pixelSize: ThemeTokens.TypeScale.caption
                     }
                 }
+            }
+        }
+
+        Button {
+            id: queueButton
+
+            Layout.preferredWidth: root.queueCount > 99 ? 92 : 74
+            Layout.preferredHeight: 34
+            text: root.queueCount > 0 ? qsTr("待播 %1").arg(root.queueCount) : qsTr("待播")
+            Accessible.name: qsTr("待播列表")
+            onClicked: root.queueRequested()
+
+            contentItem: Label {
+                text: queueButton.text
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: ThemeTokens.Palette.onSurface
+                font.pixelSize: ThemeTokens.TypeScale.caption
+                elide: Text.ElideRight
+            }
+
+            background: Rectangle {
+                radius: ThemeTokens.Spacing.radiusMd
+                color: queueButton.down ? ThemeTokens.Palette.statePressed : queueButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                border.color: ThemeTokens.Palette.outline
             }
         }
 

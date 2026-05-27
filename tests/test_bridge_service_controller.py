@@ -13,7 +13,28 @@ from quaverq.core.models import Singer, Song
 class _FakeService:
     def __init__(self) -> None:
         self.connected = False
-        self.search_calls: list[tuple[str, int]] = []
+        self.search_calls: list[tuple[str, int, int]] = []
+        self.search_pages: dict[int, list[Song]] = {
+            1: [
+                Song(
+                    mid=f"m{i}",
+                    name=f"第{i}首",
+                    singers=[Singer(mid="s1", name="周杰伦")],
+                    album_name="叶惠美",
+                    duration=269,
+                )
+                for i in range(30)
+            ],
+            2: [
+                Song(
+                    mid="m31",
+                    name="第31首",
+                    singers=[Singer(mid="s1", name="周杰伦")],
+                    album_name="叶惠美",
+                    duration=269,
+                )
+            ],
+        }
 
     async def connect(self) -> None:
         self.connected = True
@@ -21,17 +42,15 @@ class _FakeService:
     async def disconnect(self) -> None:
         self.connected = False
 
-    async def search_songs(self, keyword: str, *, limit: int = 30) -> list[Song]:
-        self.search_calls.append((keyword, limit))
-        return [
-            Song(
-                mid="m1",
-                name="晴天",
-                singers=[Singer(mid="s1", name="周杰伦")],
-                album_name="叶惠美",
-                duration=269,
-            )
-        ]
+    async def search_songs(
+        self,
+        keyword: str,
+        *,
+        page: int = 1,
+        limit: int = 30,
+    ) -> list[Song]:
+        self.search_calls.append((keyword, page, limit))
+        return self.search_pages.get(page, [])
 
 
 class _FakeAuthService(_FakeService):
@@ -81,11 +100,13 @@ async def test_search_async_starts_service_and_populates_model():
     await controller.search_async(" 周杰伦 ")
 
     assert service.connected is True
-    assert service.search_calls == [("周杰伦", 30)]
+    assert service.search_calls == [("周杰伦", 1, 30)]
     assert controller.loading is False
     assert controller.errorMessage == ""
-    assert controller.songResults.count == 1
-    assert controller.songResults.songAt(0)["name"] == "晴天"
+    assert controller.currentPage == 1
+    assert controller.hasNextPage is True
+    assert controller.songResults.count == 30
+    assert controller.songResults.songAt(0)["name"] == "第0首"
 
 
 async def test_search_async_empty_keyword_clears_results_without_network():
@@ -97,6 +118,69 @@ async def test_search_async_empty_keyword_clears_results_without_network():
     assert service.connected is False
     assert service.search_calls == []
     assert controller.songResults.count == 0
+    assert controller.currentPage == 0
+    assert controller.hasNextPage is False
+
+
+async def test_next_page_replaces_results_and_updates_pagination():
+    service = _FakeService()
+    controller = ServiceController(service=service)
+
+    await controller.search_async("周杰伦")
+    await controller.next_page_async()
+
+    assert service.search_calls == [("周杰伦", 1, 30), ("周杰伦", 2, 30)]
+    assert controller.currentPage == 2
+    assert controller.songResults.count == 1
+    assert controller.songResults.songAt(0)["name"] == "第31首"
+    assert controller.hasNextPage is False
+
+
+async def test_next_page_empty_keeps_current_page_and_disables_next():
+    service = _FakeService()
+    service.search_pages = {1: service.search_pages[1], 2: []}
+    controller = ServiceController(service=service)
+
+    await controller.search_async("周杰伦")
+    await controller.next_page_async()
+
+    assert service.search_calls == [("周杰伦", 1, 30), ("周杰伦", 2, 30)]
+    assert controller.currentPage == 1
+    assert controller.songResults.count == 30
+    assert controller.hasNextPage is False
+
+
+async def test_previous_page_replaces_results_with_previous_page():
+    service = _FakeService()
+    controller = ServiceController(service=service)
+
+    await controller.search_async("周杰伦")
+    await controller.next_page_async()
+    await controller.previous_page_async()
+
+    assert service.search_calls == [
+        ("周杰伦", 1, 30),
+        ("周杰伦", 2, 30),
+        ("周杰伦", 1, 30),
+    ]
+    assert controller.currentPage == 1
+    assert controller.songResults.count == 30
+    assert controller.songResults.songAt(0)["name"] == "第0首"
+    assert controller.hasNextPage is True
+
+
+async def test_next_page_ignores_when_no_next_page():
+    service = _FakeService()
+    service.search_pages = {1: [Song(mid="m1", name="晴天")]}
+    controller = ServiceController(service=service)
+
+    await controller.search_async("周杰伦")
+    await controller.next_page_async()
+
+    assert service.search_calls == [("周杰伦", 1, 30)]
+    assert controller.currentPage == 1
+    assert controller.songResults.count == 1
+    assert controller.hasNextPage is False
 
 
 async def test_start_loads_cached_credential_when_available():

@@ -132,6 +132,20 @@ class PlayerController(QObject):
         songs = self._songs_from_model(model)
         await self.play_songs_async(songs, row)
 
+    @asyncSlot(int)
+    async def playQueueIndex(self, index: int) -> None:
+        await self.play_queue_index_async(index)
+
+    async def play_queue_index_async(self, index: int) -> None:
+        song = self._queue.jump_to(index)
+        if song is None:
+            message = "无法播放：队列项不存在"
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+            return
+        self._emit_current_changed()
+        await self._load_current(play_when_ready=True)
+
     async def play_songs_async(self, songs: list[Song], start_index: int) -> None:
         if not songs or not (0 <= start_index < len(songs)):
             message = "无法播放：队列数据不完整"

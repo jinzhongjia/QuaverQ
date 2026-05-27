@@ -361,6 +361,20 @@ async def test_try_bypass_url_uses_media_mid_for_filename():
     assert captured["filename"] == ["M500mediamidmediamid.mp3"]
 
 
+async def test_try_bypass_url_uses_short_vkey_timeout():
+    svc = QuaverService()
+    captured: dict[str, object] = {}
+
+    async def fake_post(_module, _method, _param, **kwargs):
+        captured.update(kwargs)
+        return {"midurlinfo": [{"purl": "M500m.mp3?vkey=k"}]}
+
+    svc._bypass_post = fake_post
+    await svc._try_bypass_url("m", "MP3_128")
+
+    assert captured["timeout"] == svc._VKEY_REQUEST_TIMEOUT_SEC
+
+
 # ============================================================== ct 随机白名单
 
 def test_safe_ct_values_excludes_blocklist():

@@ -97,6 +97,36 @@ async def test_play_from_model_uses_full_search_result_queue_and_next():
     ]
 
 
+async def test_play_queue_index_jumps_within_existing_queue():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    model = SongListModel()
+    model.set_songs([_song("m1", "晴天"), _song("m2", "七里香"), _song("m3", "稻香")])
+
+    await controller.play_from_model_async(model, 0)
+    await controller.play_queue_index_async(2)
+
+    assert controller.queueModel.count == 3
+    assert controller.currentIndex == 2
+    assert controller.currentSong["name"] == "稻香"
+    assert controller.sourceUrl == "https://audio.example.test/m3.mp3"
+    assert [(song.mid, quality) for song, quality in service.calls] == [
+        ("m1", "balanced"),
+        ("m3", "balanced"),
+    ]
+
+
+async def test_play_queue_index_rejects_invalid_index():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.play_queue_index_async(3)
+
+    assert errors == ["无法播放：队列项不存在"]
+    assert controller.errorMessage == "无法播放：队列项不存在"
+
+
 async def test_play_songs_ignores_duplicate_request_while_loading():
     service = _FakeServiceController()
     controller = PlayerController(service)  # type: ignore[arg-type]

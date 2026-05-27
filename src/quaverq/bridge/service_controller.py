@@ -23,6 +23,8 @@ class ServiceController(QObject):
 
     songResultsChanged = Signal()
     loadingChanged = Signal()
+    currentPageChanged = Signal()
+    hasNextPageChanged = Signal()
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
     authStateChanged = Signal()
@@ -36,6 +38,10 @@ class ServiceController(QObject):
         self._service = service or QuaverService()
         self._song_results = SongListModel(self)
         self._loading = False
+        self._has_next_page = False
+        self._search_keyword = ""
+        self._current_page = 0
+        self._page_size = 30
         self._error_message = ""
         self._started = False
 
@@ -46,6 +52,18 @@ class ServiceController(QObject):
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
         return self._loading
+
+    @Property(int, notify=currentPageChanged)
+    def currentPage(self) -> int:
+        return self._current_page
+
+    @Property(bool, notify=hasNextPageChanged)
+    def hasNextPage(self) -> bool:
+        return self._has_next_page
+
+    @Property(int, constant=True)
+    def pageSize(self) -> int:
+        return self._page_size
 
     @Property(str, notify=errorMessageChanged)
     def errorMessage(self) -> str:
@@ -87,16 +105,49 @@ class ServiceController(QObject):
         kw = (keyword or "").strip()
         self._set_error_message("")
         if not kw:
+            self._reset_search_state()
             self._song_results.clear()
             return
 
+        await self._load_search_page(kw, 1)
+
+    @asyncSlot()
+    async def nextPage(self) -> None:
+        await self.next_page_async()
+
+    async def next_page_async(self) -> None:
+        if not self._search_keyword or self._loading or not self._has_next_page:
+            return
+        await self._load_search_page(self._search_keyword, self._current_page + 1)
+
+    @asyncSlot()
+    async def previousPage(self) -> None:
+        await self.previous_page_async()
+
+    async def previous_page_async(self) -> None:
+        if not self._search_keyword or self._loading or self._current_page <= 1:
+            return
+        await self._load_search_page(self._search_keyword, self._current_page - 1)
+
+    async def _load_search_page(self, keyword: str, page: int) -> None:
         self._set_loading(True)
+        self._set_error_message("")
         try:
             await self._ensure_started()
-            songs = await self._service.search_songs(kw, limit=30)
+            songs = await self._service.search_songs(
+                keyword,
+                page=page,
+                limit=self._page_size,
+            )
+            if page > 1 and not songs:
+                self._set_has_next_page(False)
+                return
+            self._search_keyword = keyword
             self._song_results.set_songs(songs)
+            self._set_current_page(page if songs or page == 1 else 0)
+            self._set_has_next_page(len(songs) >= self._page_size)
         except Exception as exc:
-            logger.exception("search failed: %s", kw)
+            logger.exception("search failed: %s page %d", keyword, page)
             message = str(exc) or exc.__class__.__name__
             self._set_error_message(message)
             self.errorRaised.emit(message)
@@ -106,6 +157,7 @@ class ServiceController(QObject):
     @Slot()
     def clear(self) -> None:
         self._set_error_message("")
+        self._reset_search_state()
         self._song_results.clear()
 
     async def get_song_url(
@@ -165,6 +217,23 @@ class ServiceController(QObject):
             return
         self._loading = value
         self.loadingChanged.emit()
+
+    def _set_current_page(self, value: int) -> None:
+        if self._current_page == value:
+            return
+        self._current_page = value
+        self.currentPageChanged.emit()
+
+    def _set_has_next_page(self, value: bool) -> None:
+        if self._has_next_page == value:
+            return
+        self._has_next_page = value
+        self.hasNextPageChanged.emit()
+
+    def _reset_search_state(self) -> None:
+        self._search_keyword = ""
+        self._set_current_page(0)
+        self._set_has_next_page(False)
 
     def _set_error_message(self, value: str) -> None:
         if self._error_message == value:

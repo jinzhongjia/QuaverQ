@@ -655,7 +655,9 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q3** | `PlayerController` + `MediaPlayer` 绑定 + PlayerBar；点歌出声 | `bridge/player_controller.py`、`qml/components/PlayerBar.qml` | 点歌播；transport 全功能；模式切换 |
 | **Q3.1** | 登录前置兜底：启动加载缓存凭据；无凭据时 PlayerBar 显示需要登录 | `bridge/service_controller.py`、`bridge/player_controller.py`、`qml/components/PlayerBar.qml` | 无 `credential.json` 时错误明确；有缓存凭据时可直接验收 Q3 播放 |
 | **Q3.2** | 提前落地二维码登录：侧栏入口 + 登录弹窗 + 凭据保存 | `bridge/app_controller.py`、`bridge/service_controller.py`、`qml/dialogs/LoginDialog.qml`、`qml/components/Sidebar.qml` | 全新设备可扫码生成 `credential.json`，登录后点歌可取链 |
-| **Q4** | 队列面板 + 自动续播 + 会话恢复 | `qml/panels/QueuePanel.qml`、`state.py` 接入 | 续播 / 重启恢复 |
+| **Q4a** | 队列面板 + 当前项跳播 | `bridge/player_controller.py`、`qml/panels/QueuePanel.qml`、`qml/components/PlayerBar.qml` | 底栏可打开队列；当前项高亮；点击队列项可跳播 |
+| **Q4a.1** | 搜索结果明确分页 | `bridge/service_controller.py`、`qml/views/SearchView.qml` | 首屏 30 条；上一页 / 下一页切换；无下一页时按钮禁用 |
+| **Q4b** | 自动续播完善 + 会话恢复 | `state.py`、`PlayerController` 接入 | 播放结束自动进入下一首；重启恢复队列 / 当前曲 / position / 模式 |
 | **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail / NowPlaying 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回；PlayerBar 可进入 NowPlaying |
 | **Q6** | 喜欢同步 + LibraryController 接入 + LikeButton | `bridge/library_controller.py`、`qml/components/LikeButton.qml` | 双向同步、断网降级 |
 | **Q7** | 歌词 + LyricPanel 紧凑同步 + NowPlaying 大歌词 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`qml/views/NowPlayingView.qml`、`bridge/lyric_model.py` | 行同步精度 < 200 ms |
@@ -713,6 +715,9 @@ service_controller.songResults.set_songs([
     Song(mid="m2", name="七里香", singers=[Singer(mid="s1", name="周杰伦")], album_name="七里香", duration=299),
     Song(mid="m3", name="搁浅", singers=[Singer(mid="s1", name="周杰伦")], album_name="七里香", duration=240),
 ])
+player_controller._queue.push(service_controller.songResults.songs(), play_now=True, start_index=1)
+player_controller._sync_queue_model()
+player_controller._emit_current_changed()
 
 engine = QQmlApplicationEngine()
 engine.addImportPath(str(_qml_root_path()))
@@ -721,6 +726,7 @@ engine.rootContext().setContextProperty("ServiceController", service_controller)
 engine.rootContext().setContextProperty("PlayerController", player_controller)
 engine.load(QUrl.fromLocalFile(str(_qml_main_path())))
 root = engine.rootObjects()[0]
+root.setProperty("queuePanelOpen", True)
 root.show()
 
 def grab():
@@ -751,7 +757,9 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q3 播放器
 - [x] Q3.1 登录前置兜底
 - [x] Q3.2 二维码登录
-- [ ] Q4 队列 + 会话恢复
+- [x] Q4a 队列面板
+- [x] Q4a.1 搜索结果分页
+- [ ] Q4b 自动续播 + 会话恢复
 - [ ] Q5 导航 + 全视图
 - [ ] Q6 喜欢同步
 - [ ] Q7 歌词
