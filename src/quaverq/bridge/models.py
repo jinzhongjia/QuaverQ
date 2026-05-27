@@ -147,6 +147,9 @@ class SongListModel(QAbstractListModel):
         self.endResetModel()
         self.countChanged.emit()
 
+    def songs(self) -> list[Song]:
+        return list(self._songs)
+
     def clear(self) -> None:
         self.set_songs([])
 

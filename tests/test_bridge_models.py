@@ -53,6 +53,18 @@ def test_song_at_returns_qvariant_map_shape():
     assert model.songAt(99) == {}
 
 
+def test_songs_returns_copy_of_model_items():
+    model = SongListModel()
+    song = _song()
+    model.set_songs([song])
+
+    songs = model.songs()
+    songs.clear()
+
+    assert model.count == 1
+    assert model.songs() == [song]
+
+
 def test_song_map_roundtrip():
     song = _song()
     data = song_to_map(song)

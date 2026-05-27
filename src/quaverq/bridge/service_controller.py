@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Callable
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from qasync import asyncSlot
@@ -24,6 +25,7 @@ class ServiceController(QObject):
     loadingChanged = Signal()
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
+    authStateChanged = Signal()
 
     def __init__(
         self,
@@ -49,10 +51,22 @@ class ServiceController(QObject):
     def errorMessage(self) -> str:
         return self._error_message
 
+    @Property(bool, notify=authStateChanged)
+    def authed(self) -> bool:
+        return bool(getattr(self._service, "is_authenticated", False))
+
     async def start(self) -> None:
         if self._started:
             return
         await self._service.connect()
+        get_cached = getattr(self._service, "_get_cached_credential", None)
+        set_credential = getattr(self._service, "set_credential", None)
+        if callable(get_cached) and callable(set_credential):
+            cached_credential = await get_cached()
+            if cached_credential is not None:
+                await set_credential(cached_credential)
+                logger.info("loaded cached QQ Music credential")
+                self.authStateChanged.emit()
         self._started = True
 
     async def stop(self) -> None:
@@ -100,10 +114,51 @@ class ServiceController(QObject):
         quality_preference: str,
     ) -> Any:
         await self._ensure_started()
+        is_authenticated = getattr(self._service, "is_authenticated", True)
+        if is_authenticated is False:
+            raise RuntimeError("播放需要先登录 QQ 音乐")
         return await self._service.get_song_url(
             song_from_map(song),
             quality_preference=quality_preference or "balanced",
         )
+
+    async def login_by_qrcode(
+        self,
+        on_qrcode: Callable[[bytes, str, str], None],
+        on_status: Callable[[str], None] | None = None,
+    ) -> bool:
+        await self._ensure_started()
+        previous_callback = self._service.on_qrcode
+        previous_status_callback = getattr(self._service, "on_login_status", None)
+
+        def emit_qrcode(data: bytes, kind: str, mimetype: str = "image/png") -> None:
+            on_qrcode(data, kind, mimetype)
+
+        self._service.on_qrcode = emit_qrcode
+        self._service.on_login_status = on_status
+        try:
+            success = await self._service.login_by_qrcode()
+            if success:
+                await self._service.save_credential()
+                self.authStateChanged.emit()
+            return success
+        finally:
+            self._service.on_qrcode = previous_callback
+            self._service.on_login_status = previous_status_callback
+
+    async def logout_async(self) -> None:
+        await self._ensure_started()
+        set_credential = getattr(self._service, "set_credential", None)
+        if callable(set_credential):
+            await set_credential(None)
+            logger.info("cleared QQ Music credential from memory")
+        credential_path = getattr(self._service, "_credential_cache_path", "")
+        if credential_path and os.path.exists(credential_path):
+            os.remove(credential_path)
+            logger.info("removed cached QQ Music credential: %s", credential_path)
+        else:
+            logger.info("no cached QQ Music credential to remove")
+        self.authStateChanged.emit()
 
     def _set_loading(self, value: bool) -> None:
         if self._loading == value:

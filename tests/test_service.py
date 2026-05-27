@@ -284,7 +284,7 @@ async def test_get_song_url_uses_bypass_path():
 
     attempts: list[str] = []
 
-    async def fake_try(mid, quality):
+    async def fake_try(mid, quality, **_kwargs):
         attempts.append(quality)
         if quality == "FLAC":
             return "https://x/F000m.flac?vkey=k"
@@ -303,7 +303,7 @@ async def test_get_song_url_walks_through_quality_until_hit():
     svc = QuaverService()
     svc._ct_value = 2
 
-    async def fake_try(mid, quality):
+    async def fake_try(mid, quality, **_kwargs):
         if quality == "MP3_128":
             return "https://x/M500m.mp3?vkey=k"
         return None
@@ -319,7 +319,7 @@ async def test_get_song_url_all_fail_returns_none():
     svc = QuaverService()
     svc._ct_value = 2
 
-    async def fake_try(_mid, _q):
+    async def fake_try(_mid, _q, **_kwargs):
         return None
 
     svc._try_bypass_url = fake_try
@@ -331,7 +331,7 @@ async def test_get_song_url_quality_unknown_falls_back_to_balanced():
     svc._ct_value = 2
     attempts: list[str] = []
 
-    async def fake_try(mid, q):
+    async def fake_try(mid, q, **_kwargs):
         attempts.append(q)
         return f"https://x/{q}?vkey=k"
 
@@ -339,6 +339,26 @@ async def test_get_song_url_quality_unknown_falls_back_to_balanced():
     await svc.get_song_url(Song(mid="m", name="x"), quality_preference="bogus")
     # balanced 首选 MP3_320
     assert attempts[0] == "MP3_320"
+
+
+async def test_try_bypass_url_uses_media_mid_for_filename():
+    svc = QuaverService()
+    captured: dict[str, object] = {}
+
+    async def fake_post(_module, _method, param, **_kwargs):
+        captured.update(param)
+        return {"midurlinfo": [{"purl": "C400m.m4a?vkey=k"}]}
+
+    svc._bypass_post = fake_post
+    url = await svc._try_bypass_url(
+        "songmid",
+        "MP3_128",
+        media_mid="mediamid",
+    )
+
+    assert url == "https://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
+    assert captured["songmid"] == ["songmid"]
+    assert captured["filename"] == ["M500mediamidmediamid.mp3"]
 
 
 # ============================================================== ct 随机白名单

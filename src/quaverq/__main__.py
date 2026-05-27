@@ -8,15 +8,40 @@ import sys
 from pathlib import Path
 
 import qasync
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QtMsgType, QUrl, qInstallMessageHandler
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
-from .bridge import AppController, ServiceController
+from .bridge import AppController, PlayerController, ServiceController
 from .config import load as load_config
 
 logger = logging.getLogger("quaverq")
+
+
+def _should_suppress_qt_message(message: str) -> bool:
+    return (
+        message.startswith("QSocketNotifier: Invalid socket ")
+        and message.endswith(" and type 'Read', disabling...")
+    )
+
+
+def _qt_message_handler(
+    _mode: QtMsgType,
+    context: object,
+    message: str,
+) -> None:
+    if _should_suppress_qt_message(message):
+        return
+
+    category = getattr(context, "category", None)
+    prefix = f"{category}: " if category and category != "default" else ""
+    sys.stderr.write(f"{prefix}{message}\n")
+    sys.stderr.flush()
+
+
+def _install_qt_message_filter() -> None:
+    qInstallMessageHandler(_qt_message_handler)
 
 
 def _qml_main_path() -> Path:
@@ -32,6 +57,7 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    _install_qt_message_filter()
     load_config()
 
     QQuickStyle.setStyle("Basic")
@@ -43,13 +69,15 @@ def main() -> None:
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
-    app_controller = AppController()
     service_controller = ServiceController()
+    app_controller = AppController(service_controller)
+    player_controller = PlayerController(service_controller)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
     engine.rootContext().setContextProperty("AppController", app_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)
+    engine.rootContext().setContextProperty("PlayerController", player_controller)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
@@ -58,7 +86,7 @@ def main() -> None:
 
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
-        loop.create_task(service_controller.start())
+        loop.create_task(app_controller.refresh_auth_state_async())
         loop.run_forever()
 
 

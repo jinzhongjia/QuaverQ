@@ -100,7 +100,8 @@ class QuaverService:
 
     credential: Credential | None = None
     cache: Cache | None = None
-    on_qrcode: Callable[[bytes, str], None] | None = None
+    on_qrcode: Callable[[bytes, str, str], None] | None = None
+    on_login_status: Callable[[str], None] | None = None
 
     _client: Client | None = field(default=None, init=False, repr=False)
     # bypass 路径用的 ct 值, 实例生命周期内固定 (见 _SAFE_CT_VALUES)
@@ -217,7 +218,9 @@ class QuaverService:
             raise RuntimeError("服务未连接")
         qr = await self._client.login.get_qrcode(login_type)
         if self.on_qrcode:
-            self.on_qrcode(qr.data, qr.qr_type.name.lower())
+            self.on_qrcode(qr.data, qr.qr_type.value, qr.mimetype)
+        if self.on_login_status:
+            self.on_login_status("qrcode")
         logger.info("二维码已获取 (类型: %s)", qr.qr_type.name)
 
         import anyio
@@ -229,19 +232,29 @@ class QuaverService:
                 assert result.credential is not None
                 self.credential = result.credential
                 self._assign_credential(result.credential)
+                if self.on_login_status:
+                    self.on_login_status("done")
                 logger.info("登录成功")
                 return True
             if event == QRCodeLoginEvents.TIMEOUT:
+                if self.on_login_status:
+                    self.on_login_status("timeout")
                 logger.warning("二维码已过期")
                 return False
             if event == QRCodeLoginEvents.REFUSE:
+                if self.on_login_status:
+                    self.on_login_status("refuse")
                 logger.warning("用户拒绝授权")
                 return False
             if event == QRCodeLoginEvents.SCAN:
+                if self.on_login_status:
+                    self.on_login_status("scan")
                 logger.info("已扫码, 等待确认...")
             elif event == QRCodeLoginEvents.CONF:
+                if self.on_login_status:
+                    self.on_login_status("confirm")
                 logger.info("确认中...")
-            await anyio.sleep(1.5)
+            await anyio.sleep(0.8 if event == QRCodeLoginEvents.CONF else 1.5)
 
     async def check_login_expired(self) -> bool:
         if self._client is None:
@@ -512,7 +525,11 @@ class QuaverService:
             quality_preference, self._QUALITY_PROFILES[self._DEFAULT_QUALITY]
         )
         for quality_label in order:
-            url = await self._try_bypass_url(song_obj.mid, quality_label)
+            url = await self._try_bypass_url(
+                song_obj.mid,
+                quality_label,
+                media_mid=song_obj.media_mid,
+            )
             if url:
                 logger.info("命中 %s: %s", quality_label, song_obj.name)
                 return SongUrl(
@@ -566,14 +583,19 @@ class QuaverService:
         return data.get("req_0", {}).get("data", {}) or {}
 
     async def _try_bypass_url(
-        self, mid: str, quality_label: str
+        self,
+        mid: str,
+        quality_label: str,
+        *,
+        media_mid: str = "",
     ) -> str | None:
         """vkey bypass. ct 实例生命周期内固定 (启动时从 _SAFE_CT_VALUES 随机)."""
         prefix_ext = self._QUALITY_FILE.get(quality_label)
         if not prefix_ext:
             return None
         prefix, ext = prefix_ext
-        filename = f"{prefix}{mid}{mid}.{ext}"
+        file_mid = media_mid or mid
+        filename = f"{prefix}{file_mid}{file_mid}.{ext}"
 
         data = await self._bypass_post(
             "music.vkey.GetVkey",

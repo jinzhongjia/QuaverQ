@@ -652,13 +652,15 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q1** | Theme singleton (Palette / TypeScale / Spacing / Motion) + 验收用 demo 组件 | `qml/Theme/*` | QML 端 import 走通；Palette 切换暗 / 亮可见 |
 | **Q2** | `AppController` + `ServiceController` 骨架 + qasync 接入；QML 搜索框 → SongList 渲染 | `bridge/app_controller.py`、`bridge/service_controller.py`、`bridge/models.py`、`qml/views/SearchView.qml` | 输入 "周杰伦"，列表回填 |
 | **Q2.5** | 基础视觉组件 polish：SearchField / NavItem / SongRow / PlayerBar shell | `qml/components/*`、`qml/Main.qml`、`qml/views/SearchView.qml` | 去除 Qt Basic 默认表单感；搜索页和底栏具备可继续扩展的组件基线 |
-| **Q3** | `PlayerController` + `MediaPlayer` 绑定 + PlayerBar；点歌出声 | `bridge/player_controller.py`、`qml/panels/PlayerBar.qml` | 点歌播；transport 全功能；模式切换 |
+| **Q3** | `PlayerController` + `MediaPlayer` 绑定 + PlayerBar；点歌出声 | `bridge/player_controller.py`、`qml/components/PlayerBar.qml` | 点歌播；transport 全功能；模式切换 |
+| **Q3.1** | 登录前置兜底：启动加载缓存凭据；无凭据时 PlayerBar 显示需要登录 | `bridge/service_controller.py`、`bridge/player_controller.py`、`qml/components/PlayerBar.qml` | 无 `credential.json` 时错误明确；有缓存凭据时可直接验收 Q3 播放 |
+| **Q3.2** | 提前落地二维码登录：侧栏入口 + 登录弹窗 + 凭据保存 | `bridge/app_controller.py`、`bridge/service_controller.py`、`qml/dialogs/LoginDialog.qml`、`qml/components/Sidebar.qml` | 全新设备可扫码生成 `credential.json`，登录后点歌可取链 |
 | **Q4** | 队列面板 + 自动续播 + 会话恢复 | `qml/panels/QueuePanel.qml`、`state.py` 接入 | 续播 / 重启恢复 |
 | **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail / NowPlaying 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回；PlayerBar 可进入 NowPlaying |
 | **Q6** | 喜欢同步 + LibraryController 接入 + LikeButton | `bridge/library_controller.py`、`qml/components/LikeButton.qml` | 双向同步、断网降级 |
 | **Q7** | 歌词 + LyricPanel 紧凑同步 + NowPlaying 大歌词 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`qml/views/NowPlayingView.qml`、`bridge/lyric_model.py` | 行同步精度 < 200 ms |
 | **Q8** | MPRIS 集成（QtMultimedia metadata 推 D-Bus）+ 媒体键 | `core/mpris.py`（小改）+ `PlayerController` | 媒体键 / GNOME / KDE 显示正常 |
-| **Q9** | 登录弹窗 + 二维码登录 + 凭据过期处理 | `qml/dialogs/LoginDialog.qml`、`AppController` | 全新设备扫码登录 |
+| **Q9** | 登录完善：凭据过期检测 + 失效重登 + 登录 UX polish | `qml/dialogs/LoginDialog.qml`、`AppController` | 凭据过期可提示并重新扫码 |
 | **Q10** | 设置页 + 减弱动效 / 音质 / 缓存清理 | `qml/views/SettingsView.qml` | 设置生效；persistent |
 | **Q11** | 打包：Nuitka + AppImage + GH Actions | `build.py`、`.github/workflows/release.yml` | AppImage 双击能跑 |
 
@@ -696,15 +698,16 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from quaverq.__main__ import _qml_main_path, _qml_root_path
-from quaverq.bridge import AppController, ServiceController
+from quaverq.bridge import AppController, PlayerController, ServiceController
 from quaverq.core.models import Singer, Song
 
 out = Path("/tmp/quaverq-ui.png")
 
 QQuickStyle.setStyle("Basic")
 app = QApplication([])
-app_controller = AppController()
 service_controller = ServiceController()
+app_controller = AppController(service_controller)
+player_controller = PlayerController(service_controller)
 service_controller.songResults.set_songs([
     Song(mid="m1", name="晴天", singers=[Singer(mid="s1", name="周杰伦")], album_name="叶惠美", duration=269),
     Song(mid="m2", name="七里香", singers=[Singer(mid="s1", name="周杰伦")], album_name="七里香", duration=299),
@@ -715,6 +718,7 @@ engine = QQmlApplicationEngine()
 engine.addImportPath(str(_qml_root_path()))
 engine.rootContext().setContextProperty("AppController", app_controller)
 engine.rootContext().setContextProperty("ServiceController", service_controller)
+engine.rootContext().setContextProperty("PlayerController", player_controller)
 engine.load(QUrl.fromLocalFile(str(_qml_main_path())))
 root = engine.rootObjects()[0]
 root.show()
@@ -744,7 +748,9 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q1 Theme tokens
 - [x] Q2 Service + 搜索
 - [x] Q2.5 基础视觉组件 polish
-- [ ] Q3 播放器
+- [x] Q3 播放器
+- [x] Q3.1 登录前置兜底
+- [x] Q3.2 二维码登录
 - [ ] Q4 队列 + 会话恢复
 - [ ] Q5 导航 + 全视图
 - [ ] Q6 喜欢同步

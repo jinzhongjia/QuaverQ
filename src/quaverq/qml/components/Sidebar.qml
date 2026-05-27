@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -8,6 +10,9 @@ Rectangle {
 
     property bool compact: false
     property string selectedRoute: "search"
+    property var appController
+
+    signal loginRequested()
 
     color: ThemeTokens.Palette.surface
     border.color: ThemeTokens.Palette.outline
@@ -29,6 +34,8 @@ Rectangle {
                 ]
 
                 delegate: NavItem {
+                    required property var modelData
+
                     Layout.fillWidth: true
                     text: modelData.label
                     iconText: modelData.icon
@@ -61,10 +68,44 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("登录后同步")
+                text: root.appController && root.appController.authed ? qsTr("已同步账号") : qsTr("登录后同步")
                 color: ThemeTokens.Palette.onSurfaceVariant
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
+            }
+
+            Button {
+                id: loginButton
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                text: root.appController && root.appController.authed ? qsTr("退出登录") : qsTr("登录同步")
+                Accessible.name: text
+                onClicked: {
+                    if (root.appController && root.appController.authed) {
+                        root.appController.logout()
+                    } else {
+                        root.loginRequested()
+                    }
+                }
+
+                contentItem: Label {
+                    text: loginButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: loginButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: loginButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : loginButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                    border.color: ThemeTokens.Palette.outline
+                }
             }
         }
 

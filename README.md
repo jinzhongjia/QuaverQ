@@ -7,8 +7,8 @@ QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Win
 ## 状态
 
 - **后端核心已完成**：搜索 / 详情 / 推荐 / 排行榜 / 喜欢同步 / 歌词 / 播放队列 / MPRIS / 会话快照 / 封面磁盘缓存 / SQLite TTL cache（`uv run pytest` 全绿）
-- **UI 重建进行中**：旧实现已清理；Q0 最小 PySide6 + Qt Quick shell、Q1 Theme tokens、Q2 搜索 bridge、Q2.5 基础视觉组件已接入，后续 Q3–Q11 见 [`docs/design.md`](docs/design.md) §14
-- 目前 `uv run quaverq` 会打开 QML 搜索工作台；播放、队列、登录等功能仍按分期继续落地
+- **UI 重建进行中**：旧实现已清理；Q0 最小 PySide6 + Qt Quick shell、Q1 Theme tokens、Q2 搜索 bridge、Q2.5 基础视觉组件、Q3 播放器、二维码登录已接入，后续 Q4–Q11 见 [`docs/design.md`](docs/design.md) §14
+- 目前 `uv run quaverq` 会打开 QML 搜索 + 播放器 + 二维码登录工作台；队列面板等功能仍按分期继续落地
 
 ## 环境
 
@@ -20,7 +20,7 @@ QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Win
 ```bash
 uv sync
 uv run pytest        # core + bridge 层测试
-uv run quaverq       # 当前为 Q2 搜索工作台
+uv run quaverq       # 当前为 Q3 搜索 + 播放器 + 二维码登录工作台
 ```
 
 ## 配置
@@ -33,6 +33,7 @@ quality = "balanced"   # high | balanced | standard
 ```
 
 凭据 / 会话快照 / SQLite cache 也都放在 `~/.config/quaverq/`，封面缓存在 `~/.cache/quaverq/covers/`。
+当前 Q3 播放取链需要 QQ 音乐登录态；侧栏可扫码登录并保存 `~/.config/quaverq/credential.json`，启动时会自动加载该凭据。
 
 ## 设计与路线
 

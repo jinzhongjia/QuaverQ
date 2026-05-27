@@ -6,29 +6,44 @@ import "../Theme" as ThemeTokens
 Rectangle {
     id: root
 
-    property string name: ""
-    property string singers: ""
-    property string albumName: ""
-    property string durationText: ""
-    property int rowNumber: 0
+    required property var song
+    required property string name
+    required property string singers
+    required property string albumName
+    required property string durationText
+    required property int index
 
-    signal activated()
+    signal activated(var songData, int row)
 
     implicitHeight: 58
     radius: ThemeTokens.Spacing.radiusMd
     color: hoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent"
 
     Accessible.role: Accessible.ListItem
-    Accessible.name: albumName
-        ? qsTr("%1, %2, %3").arg(name).arg(singers).arg(albumName)
-        : qsTr("%1, %2").arg(name).arg(singers)
+    Accessible.name: root.albumName
+        ? qsTr("%1, %2, %3").arg(root.name).arg(root.singers).arg(root.albumName)
+        : qsTr("%1, %2").arg(root.name).arg(root.singers)
+    activeFocusOnTab: true
 
     HoverHandler {
         id: hoverHandler
     }
 
     TapHandler {
-        onTapped: root.activated()
+        onTapped: root.activated(root.song, root.index)
+    }
+
+    Keys.onReturnPressed: root.activated(root.song, root.index)
+    Keys.onSpacePressed: root.activated(root.song, root.index)
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.activeFocus
+        radius: parent.radius
+        color: "transparent"
+        border.color: ThemeTokens.Palette.focusRing
+        border.width: 2
+        z: 1
     }
 
     RowLayout {
@@ -39,7 +54,7 @@ Rectangle {
 
         Label {
             Layout.preferredWidth: 28
-            text: rowNumber > 0 ? String(rowNumber) : ""
+            text: root.index >= 0 ? String(root.index + 1) : ""
             color: ThemeTokens.Palette.onSurfaceVariant
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
@@ -73,7 +88,7 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: albumName ? qsTr("%1 · %2").arg(singers).arg(albumName) : singers
+                text: root.albumName ? qsTr("%1 · %2").arg(root.singers).arg(root.albumName) : root.singers
                 color: ThemeTokens.Palette.onSurfaceVariant
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
@@ -82,7 +97,7 @@ Rectangle {
 
         Label {
             Layout.preferredWidth: 52
-            text: durationText
+            text: root.durationText
             color: ThemeTokens.Palette.onSurfaceVariant
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
