@@ -1,6 +1,6 @@
 # QuaverQ 设计文档 — PySide6 + Qt Quick
 
-> QQ 音乐桌面客户端 · **Linux 优先（Windows / macOS 后续支持）** · **明暗双主题（默认跟随系统）** · 视觉灵感取自现代流媒体音乐应用的通用三栏布局（侧栏导航 + 主内容 + 底部播放栏），所有 token / 资源均自研，不复刻任何商标元素。
+> QQ 音乐桌面客户端 · **Linux 优先（Windows / macOS 后续支持）** · **明暗双主题（默认跟随系统）** · 采用现代音乐应用熟悉的三栏工作区（侧栏导航 + 主内容 + 底部播放栏），但通过 QuaverQ 自有的歌词优先体验、封面处理、动效与 token 系统建立独立视觉识别；所有资源均自研，不复刻任何商标元素。
 
 ---
 
@@ -16,7 +16,7 @@
 | 详情页 | 专辑 / 歌手 / 歌单 |
 | 现在播放 | 大封面 + 同步歌词 + 队列侧栏 |
 | 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 |
-| 音质 | MP3_128 / MP3_320 / FLAC / Master（VIP 自动降级） |
+| 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC（Master 后续需扩展 core） |
 | 桌面集成 | MPRIS2（媒体键 / GNOME / KDE 控件） |
 | 会话恢复 | 启动恢复上次队列 / position / 模式 |
 
@@ -43,7 +43,8 @@
 | 控件基底 | Qt Quick Controls **Basic** + 自定义主题 | Basic 不带 OS 样式干扰，方便自由布局 |
 | 音频 | **`QtMultimedia.MediaPlayer`** (QML 元素) | Linux 下走 GStreamer，与既有 codec 链路一致；不再需要 `core/player.py` 自管 GStreamer |
 | 进程模型 | 单进程，Python + QML | 通过 `QQmlApplicationEngine` 暴露 `QObject` |
-| MPRIS | 沿用 `core/mpris.py` | 改在 Qt 主事件循环里跑 `asyncio` |
+| MPRIS | 沿用 `core/mpris.py` | dbus-next 挂到 qasync/Qt 主事件循环；不另起 D-Bus 后台线程 |
+| API 风控策略 | vkey bypass + **随机 safe `ct`** | 避开库默认 `ct=11` 等热门客户端风控值；每次启动从安全池随机选择并在实例生命周期内固定 |
 
 ---
 
@@ -60,8 +61,9 @@
 │   │   ├── ContentStack (StackView 路由)                    │    │
 │   │   │     ├── HomeView / SearchView / LibraryView        │    │
 │   │   │     ├── DetailView (Album / Artist / Playlist)     │    │
+│   │   │     ├── NowPlayingView                             │    │
 │   │   │     └── SettingsView                               │    │
-│   │   ├── ContextPanel (Queue / Lyrics 抽屉)              │    │
+│   │   ├── ContextPanel (Queue / Lyrics 单一面板抽屉)      │    │
 │   │   └── PlayerBar (底部常驻 transport)                  │    │
 │   │   MediaPlayer 元素 (Audio sink)                        │    │
 │   └────────────────────────────┬───────────────────────────┘    │
@@ -93,9 +95,10 @@
 
 - **状态权威在 Python**：队列、喜欢、会话快照、当前曲都由 controller 持有；QML 只 render + 提交意图（signal/slot）
 - **`asyncio` 与 Qt 事件循环并存**：用 `qasync` 把 async core 调用桥到 Qt 主线程；全局只维护一个 Qt 主事件循环
-- **封面走 image provider**：QML 用 `image://covers/<url-sha1>`，provider 内部命中 `core/cover_cache`
+- **封面走 image provider**：QML 用 `image://covers/<percent-encoded-url>|<size>`，provider 内部用原始 URL 命中 `core/cover_cache`
 - **MediaPlayer 控制权**：QML 端持有 `MediaPlayer` 实例，但 source/position/playbackState 双向绑定到 `PlayerController`，让 MPRIS 也能读写
-- **无任何"Spotify"商标资产**：图标全用 [Qt 自带](https://doc.qt.io/qt-6/qtquickcontrols-icons.html) + Material Icons 字体（Apache-2.0）；强调色为自定义 token，不复用任何品牌色
+- **QQ 音乐 vkey 风控策略**：`core/service.py` 不走 `qqmusic-api-python` 默认 `ct=11` 取链路，而是启动时从 `_SAFE_CT_VALUES` 随机选择一个 safe `ct`，本进程内固定使用。这样避免单一固定指纹，也避开已知高风险客户端值；除非重新完成稳定性矩阵验证，不要退回库默认取链路。
+- **无任何竞品商标资产**：图标全用 [Qt 自带](https://doc.qt.io/qt-6/qtquickcontrols-icons.html) + Material Icons 字体（Apache-2.0）；强调色为自定义 token，不复用任何品牌色
 
 ---
 
@@ -158,6 +161,26 @@ qml/Theme/
 > **强调色策略**：暗色用 `#22c55e`、亮色用更深的 `#15803d`，都是开源调色板里常见的中性绿；都是项目自有 token，**不与任何流媒体应用的注册商标色相同**。两值由 `Palette.qml` 集中维护，换肤改一处即生效。
 >
 > **状态色（error / warning）也要分主题**：直接照搬暗色版本贴到亮色背景上对比度会跌破 3:1，亮色版用对应色相的更深一档。
+
+**交互状态 token**
+
+所有交互状态也必须走 role token，避免组件各自手写透明度或裸色值。
+
+| Token | 用途 |
+|---|---|
+| `stateHover` | 鼠标悬停底色，仅用于可交互元素 |
+| `statePressed` | 按下 / active 底色 |
+| `stateSelected` | 当前导航项、当前 tab、播放中行 |
+| `stateDisabled` | 禁用内容与控件，必须同时降低可点击 affordance |
+| `focusRing` | 键盘焦点描边，默认等于 `primary` |
+| `scrim` | 模态遮罩 / drawer 背景 |
+
+**品牌差异化策略**
+
+绿色只承担交互和播放进度，不做大面积装饰背景。QuaverQ 的视觉签名放在：
+- 歌词优先的 Now Playing 展开页（封面 + 同步歌词并重，而不是只放大封面）
+- 播放中行的节拍条 / waveform 式状态指示，颜色 + 形状双提示
+- 封面占位与加载骨架使用音符网格纹理，不使用任何竞品式渐变大背景
 
 ### 4.3 字号 — 模数比 1.200（Minor Third）
 
@@ -225,10 +248,11 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 | AlbumDetail | `detail/album/:mid` | Hero（封面 + 元信息 + 播放全部） + 曲目列表 |
 | ArtistDetail | `detail/artist/:mid` | Hero（头像 + 简介） + 热门曲目 + 专辑 |
 | PlaylistDetail | `detail/playlist/:pid` | Hero + 曲目 + "全部播放" |
+| NowPlaying | `now-playing` | 大封面 + 同步歌词 + 当前队列摘要 + 播放模式 |
 | Settings | `settings` | 音质 / 缓存 / 凭据状态 / 退出登录 |
 | Login | overlay | 二维码登录弹窗 |
 
-侧栏内置：**Home / Search / Library**，下方动态列出"我的歌单"（点击直跳 PlaylistDetail）。
+侧栏内置：**Home / Search / Library**，下方动态列出"我的歌单"（点击直跳 PlaylistDetail）。NowPlaying 不占侧栏主导航位置，由 PlayerBar 的封面 / 歌名区域或歌词按钮进入。
 
 ### 5.2 导航模型
 
@@ -242,6 +266,10 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
   - `Ctrl+→` / `Ctrl+←` 下一首 / 上一首
   - `Ctrl+L` 喜欢当前
   - `Esc` 关闭抽屉 / 弹窗
+- **快捷键作用域**：
+  - 文本输入、搜索框、可编辑字段聚焦时，输入控件优先消费 `Space`、方向键、`Ctrl+←/→` 等编辑快捷键
+  - 播放器全局快捷键仅在非编辑上下文生效；媒体键不受此限制
+  - 弹窗 / 抽屉打开时，`Esc` 先关闭最上层 overlay，再回到主界面
 
 ---
 
@@ -249,19 +277,19 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  ◀ ▶   ⌕ 搜索...                              ⚙ user      _ □ ✕   │  ← HeaderBar (40)
+│  ◀ ▶   ⌕ 搜索...                              ⚙ user      _ □ ✕   │  ← HeaderBar (48)
 ├──────────┬──────────────────────────────────────────┬──────────────┤
 │          │                                          │              │
 │  Sidebar │        ContentStack                      │ ContextPanel │
 │  (240)   │        (StackView)                       │ (可折叠 320)  │
 │          │                                          │              │
-│  ▶ 发现  │        ...具体视图...                     │  ┌─Queue─┐   │
-│  ▶ 搜索  │                                          │  │  ...  │   │
-│  ▶ 资料库│                                          │  └───────┘   │
-│  ──────  │                                          │              │
-│  我的歌单│                                          │  ┌─Lyric─┐   │
-│   · 列表1│                                          │  │  ...  │   │
-│   · 列表2│                                          │  └───────┘   │
+│  ▶ 发现  │        ...具体视图...                     │ Queue | Lyric│
+│  ▶ 搜索  │                                          │  ┌────────┐  │
+│  ▶ 资料库│                                          │  │ 当前面板│  │
+│  ──────  │                                          │  │  ...   │  │
+│  我的歌单│                                          │  └────────┘  │
+│   · 列表1│                                          │              │
+│   · 列表2│                                          │              │
 │          │                                          │              │
 ├──────────┴──────────────────────────────────────────┴──────────────┤
 │  ◯ 封面  歌名             ⏮ ⏯ ⏭  ────●────  03:21/04:12  ♥ 🔀 ⇄ ♪│  ← PlayerBar (88)
@@ -269,9 +297,11 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-- **最小窗口**：1080 × 720（侧栏折叠为图标条 64 px，ContextPanel 默认隐藏）
+- **设计基准窗口**：1080 × 720
+- **最小可用窗口**：760 × 640（侧栏折叠为图标条 64 px，ContextPanel 隐藏，PlayerBar 允许两行布局）
 - **断点**：宽 < 1280 时 ContextPanel 自动收起；宽 < 920 时侧栏图标化
 - **HiDPI**：所有尺寸用 `Theme.spacing.*` + `font.pointSize`；Qt 6 默认启用 high-DPI scaling，不再手动设置 Qt 5 的 `AA_EnableHighDpiScaling`
+- **命中区**：HeaderBar / PlayerBar 的工具按钮交互区域不小于 44 × 44 px；视觉图标可保持 20–24 px
 
 ---
 
@@ -299,10 +329,15 @@ ApplicationWindow (Main.qml)
 │   │   ├── DetailView
 │   │   │   ├── DetailHero (cover + 元信息 + PlayAllButton)
 │   │   │   └── SongList
+│   │   ├── NowPlayingView
+│   │   │   ├── LargeCover
+│   │   │   ├── SyncedLyrics
+│   │   │   └── QueueSummary
 │   │   └── SettingsView
 │   └── ContextPanel (Drawer | 嵌入)
+│       ├── SegmentedControl (Queue / Lyrics)
 │       ├── QueuePanel (SongList + DraggableReorder)
-│       └── LyricPanel (LyricView)
+│       └── LyricPanel (compact LyricView)
 └── PlayerBar
     ├── NowPlayingMini (cover + 标题 + 喜欢)
     ├── TransportControls (⏮ ⏯ ⏭)
@@ -318,8 +353,10 @@ ApplicationWindow (Main.qml)
 | `Card` | title, subtitle, cover, kind | 歌单 / 专辑 / 艺人卡片 |
 | `CoverImage` | url, size | 走 image provider + placeholder |
 | `LikeButton` | mid, liked | 切换 + 状态绑 LibraryController |
-| `IconButton` | iconName, action, tooltip | 工具按钮（焦点环 + 4.5:1 对比度） |
-| `LoadingSkeleton` | shape | AI / 网络等待占位（见 §10） |
+| `IconButton` | iconName, action, tooltip, accessibleName | 工具按钮（焦点环 + ≥44 px 命中区 + Enter/Space 触发 + `Accessible.name`） |
+| `LoadingSkeleton` | shape | 网络等待占位（见 §11） |
+| `Snackbar` | message, kind | 无操作轻量状态提示，可自动关闭 |
+| `Banner` | message, kind, actions | 带恢复动作或阻断任务的持久提示，不自动关闭 |
 
 ---
 
@@ -341,7 +378,7 @@ QML_IMPORT_MAJOR_VERSION = 1
 | Controller | 关键 property / slot | signal |
 |---|---|---|
 | **AppController** (singleton) | `authed: bool`, `vipInfo`, `darkMode: bool`<br>slot `loginByQrCode()`, `logout()` | `qrcodeChanged(bytes, kind)`, `authChanged(bool, reason)`, `credExpired()` |
-| **ServiceController** | slot `search(kw, types) -> Future`, `getAlbumDetail(mid)`, `getArtistDetail(mid)`, `getPlaylistDetail(pid)`, `getSongUrl(mid, quality) -> {url, quality, expiresAt}`, `getLyric(mid)`, `getHomeFeed()`, `getTopDetail(topId, limit)` | `errorRaised(str)` |
+| **ServiceController** | slot `search(kw, types) -> Future`, `getAlbumDetail(mid)`, `getArtistDetail(mid)`, `getPlaylistDetail(pid)`, `getSongUrl(song, qualityPreference) -> {url, quality, expiresAt}`, `getLyric(mid)`, `getHomeFeed()`, `getTopDetail(topId, limit)` | `errorRaised(str)` |
 | **LibraryController** | `likedCount: int`, slot `listLiked()`, `isLiked(mid)`, `toggleLike(songJson)`, `myPlaylists()`, `favAlbums()`, `followedSingers()` | `likedChanged(mid, liked)`, `synced(count)` |
 | **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()`, `mediaCommandReceived(cmd)` (来自 MPRIS) |
 
@@ -364,6 +401,17 @@ class SongListModel(QAbstractListModel):
 - `LibraryController.likedModel` — 我喜欢
 - 详情页临时实例（VM 持有）
 
+Song 结构契约：
+- QML 行点击 / 播放动作优先传完整 `song` QVariantMap，而不是只传 `mid`
+- `ServiceController.getSongUrl(song, qualityPreference)` 内部把 QVariantMap 转回 `core.models.Song`，再调用 `QuaverService.get_song_url(song_obj, quality_preference=...)`
+- 仅有 `mid` 的场景必须先从当前 `SongListModel` / `queueModel` / cache 解析出完整 `Song`；不要新增只靠 `mid` 的取链主路径
+
+音质命名契约：
+- 用户设置保存为 preference：`standard` / `balanced` / `high`，与 `core.service.QuaverService._QUALITY_PROFILES` 对齐
+- 播放 URL 返回的 `quality` 是实际命中的文件档位：`MP3_128` / `OGG_192` / `MP3_320` / `FLAC`
+- UI 设置页展示偏好文案（标准 / 均衡 / 高品质），PlayerBar / NowPlaying 可展示实际档位
+- Master 不作为 v1 设置项；若后续支持，先在 core 的 `_QUALITY_FILE` / `_QUALITY_PROFILES` 加入对应 prefix 并补测试，再开放 UI
+
 ### 8.4 异步桥（`bridge/async_bridge.py`）
 
 用 **qasync** 把 `asyncio` 跑进 Qt event loop：
@@ -385,23 +433,28 @@ Controller slot 返回 `Future` 时通过 `QFuture` 模式或 `asyncSlot` 装饰
 
 ```python
 class CoverImageProvider(QQuickImageProvider):
-    # id 形如 "abc123def...|512"  (sha1|size)
+    # id 形如 "<percent-encoded-url>|512"
     def requestPixmap(self, id, size, requested):
-        url_hash, size_hint = id.split("|")
-        path = self._cover_cache.get_path(url_hash)
-        if not path: trigger async fetch, 返回 placeholder
+        encoded_url, size_hint = id.split("|", 1)
+        url = urllib.parse.unquote(encoded_url)
+        path = self._cover_cache.get_path(url)
+        if not path: schedule self._cover_cache.fetch(url), 返回 placeholder
         return QPixmap(str(path)).scaled(...)
 ```
 
 QML：
 
 ```qml
-CoverImage { source: "image://covers/" + song.coverHash + "|512" }
+CoverImage { source: "image://covers/" + encodeURIComponent(song.coverUrl) + "|512" }
 ```
+
+说明：`core/cover_cache.py` 的权威接口是原始 URL，不是 hash。Provider 不维护第二套 hash → URL registry；hash 仅作为磁盘文件名内部细节。
 
 ### 8.6 MPRIS 与 QML 协作
 
-MPRIS 命令（媒体键）→ `core/mpris.py` → 经 `QMetaObject.invokeMethod(...Qt.QueuedConnection)` 投递到 `PlayerController.handleMprisCommand(...)` → controller 改 state → QML 通过绑定刷新。**严禁** 从 D-Bus 回调线程直接动 QML。
+MPRIS 命令（媒体键）→ `core/mpris.py`（dbus-next async service，挂在 qasync/Qt 主事件循环）→ `MprisCallbacks` 直接调用 `PlayerController` slot → controller 改 state → QML 通过绑定刷新。
+
+默认不保留单独 D-Bus 后台线程，因此不需要 `QMetaObject.invokeMethod` 作为主路径。若后续为了隔离 D-Bus 改回后台 loop，必须用 `QMetaObject.invokeMethod(...Qt.QueuedConnection)` 或等价队列投递回 Qt 主线程，严禁从非主线程直接动 QML。
 
 ---
 
@@ -427,7 +480,7 @@ main() → QApplication + qasync loop
 ```
 QML: SongRow.clicked → PlayerController.pushAndPlay([song])
      PlayerController: queue.push + emit queueChanged
-                     ServiceController.getSongUrl(mid)
+                     ServiceController.getSongUrl(song, qualityPreference)
                      MediaPlayer.source = url
                      MediaPlayer.play()
                      emit nowPlayingChanged(song)
@@ -446,10 +499,9 @@ MediaPlayer.onMediaStatusChanged(EndOfMedia)
 
 ```
 D-Bus MPRIS Play/Pause/Next/Previous
-  → core/mpris.py callback (D-Bus 线程)
-  → QMetaObject.invokeMethod(PlayerController, "handleMprisCommand",
-        Qt.QueuedConnection, Q_ARG(str, cmd))
-  → PlayerController 主线程消化
+  → core/mpris.py callback (qasync / Qt 主事件循环)
+  → PlayerController.handleMprisCommand(cmd)
+  → controller 改 state + QML binding 刷新
 ```
 
 ---
@@ -464,6 +516,9 @@ D-Bus MPRIS Play/Pause/Next/Previous
 - 大文本（≥ 18 px / 14 px Bold）≥ 3:1
 - **颜色不是唯一指示**：喜欢 = 实心♥ + 颜色；播放中 = 跳动条 + 颜色
 - **焦点环**：所有交互件 `activeFocus` 时画 2 px `primary` 描边 + 2 px offset
+- **无障碍名称**：所有纯图标按钮必须设置 `Accessible.role: Accessible.Button` 与稳定的 `Accessible.name`；tooltip 只是鼠标辅助，不能替代无障碍名称
+- **键盘触发**：自定义按钮必须支持 `Enter` / `Space` 激活；带菜单按钮必须支持 `Down` 展开
+- **命中区**：桌面工具按钮交互区域默认 ≥ 44 × 44 px；小于此尺寸必须只用于非关键、重复列表内操作，并保证键盘可达
 - 切换主题后必须重跑一遍对比度校验脚本（建议 Q1 阶段写个 `tests/test_theme_contrast.py` 跑 WCAG 阈值）
 
 ### 10.2 键盘
@@ -471,12 +526,17 @@ D-Bus MPRIS Play/Pause/Next/Previous
 - Tab 顺序 = 视觉读序（左上 → 右下）
 - 任何对话框 / 抽屉可用 `Esc` 关闭，无键盘陷阱
 - 全局快捷键见 §5.2
+- 列表内行操作（喜欢、更多、播放）必须可通过键盘到达；不要只在 hover 时显示唯一入口
 
 ### 10.3 国际化
 
 - 主 locale `zh_CN`；所有字符串走 `qsTr()` + Qt Linguist
 - `QLocale` 格式化时长 / 日期（不要硬写 `%02d:%02d`）
 - 列表容器允许 30% 文本膨胀（英译通常更长）
+- 文本溢出策略：
+  - 歌名 / 专辑名：默认单行省略，详情页 hero 最多两行
+  - 歌手列表：单行省略，完整内容放到可访问名称和 tooltip
+  - 按钮文字：不固定宽度；最小宽度 + 内容驱动，必要时换行
 - 暂不支持 RTL（计划之外，但 `LayoutMirroring.enabled` 钩子留好）
 
 ### 10.4 减弱动效
@@ -490,7 +550,10 @@ D-Bus MPRIS Play/Pause/Next/Previous
 - 网络请求 < 1 s：不显 spinner
 - 1 ~ 3 s：列表 skeleton（灰条 + opacity 脉动）
 - > 3 s：skeleton + 文案"正在加载..."
-- 失败：`Snackbar` 顶部出（`error` color + 文本 + 重试按钮），4 s 自动收
+- 失败：
+  - 无操作的轻量错误：`Snackbar` 顶部出（`error` color + 图标 + 文本），4 s 自动收
+  - 带"重试"、"重新登录"等操作的错误：持久 `Banner`，不自动关闭；用户点击操作、关闭按钮或问题恢复后移除
+  - 阻断当前任务的错误：保留在当前内容区域内，给出明确恢复动作，不只依赖顶部提示
 - 凭据过期：触发 `LoginDialog` 模态（非阻塞性提醒，主界面不锁）
 
 ---
@@ -530,12 +593,14 @@ src/quaverq/
     │   ├── LikeButton.qml
     │   ├── IconButton.qml
     │   ├── LoadingSkeleton.qml
-    │   └── Snackbar.qml
+    │   ├── Snackbar.qml
+    │   └── Banner.qml
     ├── views/
     │   ├── HomeView.qml
     │   ├── SearchView.qml
     │   ├── LibraryView.qml
     │   ├── DetailView.qml
+    │   ├── NowPlayingView.qml
     │   └── SettingsView.qml
     ├── panels/
     │   ├── Sidebar.qml
@@ -575,14 +640,14 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 
 | # | 步骤 | 关键文件 | 验证 |
 |---|---|---|---|
-| **Q0** | 依赖切换 + 最小 Hello window | `pyproject.toml`、`__main__.py`、`qml/Main.qml` | `uv run quaverq` 出空窗口；pytest 既有 229 测试不掉 |
+| **Q0** | 依赖切换 + 最小 Hello window | `pyproject.toml`、`__main__.py`、`qml/Main.qml` | `uv run quaverq` 出空窗口；pytest 既有 174 测试不掉 |
 | **Q1** | Theme singleton (Palette / TypeScale / Spacing / Motion) + 验收用 demo 组件 | `qml/Theme/*` | QML 端 import 走通；Palette 切换暗 / 亮可见 |
 | **Q2** | `AppController` + `ServiceController` 骨架 + qasync 接入；QML 搜索框 → SongList 渲染 | `bridge/app_controller.py`、`bridge/service_controller.py`、`bridge/models.py`、`qml/views/SearchView.qml` | 输入 "周杰伦"，列表回填 |
 | **Q3** | `PlayerController` + `MediaPlayer` 绑定 + PlayerBar；点歌出声 | `bridge/player_controller.py`、`qml/panels/PlayerBar.qml` | 点歌播；transport 全功能；模式切换 |
 | **Q4** | 队列面板 + 自动续播 + 会话恢复 | `qml/panels/QueuePanel.qml`、`state.py` 接入 | 续播 / 重启恢复 |
-| **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回 |
+| **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail / NowPlaying 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回；PlayerBar 可进入 NowPlaying |
 | **Q6** | 喜欢同步 + LibraryController 接入 + LikeButton | `bridge/library_controller.py`、`qml/components/LikeButton.qml` | 双向同步、断网降级 |
-| **Q7** | 歌词 + LyricPanel 同步滚动 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`bridge/lyric_model.py` | 行同步精度 < 200 ms |
+| **Q7** | 歌词 + LyricPanel 紧凑同步 + NowPlaying 大歌词 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`qml/views/NowPlayingView.qml`、`bridge/lyric_model.py` | 行同步精度 < 200 ms |
 | **Q8** | MPRIS 集成（QtMultimedia metadata 推 D-Bus）+ 媒体键 | `core/mpris.py`（小改）+ `PlayerController` | 媒体键 / GNOME / KDE 显示正常 |
 | **Q9** | 登录弹窗 + 二维码登录 + 凭据过期处理 | `qml/dialogs/LoginDialog.qml`、`AppController` | 全新设备扫码登录 |
 | **Q10** | 设置页 + 减弱动效 / 音质 / 缓存清理 | `qml/views/SettingsView.qml` | 设置生效；persistent |
@@ -606,12 +671,13 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | MediaPlayer 进度回调频率高 | 用 `PositionInterval` 200 ms；MPRIS 推送同源去抖 |
 | Nuitka × PySide6 QML 资源 | 用 `qt_add_qml_module` 或 `qrc:/` 打包；走 `--include-data-dir` |
 | 凭据过期 race | `AppController.checkCredentialExpired` 启动跑一次 + 失败拦截重试 |
+| QQ 音乐扩大 `ct` 风控范围 | 保持 `_SAFE_CT_VALUES` 黑名单测试；监控取链失败码，必要时重新跑稳定性矩阵并更新 safe 池 |
 
 ---
 
 ## 15. 验收看板（按期勾选）
 
-- [ ] Q0 依赖与最小窗口
+- [x] Q0 依赖与最小窗口
 - [ ] Q1 Theme tokens
 - [ ] Q2 Service + 搜索
 - [ ] Q3 播放器

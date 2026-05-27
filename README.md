@@ -7,8 +7,8 @@ QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Win
 ## 状态
 
 - **后端核心已完成**：搜索 / 详情 / 推荐 / 排行榜 / 喜欢同步 / 歌词 / 播放队列 / MPRIS / 会话快照 / 封面磁盘缓存 / SQLite TTL cache（`uv run pytest` 全绿）
-- **UI 待重建**：旧实现已清理；PySide6 + Qt Quick 方案分期 Q0–Q11 落地，见 [`docs/design.md`](docs/design.md) §14
-- 目前 `uv run quaverq` 入口尚未接 PySide6 启动（Q0 计划项），仅 core 层可用、测试可跑
+- **UI 重建进行中**：旧实现已清理；Q0 最小 PySide6 + Qt Quick shell 已接入，后续 Q1–Q11 见 [`docs/design.md`](docs/design.md) §14
+- 目前 `uv run quaverq` 会打开最小 QML 窗口；业务 UI / bridge controller 仍按分期继续落地
 
 ## 环境
 
@@ -20,7 +20,7 @@ QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Win
 ```bash
 uv sync
 uv run pytest        # core 层测试
-# uv run quaverq     # Q0 落地后再可用
+uv run quaverq       # 当前为 Q0 最小 Qt Quick shell
 ```
 
 ## 配置

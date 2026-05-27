@@ -1,23 +1,25 @@
-"""QuaverQ 入口 (占位).
-
-旧的 PyWebView + Svelte 入口已按 docs/design.md §12 清理. PySide6 + Qt Quick
-启动在 design §14 的 Q0 阶段落地; 在此之前直接运行 `quaverq` 只会打印提示.
-
-Q0 落地后, 这里将:
-  1. 创建 QApplication + qasync EventLoop (见 design §8.4)
-  2. 实例化 AppController / ServiceController / PlayerController / LibraryController
-  3. QQmlApplicationEngine.load("qml/Main.qml")
-  4. state.restore() → 注入 PlayerController.queue (不自动播放)
-"""
+"""QuaverQ PySide6 + Qt Quick entry point."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
+from pathlib import Path
+
+import qasync
+from PySide6.QtCore import QUrl
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtWidgets import QApplication
 
 from .config import load as load_config
 
 logger = logging.getLogger("quaverq")
+
+
+def _qml_main_path() -> Path:
+    return Path(__file__).resolve().parent / "qml" / "Main.qml"
 
 
 def main() -> None:
@@ -26,10 +28,26 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     load_config()
-    logger.error(
-        "PySide6 + Qt Quick 入口尚未实现. 请先按 docs/design.md §14 执行 Q0."
-    )
-    sys.exit(1)
+
+    QQuickStyle.setStyle("Basic")
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("QuaverQ")
+    app.setOrganizationName("QuaverQ")
+
+    loop = qasync.QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+    engine = QQmlApplicationEngine()
+    qml_path = _qml_main_path()
+    engine.load(QUrl.fromLocalFile(str(qml_path)))
+    if not engine.rootObjects():
+        logger.error("QML load failed: %s", qml_path)
+        sys.exit(1)
+
+    logger.info("QuaverQ started with QML: %s", qml_path)
+    with loop:
+        loop.run_forever()
 
 
 if __name__ == "__main__":
