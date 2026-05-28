@@ -368,7 +368,6 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.maximumWidth: 520
                 placeholderText: qsTr("搜索歌曲、歌手、专辑")
-                text: "周杰伦"
                 loading: root.serviceController ? root.serviceController.loading : false
                 onSearchRequested: function(keyword) {
                     root.searchAndOpen(keyword)

@@ -207,7 +207,7 @@ ScrollView {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("搜索周杰伦")
+                    text: qsTr("打开搜索")
                         color: ThemeTokens.Palette.onSurface
                         font.pixelSize: ThemeTokens.TypeScale.body
                         font.weight: ThemeTokens.TypeScale.medium
@@ -216,7 +216,7 @@ ScrollView {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("快速回到当前可播放结果")
+                    text: qsTr("查找歌曲、歌手或专辑")
                         color: ThemeTokens.Palette.onSurfaceVariant
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         elide: Text.ElideRight
@@ -230,7 +230,7 @@ ScrollView {
                     Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
                     text: qsTr("搜索")
                     Accessible.name: text
-                    onClicked: root.searchRequested(qsTr("周杰伦"))
+                    onClicked: root.searchRequested("")
 
                     contentItem: Label {
                         text: searchButton.text
