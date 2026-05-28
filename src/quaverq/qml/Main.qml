@@ -60,6 +60,7 @@ ApplicationWindow {
     }
 
     function navigate(route) {
+        root.releaseTextFocus()
         if (route === root.currentRoute && contentStack.depth === 1)
             return
         if (route === "home") {
@@ -78,6 +79,7 @@ ApplicationWindow {
 
     function pushDetail(kind, title, subtitle) {
         root.queuePanelOpen = false
+        root.releaseTextFocus()
         contentStack.push(detailPageComponent, {
             detailKind: kind,
             detailTitle: title,
@@ -98,8 +100,14 @@ ApplicationWindow {
     function searchAndOpen(keyword) {
         searchField.text = keyword
         root.navigate("search")
+        root.releaseTextFocus()
         if (root.serviceController)
             root.serviceController.search(keyword)
+    }
+
+    function releaseTextFocus() {
+        searchField.releaseInputFocus()
+        shortcutFocusSink.forceActiveFocus()
     }
 
     function clearPendingSeek() {
@@ -243,6 +251,12 @@ ApplicationWindow {
         }
     }
 
+    Item {
+        id: shortcutFocusSink
+
+        focus: true
+    }
+
     Shortcut {
         sequence: "Ctrl+F"
         onActivated: {
@@ -280,9 +294,11 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Esc"
-        enabled: root.queuePanelOpen || contentStack.depth > 1
+        enabled: searchField.activeFocus || root.queuePanelOpen || contentStack.depth > 1
         onActivated: {
-            if (root.queuePanelOpen) {
+            if (searchField.activeFocus) {
+                root.releaseTextFocus()
+            } else if (root.queuePanelOpen) {
                 root.queuePanelOpen = false
             } else {
                 root.goBack()
@@ -357,6 +373,7 @@ ApplicationWindow {
                 onSearchRequested: function(keyword) {
                     root.searchAndOpen(keyword)
                 }
+                onEditingCancelled: root.releaseTextFocus()
             }
         }
     }

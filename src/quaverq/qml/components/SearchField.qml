@@ -11,6 +11,7 @@ FocusScope {
     property bool loading: false
 
     signal searchRequested(string text)
+    signal editingCancelled()
 
     implicitWidth: 560
     implicitHeight: ThemeTokens.Spacing.toolHitSize
@@ -18,6 +19,11 @@ FocusScope {
     function focusInput() {
         input.forceActiveFocus()
         input.selectAll()
+    }
+
+    function releaseInputFocus() {
+        input.focus = false
+        root.focus = false
     }
 
     Rectangle {
@@ -50,11 +56,14 @@ FocusScope {
             placeholderTextColor: ThemeTokens.Palette.onSurfaceVariant
             Accessible.name: qsTr("搜索")
             onAccepted: root.searchRequested(text)
+            Keys.onEscapePressed: root.editingCancelled()
 
             background: Item {}
         }
 
         Button {
+            id: searchButton
+
             Layout.preferredWidth: 88
             Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize - ThemeTokens.Spacing.s2
             text: root.loading ? qsTr("搜索中") : qsTr("搜索")
@@ -63,8 +72,8 @@ FocusScope {
             onClicked: root.searchRequested(input.text)
 
             contentItem: Label {
-                text: parent.text
-                color: parent.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
+                text: searchButton.text
+                color: searchButton.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
@@ -73,7 +82,7 @@ FocusScope {
 
             background: Rectangle {
                 radius: ThemeTokens.Spacing.radiusMd
-                color: parent.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.stateDisabled
+                color: searchButton.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.stateDisabled
             }
         }
     }
