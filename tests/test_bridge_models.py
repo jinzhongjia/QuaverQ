@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 
-from quaverq.bridge.models import SongListModel, song_from_map, song_to_map
-from quaverq.core.models import Singer, Song
+from quaverq.bridge.models import (
+    CardListModel,
+    album_to_card,
+    playlist_to_card,
+    singer_to_card,
+    song_from_map,
+    SongListModel,
+    song_to_map,
+    top_to_card,
+)
+from quaverq.core.models import Album, Playlist, Singer, Song, TopList
 
 
 def _song() -> Song:
@@ -76,3 +85,24 @@ def test_song_map_roundtrip():
     assert restored.album_name == song.album_name
     assert restored.duration == song.duration
     assert restored.id == song.id
+
+
+def test_card_list_model_roles_and_helpers():
+    model = CardListModel()
+    cards = [
+        playlist_to_card(Playlist(pid="p1", name="每日歌单", creator="QuaverQ", song_count=30)),
+        album_to_card(Album(mid="a1", name="叶惠美", singers=[Singer(mid="s1", name="周杰伦")], song_count=11)),
+        singer_to_card(Singer(mid="ar1", name="周杰伦")),
+        top_to_card(TopList(top_id=4, name="流行指数榜", total_num=100)),
+    ]
+
+    model.set_cards(cards)
+
+    roles = {bytes(value).decode(): key for key, value in model.roleNames().items()}
+    assert {"card", "kind", "cardId", "title", "subtitle", "coverUrl", "meta"} <= set(roles)
+    assert model.count == 4
+    assert model.data(model.index(0, 0), roles["kind"]) == "playlist"
+    assert model.data(model.index(1, 0), roles["cardId"]) == "a1"
+    assert model.cardAt(2)["kind"] == "artist"
+    assert model.cardAt(3)["id"] == "4"
+    assert model.cardAt(99) == {}

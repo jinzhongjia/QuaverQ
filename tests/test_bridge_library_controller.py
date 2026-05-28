@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from quaverq.bridge.library_controller import LibraryController
 from quaverq.bridge.service_controller import ServiceController
-from quaverq.core.models import Singer, Song
+from quaverq.core.models import Album, Playlist, Singer, Song
 
 
 class _FakeLibraryService:
@@ -23,6 +23,16 @@ class _FakeLibraryService:
         ]
         self.like_calls: list[Song] = []
         self.unlike_calls: list[Song] = []
+        self.playlists = [Playlist(pid="p1", name="我的歌单", song_count=12)]
+        self.albums = [
+            Album(
+                mid="a1",
+                name="叶惠美",
+                singers=[Singer(mid="s1", name="周杰伦")],
+                song_count=11,
+            )
+        ]
+        self.singers = [Singer(mid="ar1", name="周杰伦")]
 
     async def connect(self) -> None:
         self.connected = True
@@ -42,6 +52,15 @@ class _FakeLibraryService:
         self.unlike_calls.append(song)
         self.liked_songs = [item for item in self.liked_songs if item.mid != song.mid]
         return True
+
+    async def get_my_playlists(self) -> list[Playlist]:
+        return self.playlists
+
+    async def get_fav_albums(self) -> list[Album]:
+        return self.albums
+
+    async def get_followed_singers(self) -> list[Singer]:
+        return self.singers
 
 
 def _song(mid: str, name: str = "七里香") -> dict[str, object]:
@@ -114,3 +133,55 @@ async def test_toggle_like_async_requires_login():
     assert service.like_calls == []
     assert controller.errorMessage == "登录后才能同步喜欢"
     assert errors == ["登录后才能同步喜欢"]
+
+
+async def test_refresh_my_playlists_populates_card_model():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_my_playlists_async()
+
+    assert controller.playlistModel.count == 1
+    assert controller.playlistModel.cardAt(0)["kind"] == "playlist"
+    assert controller.playlistModel.cardAt(0)["title"] == "我的歌单"
+
+
+async def test_refresh_fav_albums_populates_card_model():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_fav_albums_async()
+
+    assert controller.albumModel.count == 1
+    assert controller.albumModel.cardAt(0)["kind"] == "album"
+    assert controller.albumModel.cardAt(0)["subtitle"] == "周杰伦"
+
+
+async def test_refresh_followed_singers_populates_card_model():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_followed_singers_async()
+
+    assert controller.artistModel.count == 1
+    assert controller.artistModel.cardAt(0)["kind"] == "artist"
+    assert controller.artistModel.cardAt(0)["title"] == "周杰伦"
+
+
+async def test_library_card_models_clear_when_logged_out():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_my_playlists_async()
+    await controller.refresh_fav_albums_async()
+    await controller.refresh_followed_singers_async()
+    service.is_authenticated = False
+    service_controller.authStateChanged.emit()
+
+    assert controller.playlistModel.count == 0
+    assert controller.albumModel.count == 0
+    assert controller.artistModel.count == 0

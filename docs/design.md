@@ -12,9 +12,9 @@
 
 | 能力 | V1 目标 | 当前状态 |
 |---|---|---|
-| 首页发现 | 默认启动页；每日 30 首推荐 + 今日推荐歌单 + 新歌速递 + 排行榜入口 | **部分完成**：`HomeView` 已有入口结构；当前三个发现板块仍是无效入口，启动还误进搜索页；每日 30 首推荐未实现 |
+| 首页发现 | 默认启动页；每日 30 首推荐 + 今日推荐歌单 + 新歌速递 + 排行榜入口 | **已完成 Q8.5**：默认进 Home；四个 section 接真实数据，具备 loading / empty / error / content |
 | 完整搜索 | 综合 + 按类型（歌曲 / 歌手 / 专辑 / 歌单） | **部分完成**：歌曲搜索 + 明确分页已完成；多类型搜索和详情跳转待补 |
-| 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 | **部分完成**：我喜欢同步已完成；歌单 / 收藏专辑 / 关注艺人 Tab 仍未接真实数据 |
+| 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 | **部分完成**：我喜欢同步已完成；歌单 / 收藏专辑 / 关注艺人 Tab 已接真实列表，详情曲目仍待补齐 |
 | 详情页 | 专辑 / 歌手 / 歌单真实详情 | **部分完成**：详情路由与壳已完成；真实详情、曲目列表、播放全部待补 |
 | 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面仍依赖后续 CoverImageProvider |
 | 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 | **已完成**：PlayerController + 队列模式已验收 |
@@ -494,10 +494,10 @@ Song 结构契约：
 
 | 功能 | core 方法 | bridge model | 备注 |
 |---|---|---|---|
-| 每日 30 首推荐 | `get_daily_recommend_songs(limit=30)` | `HomeController.dailyModel` | 新增 core 方法；优先评估 `recommend.get_guess_recommend()`，必要时 fallback 到 `get_radar_recommend()`，但不能伪造个性化推荐 |
-| 今日推荐歌单 | `get_recommend_playlists(limit=...)` | `HomeController.playlistModel` | 已有 core 方法，接 UI |
-| 新歌速递 | `get_recommend_new_songs(limit=...)` | `HomeController.newSongModel` | 已有 core 方法，接 UI |
-| 排行榜入口 | `get_top_categories(limit_per_group=...)` | `HomeController.topModel` | 已有 core 方法，点击后拉 `get_top_detail(top_id)` |
+| 每日 30 首推荐 | `get_daily_recommend_songs(limit=30)` | `HomeController.dailyModel` | 优先 `TrackRelationServer.GetRadarSong`，失败时 fallback `MbTrackRadioSvr.get_radio_track`；不能伪造个性化推荐 |
+| 今日推荐歌单 | `get_recommend_playlists(limit=...)` | `HomeController.playlistModel` | 直接走 `musicu.fcg` 线程请求，避免 qqmusic-api async recommend 接口在部分环境下 CPU 空转 |
+| 新歌速递 | `get_recommend_new_songs(limit=...)` | `HomeController.newSongModel` | 直接走 `musicu.fcg` 线程请求 |
+| 排行榜入口 | `get_top_categories(limit_per_group=...)` | `HomeController.topModel` | 直接走 `musicu.fcg` 线程请求；点击后拉 `get_top_detail(top_id)` |
 | 我的歌单 | `get_my_playlists()` | `LibraryController.playlistModel` | 已有 core 方法，排除"我喜欢" |
 | 收藏专辑 | `get_fav_albums()` | `LibraryController.albumModel` | 已有 core 方法 |
 | 关注艺人 | `get_followed_singers()` | `LibraryController.artistModel` | 已有 core 方法 |
@@ -655,6 +655,8 @@ Q10 应把设置逻辑集中到 `SettingsController`。当前 `AppController.dar
 ```
 
 Home 和 Library 的网络请求可以并发，但 model 更新必须回到 Qt 主事件循环。每个 section 维护自己的 `loading/error/empty`，不要用一个全局 loading 覆盖整页。
+
+首页推荐 / 新歌 / 排行榜不要直接 await `qqmusic-api` 的 async recommend/top 封装；这些接口在当前 Python 3.14 + niquests async 组合下可能出现主线程 CPU 空转。实现上统一经 `QuaverService._bypass_post(...)` 走同步 `musicu.fcg` + `asyncio.to_thread` + 显式超时。
 
 ---
 
@@ -853,7 +855,7 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from quaverq.__main__ import _qml_main_path, _qml_root_path
-from quaverq.bridge import AppController, LibraryController, LyricController, PlayerController, ServiceController
+from quaverq.bridge import AppController, HomeController, LibraryController, LyricController, PlayerController, ServiceController
 from quaverq.core.models import Singer, Song
 
 out = Path("/tmp/quaverq-ui.png")
@@ -862,6 +864,7 @@ QQuickStyle.setStyle("Basic")
 app = QApplication([])
 service_controller = ServiceController()
 app_controller = AppController(service_controller)
+home_controller = HomeController(service_controller)
 library_controller = LibraryController(service_controller)
 player_controller = PlayerController(service_controller)
 lyric_controller = LyricController(service_controller, player_controller)
@@ -877,6 +880,7 @@ player_controller._emit_current_changed()
 engine = QQmlApplicationEngine()
 engine.addImportPath(str(_qml_root_path()))
 engine.rootContext().setContextProperty("AppController", app_controller)
+engine.rootContext().setContextProperty("HomeController", home_controller)
 engine.rootContext().setContextProperty("ServiceController", service_controller)
 engine.rootContext().setContextProperty("LibraryController", library_controller)
 engine.rootContext().setContextProperty("LyricController", lyric_controller)
@@ -1005,7 +1009,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q6 喜欢同步
 - [x] Q7 歌词
 - [x] Q8 MPRIS
-- [ ] Q8.5 信息架构补齐
+- [ ] Q8.5 信息架构补齐（代码已实现，待验收）
 - [ ] Q9 登录
 - [ ] Q10 设置
 - [ ] Q11 打包

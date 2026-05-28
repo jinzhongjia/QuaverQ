@@ -482,19 +482,26 @@ async def test_get_recommend_playlists_maps_to_playlist():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_get(num):
-        return SimpleNamespace(songlists=[
-            SimpleNamespace(
-                id=8907966308, dirid=14, title="国韵之潮",
-                picurl="http://x/c.jpg", desc="国风精选",
-                songnum=50, listennum=10000, creator_nick="编辑",
-            ),
-        ])
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {
+            "List": [
+                {
+                    "Playlist": {
+                        "basic": {
+                            "tid": 8907966308,
+                            "title": "国韵之潮",
+                            "desc": "国风精选",
+                            "cover": {"default_url": "http://x/c.jpg"},
+                            "creator": {"nick": "编辑"},
+                            "song_cnt": 50,
+                            "play_cnt": 10000,
+                        }
+                    }
+                }
+            ]
+        }
 
-    svc._client = SimpleNamespace(
-        recommend=SimpleNamespace(get_recommend_songlist=fake_get),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     pls = await svc.get_recommend_playlists(limit=8)
     assert len(pls) == 1
     assert pls[0].pid == "8907966308"
@@ -507,13 +514,10 @@ async def test_get_recommend_playlists_failure_returns_empty():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_get(num):
+    async def fake_post(_module, _method, _param, **_kwargs):
         raise RuntimeError("boom")
 
-    svc._client = SimpleNamespace(
-        recommend=SimpleNamespace(get_recommend_songlist=fake_get),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     assert await svc.get_recommend_playlists() == []
 
 
@@ -523,19 +527,25 @@ async def test_get_recommend_playlists_uses_memo_cache():
     svc.credential = Credential(musicid=1, musickey="k")
     call_count = [0]
 
-    async def fake_get(num):
+    async def fake_post(_module, _method, _param, **_kwargs):
         call_count[0] += 1
-        return SimpleNamespace(songlists=[
-            SimpleNamespace(
-                id=1, dirid=1, title="x", picurl="", desc="",
-                songnum=1, listennum=0, creator_nick="",
-            ),
-        ])
+        return {
+            "List": [
+                {
+                    "Playlist": {
+                        "basic": {
+                            "tid": 1,
+                            "title": "x",
+                            "cover": {},
+                            "creator": {},
+                            "song_cnt": 1,
+                        }
+                    }
+                }
+            ]
+        }
 
-    svc._client = SimpleNamespace(
-        recommend=SimpleNamespace(get_recommend_songlist=fake_get),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     await svc.get_recommend_playlists()
     await svc.get_recommend_playlists()
     await svc.get_recommend_playlists()
@@ -548,17 +558,59 @@ async def test_get_recommend_new_songs_uses_memo_cache():
     svc.credential = Credential(musicid=1, musickey="k")
     call_count = [0]
 
-    async def fake_get():
+    async def fake_post(_module, _method, _param, **_kwargs):
         call_count[0] += 1
-        return SimpleNamespace(songs=[_raw_song(mid="m", name="x")])
+        return {"songlist": [_raw_song(mid="m", name="x")]}
 
-    svc._client = SimpleNamespace(
-        recommend=SimpleNamespace(get_recommend_newsong=fake_get),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     await svc.get_recommend_new_songs()
     await svc.get_recommend_new_songs()
     assert call_count[0] == 1
+
+
+async def test_get_daily_recommend_songs_collects_radar_pages():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+    calls: list[int] = []
+
+    async def fake_post(module, _method, param, **_kwargs):
+        assert module == "music.recommend.TrackRelationServer"
+        page = param["Page"]
+        calls.append(page)
+        start = (page - 1) * 20
+        return {
+            "VecSongs": [
+                {"Track": _raw_song(mid=f"m{i}", name=f"每日{i}")}
+                for i in range(start, start + 20)
+            ],
+            "HasMore": page < 2,
+        }
+
+    svc._bypass_post = fake_post
+
+    songs = await svc.get_daily_recommend_songs(limit=30)
+
+    assert calls == [1, 2]
+    assert len(songs) == 30
+    assert songs[0].name == "每日0"
+    assert songs[-1].name == "每日29"
+
+
+async def test_get_daily_recommend_songs_falls_back_to_guess():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k")
+
+    async def fake_post(module, _method, _param, **_kwargs):
+        if module == "music.recommend.TrackRelationServer":
+            raise RuntimeError("radar unavailable")
+        return {"tracks": [_raw_song(mid="g1", name="猜你喜欢")]}
+
+    svc._bypass_post = fake_post
+
+    songs = await svc.get_daily_recommend_songs(limit=30)
+
+    assert len(songs) == 1
+    assert songs[0].name == "猜你喜欢"
 
 
 def test_clean_text_removes_br_tags():
@@ -594,21 +646,49 @@ async def test_get_top_categories_flattens_groups():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_get_category():
-        return SimpleNamespace(group=[
-            SimpleNamespace(id=0, name="巅峰榜", toplist=[
-                SimpleNamespace(id=135, name="巅峰潮流榜", front_pic_url="http://p1", head_pic_url="", intro="", total_num=300),
-                SimpleNamespace(id=4, name="飙升榜", front_pic_url="http://p2", head_pic_url="", intro="", total_num=200),
-            ]),
-            SimpleNamespace(id=1, name="地区榜", toplist=[
-                SimpleNamespace(id=11, name="内地", front_pic_url="", head_pic_url="http://p3", intro="", total_num=100),
-            ]),
-        ])
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {
+            "group": [
+                {
+                    "groupId": 0,
+                    "groupName": "巅峰榜",
+                    "toplist": [
+                        {
+                            "topId": 135,
+                            "title": "巅峰潮流榜",
+                            "frontPicUrl": "http://p1",
+                            "headPicUrl": "",
+                            "intro": "",
+                            "totalNum": 300,
+                        },
+                        {
+                            "topId": 4,
+                            "title": "飙升榜",
+                            "frontPicUrl": "http://p2",
+                            "headPicUrl": "",
+                            "intro": "",
+                            "totalNum": 200,
+                        },
+                    ],
+                },
+                {
+                    "groupId": 1,
+                    "groupName": "地区榜",
+                    "toplist": [
+                        {
+                            "topId": 11,
+                            "title": "内地",
+                            "frontPicUrl": "",
+                            "headPicUrl": "http://p3",
+                            "intro": "",
+                            "totalNum": 100,
+                        }
+                    ],
+                },
+            ]
+        }
 
-    svc._client = SimpleNamespace(
-        top=SimpleNamespace(get_category=fake_get_category),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     tops = await svc.get_top_categories()
     assert len(tops) == 3   # 扁平化全 group 的 toplist
     assert tops[0].top_id == 135
@@ -622,14 +702,11 @@ async def test_get_top_categories_cached():
     svc.credential = Credential(musicid=1, musickey="k")
     call_count = [0]
 
-    async def fake_get_category():
+    async def fake_post(_module, _method, _param, **_kwargs):
         call_count[0] += 1
-        return SimpleNamespace(group=[])
+        return {"group": []}
 
-    svc._client = SimpleNamespace(
-        top=SimpleNamespace(get_category=fake_get_category),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     await svc.get_top_categories()
     await svc.get_top_categories()
     assert call_count[0] == 1
@@ -639,23 +716,24 @@ async def test_get_top_detail_reuses_playlist_model():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_get_detail(top_id, num, page):
-        return SimpleNamespace(
-            info=SimpleNamespace(
-                id=135, name="巅峰潮流榜",
-                front_pic_url="http://p", intro="每日更新",
-                total_num=300, listen_num=99999,
-            ),
-            songs=[
+    async def fake_post(_module, _method, param, **_kwargs):
+        assert param["topId"] == 135
+        return {
+            "data": {
+                "topId": 135,
+                "title": "巅峰潮流榜",
+                "frontPicUrl": "http://p",
+                "intro": "每日更新",
+                "totalNum": 300,
+                "listenNum": 99999,
+            },
+            "songInfoList": [
                 _raw_song(mid="t1", name="排行第 1"),
                 _raw_song(mid="t2", name="排行第 2"),
             ],
-        )
+        }
 
-    svc._client = SimpleNamespace(
-        top=SimpleNamespace(get_detail=fake_get_detail),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     p = await svc.get_top_detail(135)
     assert p.pid == "135"
     assert p.name == "巅峰潮流榜"
@@ -670,13 +748,10 @@ async def test_get_top_detail_failure_returns_placeholder_playlist():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_get_detail(top_id, num, page):
+    async def fake_post(_module, _method, _param, **_kwargs):
         raise RuntimeError("network")
 
-    svc._client = SimpleNamespace(
-        top=SimpleNamespace(get_detail=fake_get_detail),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     p = await svc.get_top_detail(999)
     assert p.pid == "999"
     assert p.songs == []
@@ -807,16 +882,15 @@ async def test_get_recommend_new_songs_maps_to_song():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_get():
-        return SimpleNamespace(songs=[
-            _raw_song(mid="m1", name="新歌1"),
-            _raw_song(mid="m2", name="新歌2"),
-        ])
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {
+            "songlist": [
+                _raw_song(mid="m1", name="新歌1"),
+                _raw_song(mid="m2", name="新歌2"),
+            ]
+        }
 
-    svc._client = SimpleNamespace(
-        recommend=SimpleNamespace(get_recommend_newsong=fake_get),
-        credential=svc.credential,
-    )
+    svc._bypass_post = fake_post
     songs = await svc.get_recommend_new_songs(limit=12)
     assert len(songs) == 2
     assert songs[0].name == "新歌1"

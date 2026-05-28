@@ -684,24 +684,21 @@ class QuaverService:
             return cached[:limit]
 
         try:
-            resp = await self.client.recommend.get_recommend_songlist(num=limit)
+            data = await self._bypass_post(
+                "music.playlist.PlaylistSquare",
+                "GetRecommendFeed",
+                {"From": 0, "Size": limit},
+                timeout=5,
+            )
         except Exception as exc:
             logger.warning("get_recommend_songlist 失败: %s", exc)
             return []
-        out: list[Playlist] = []
-        for p in (getattr(resp, "songlists", None) or [])[:limit]:
-            pid = str(getattr(p, "id", "") or "")
-            out.append(
-                Playlist(
-                    pid=pid,
-                    name=getattr(p, "title", "") or "",
-                    cover_url=getattr(p, "picurl", "") or "",
-                    description=getattr(p, "desc", "") or "",
-                    creator=getattr(p, "creator_nick", "") or "",
-                    song_count=int(getattr(p, "songnum", 0) or 0),
-                    play_count=int(getattr(p, "listennum", 0) or 0),
-                )
-            )
+        if not data:
+            return []
+        out = [
+            self._to_recommend_playlist(item)
+            for item in (data.get("List", None) or data.get("songlists", None) or [])[:limit]
+        ]
         self._memo_put("recommend_playlists", out)
         return out
 
@@ -710,70 +707,92 @@ class QuaverService:
     ) -> list[TopList]:
         """所有排行榜入口扁平化 (各 group 拼起来). 10 分钟内存 cache.
 
-        用库默认 ct=11 (PC web 客户端 profile): 实测此 profile 返回 43 个榜
-        (含巅峰潮流榜 等编辑榜); safe ct (移动端) 仅 30 个, 反而缺榜.
-        intro 在列表里为空是 QQ 设计 — 详情页 GetDetail 才有.
+        直接走 musicu.fcg 线程请求, 避开 qqmusic-api async recommend/top
+        接口在部分环境下的 CPU 空转问题.
         """
         cached = self._memo_get("top_categories")
         if cached is not None:
             return cached
 
         try:
-            resp = await self.client.top.get_category()
+            data = await self._bypass_post(
+                "music.musicToplist.Toplist",
+                "GetAll",
+                {},
+                timeout=5,
+            )
         except Exception as exc:
             logger.warning("get_top_categories 失败: %s", exc)
             return []
+        if not data:
+            return []
         out: list[TopList] = []
-        for g in (getattr(resp, "group", None) or []):
-            tlist = getattr(g, "toplist", None) or []
+        for g in (data.get("group", None) or []):
+            tlist = self._g(g, "toplist", None) or []
             if limit_per_group is not None:
                 tlist = tlist[:limit_per_group]
             for tl in tlist:
-                out.append(
-                    TopList(
-                        top_id=int(getattr(tl, "id", 0) or 0),
-                        name=getattr(tl, "name", "") or "",
-                        cover_url=(
-                            getattr(tl, "front_pic_url", "")
-                            or getattr(tl, "head_pic_url", "")
-                            or ""
-                        ),
-                        intro=_clean_text(getattr(tl, "intro", ""), max_len=80),
-                        total_num=int(getattr(tl, "total_num", 0) or 0),
-                    )
-                )
+                out.append(self._to_top_list(tl))
         self._memo_put("top_categories", out)
         return out
 
     async def get_top_detail(
         self, top_id: int, *, limit: int = 100
     ) -> Playlist:
-        """单个排行榜详情, 复用 Playlist 模型. 库默认 ct=11 即可拿完整 intro.
+        """单个排行榜详情, 复用 Playlist 模型.
 
         注: 某些榜本身服务端无 intro (如 tid=135 巅峰潮流榜, 编辑榜没规则文本),
         这不是 ct 风控. 调用方需对 description 容空.
         """
         try:
-            resp = await self.client.top.get_detail(top_id, num=limit, page=1)
+            data = await self._bypass_post(
+                "music.musicToplist.Toplist",
+                "GetDetail",
+                {
+                    "topId": top_id,
+                    "offset": 0,
+                    "num": limit,
+                    "withTags": True,
+                },
+                timeout=5,
+            )
         except Exception as exc:
             logger.warning("get_top_detail 失败 (top_id=%s): %s", top_id, exc)
             return Playlist(pid=str(top_id), name="榜单不可用")
+        if not data:
+            return Playlist(pid=str(top_id), name="榜单不可用")
 
-        info = getattr(resp, "info", None)
-        songs_raw = getattr(resp, "songs", None) or []
+        info = data.get("data", {}) or data
+        songs_raw = data.get("songInfoList", None) or info.get("songInfoList", None) or []
+        if not songs_raw:
+            songs_raw = info.get("song", None) or []
         return Playlist(
             pid=str(top_id),
-            name=getattr(info, "name", "") or "",
-            cover_url=(
-                getattr(info, "front_pic_url", "")
-                or getattr(info, "head_pic_url", "")
+            name=(
+                self._g(info, "name", None)
+                or self._g(info, "title", "")
                 or ""
             ),
-            description=_clean_text(getattr(info, "intro", ""), max_len=400),
+            cover_url=(
+                self._g(info, "front_pic_url", None)
+                or self._g(info, "frontPicUrl", None)
+                or self._g(info, "head_pic_url", None)
+                or self._g(info, "headPicUrl", "")
+                or ""
+            ),
+            description=_clean_text(self._g(info, "intro", ""), max_len=400),
             creator="",
-            song_count=int(getattr(info, "total_num", 0) or 0),
-            play_count=int(getattr(info, "listen_num", 0) or 0),
-            songs=[self._to_song(s) for s in songs_raw],
+            song_count=int(
+                self._g(info, "total_num", None)
+                or self._g(info, "totalNum", 0)
+                or 0
+            ),
+            play_count=int(
+                self._g(info, "listen_num", None)
+                or self._g(info, "listenNum", 0)
+                or 0
+            ),
+            songs=[self._to_song_from_top_raw(s) for s in songs_raw],
         )
 
     async def get_recommend_new_songs(
@@ -785,14 +804,108 @@ class QuaverService:
             return cached[:limit]
 
         try:
-            resp = await self.client.recommend.get_recommend_newsong()
+            data = await self._bypass_post(
+                "newsong.NewSongServer",
+                "get_new_song_info",
+                {"type": 5},
+                timeout=5,
+            )
         except Exception as exc:
             logger.warning("get_recommend_newsong 失败: %s", exc)
             return []
-        songs_raw = getattr(resp, "songs", None) or []
+        if not data:
+            return []
+        songs_raw = data.get("songlist", None) or data.get("songs", None) or []
         out = [self._to_song(s) for s in songs_raw[:limit]]
         self._memo_put("recommend_new_songs", out)
         return out
+
+    async def get_daily_recommend_songs(
+        self, *, limit: int = 30
+    ) -> list[Song]:
+        """每日推荐歌曲. 优先取雷达推荐并补足到 limit, 失败时回退猜你喜欢."""
+        if limit <= 0:
+            return []
+
+        cache_key = f"daily_recommend_songs:{limit}"
+        cached = self._memo_get(cache_key)
+        if cached is not None:
+            return cached[:limit]
+
+        out: list[Song] = []
+        seen: set[str] = set()
+
+        try:
+            page = 1
+            while len(out) < limit and page <= 10:
+                data = await self._bypass_post(
+                    "music.recommend.TrackRelationServer",
+                    "GetRadarSong",
+                    {
+                        "Page": page,
+                        "ReqType": 0,
+                        "FavSongs": [],
+                        "EntranceSongs": [],
+                    },
+                    require_login=True,
+                    timeout=5,
+                )
+                songs_raw = (
+                    (data or {}).get("VecSongs", None)
+                    or (data or {}).get("songs", None)
+                    or []
+                )
+                for raw in songs_raw:
+                    song = self._to_radar_song(raw)
+                    if not song.mid or song.mid in seen:
+                        continue
+                    seen.add(song.mid)
+                    out.append(song)
+                    if len(out) >= limit:
+                        break
+                has_more = bool(
+                    (data or {}).get("HasMore", None)
+                    or (data or {}).get("has_more", False)
+                )
+                if not songs_raw or not has_more:
+                    break
+                page += 1
+        except Exception as exc:
+            logger.warning("get_radar_recommend 失败: %s", exc)
+
+        if not out:
+            try:
+                data = await self._bypass_post(
+                    "music.radioProxy.MbTrackRadioSvr",
+                    "get_radio_track",
+                    {
+                        "id": 99,
+                        "num": limit,
+                        "from": 0,
+                        "scene": 0,
+                        "song_ids": [],
+                    },
+                    require_login=True,
+                    timeout=5,
+                )
+                songs_raw = (
+                    (data or {}).get("tracks", None)
+                    or (data or {}).get("songs", None)
+                    or []
+                )
+                for raw in songs_raw:
+                    song = self._to_song(raw)
+                    if not song.mid or song.mid in seen:
+                        continue
+                    seen.add(song.mid)
+                    out.append(song)
+                    if len(out) >= limit:
+                        break
+            except Exception as exc:
+                logger.warning("get_guess_recommend 失败: %s", exc)
+
+        self._memo_put(cache_key, out)
+        return out[:limit]
 
     async def get_hot_search(self, *, limit: int = 12) -> list[str]:
         """热搜词 (vec_hotkey 抽 query). 10 分钟内存 cache, 去重."""
@@ -1113,6 +1226,107 @@ class QuaverService:
             creator=QuaverService._g(raw, "nickname", "") or "",
             song_count=int(QuaverService._g(raw, "songnum", 0) or 0),
             play_count=int(QuaverService._g(raw, "listennum", 0) or 0),
+        )
+
+    @staticmethod
+    def _to_recommend_playlist(raw: Any) -> Playlist:
+        """首页推荐歌单 raw dict -> Playlist."""
+        playlist = QuaverService._g(raw, "Playlist", None) or raw
+        basic = QuaverService._g(playlist, "basic", None) or playlist
+        cover = QuaverService._g(basic, "cover", None) or {}
+        creator = QuaverService._g(basic, "creator", None) or {}
+        return Playlist(
+            pid=str(
+                QuaverService._g(basic, "tid", None)
+                or QuaverService._g(basic, "id", "")
+                or ""
+            ),
+            name=QuaverService._g(basic, "title", "") or "",
+            cover_url=(
+                QuaverService._g(cover, "default_url", None)
+                or QuaverService._g(cover, "small_url", None)
+                or QuaverService._g(basic, "picurl", "")
+                or ""
+            ),
+            description=QuaverService._g(basic, "desc", "") or "",
+            creator=(
+                QuaverService._g(creator, "nick", None)
+                or QuaverService._g(basic, "creator_nick", "")
+                or ""
+            ),
+            song_count=int(
+                QuaverService._g(basic, "song_cnt", None)
+                or QuaverService._g(basic, "songnum", 0)
+                or 0
+            ),
+            play_count=int(
+                QuaverService._g(basic, "play_cnt", None)
+                or QuaverService._g(basic, "listennum", 0)
+                or 0
+            ),
+        )
+
+    @staticmethod
+    def _to_top_list(raw: Any) -> TopList:
+        """排行榜入口 raw dict / pydantic -> TopList."""
+        return TopList(
+            top_id=int(
+                QuaverService._g(raw, "topId", None)
+                or QuaverService._g(raw, "id", 0)
+                or 0
+            ),
+            name=(
+                QuaverService._g(raw, "title", None)
+                or QuaverService._g(raw, "name", "")
+                or ""
+            ),
+            cover_url=(
+                QuaverService._g(raw, "frontPicUrl", None)
+                or QuaverService._g(raw, "front_pic_url", None)
+                or QuaverService._g(raw, "headPicUrl", None)
+                or QuaverService._g(raw, "head_pic_url", "")
+                or ""
+            ),
+            intro=_clean_text(QuaverService._g(raw, "intro", ""), max_len=80),
+            total_num=int(
+                QuaverService._g(raw, "totalNum", None)
+                or QuaverService._g(raw, "total_num", 0)
+                or 0
+            ),
+        )
+
+    @staticmethod
+    def _to_radar_song(raw: Any) -> Song:
+        """雷达推荐返回 VecSongs[*].Track, 兼容直接 song dict."""
+        track = QuaverService._g(raw, "Track", None) or raw
+        return QuaverService._to_song(track)
+
+    @staticmethod
+    def _to_song_from_top_raw(raw: Any) -> Song:
+        """排行榜详情优先使用 songInfoList; 简表 song 字段做降级."""
+        if QuaverService._g(raw, "mid", ""):
+            return QuaverService._to_song(raw)
+        singer_mid = QuaverService._g(raw, "singerMid", "") or ""
+        singer_name = QuaverService._g(raw, "singerName", "") or ""
+        album_mid = QuaverService._g(raw, "albumMid", "") or ""
+        cover_url = QuaverService._g(raw, "cover", "") or ""
+        return Song(
+            mid=QuaverService._g(raw, "songMid", "") or "",
+            id=int(
+                QuaverService._g(raw, "songId", None)
+                or QuaverService._g(raw, "id", 0)
+                or 0
+            ),
+            name=(
+                QuaverService._g(raw, "title", None)
+                or QuaverService._g(raw, "name", "")
+                or ""
+            ),
+            singers=[
+                Singer(mid=singer_mid, name=singer_name)
+            ] if singer_mid or singer_name else [],
+            album_mid=album_mid,
+            cover_url=cover_url or (_cover_url(album_mid, 300) if album_mid else ""),
         )
 
     @staticmethod

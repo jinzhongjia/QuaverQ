@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from .bridge import (
     AppController,
+    HomeController,
     LibraryController,
     LyricController,
     MprisController,
@@ -76,6 +77,18 @@ def _raise_main_window(engine: QQmlApplicationEngine) -> None:
         request_activate()
 
 
+async def _load_initial_state(
+    app_controller: AppController,
+    home_controller: HomeController,
+    lyric_controller: LyricController,
+) -> None:
+    await app_controller.refresh_auth_state_async()
+    await asyncio.gather(
+        home_controller.refresh_home_async(),
+        lyric_controller.refresh_current_lyric_async(),
+    )
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -95,6 +108,7 @@ def main() -> None:
 
     service_controller = ServiceController()
     app_controller = AppController(service_controller)
+    home_controller = HomeController(service_controller)
     library_controller = LibraryController(service_controller)
     player_controller = PlayerController(
         service_controller,
@@ -106,6 +120,7 @@ def main() -> None:
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
     engine.rootContext().setContextProperty("AppController", app_controller)
+    engine.rootContext().setContextProperty("HomeController", home_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)
     engine.rootContext().setContextProperty("LibraryController", library_controller)
     engine.rootContext().setContextProperty("LyricController", lyric_controller)
@@ -125,8 +140,13 @@ def main() -> None:
 
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
-        loop.create_task(app_controller.refresh_auth_state_async())
-        loop.create_task(lyric_controller.refresh_current_lyric_async())
+        loop.create_task(
+            _load_initial_state(
+                app_controller,
+                home_controller,
+                lyric_controller,
+            )
+        )
         loop.create_task(mpris_controller.start_async())
         loop.run_forever()
 

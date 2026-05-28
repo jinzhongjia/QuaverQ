@@ -10,6 +10,7 @@ ScrollView {
 
     property string routeName: "detail"
     property string detailKind: "playlist"
+    property string detailId: ""
     property string detailTitle: qsTr("详情")
     property string detailSubtitle: ""
 

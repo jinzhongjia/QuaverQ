@@ -28,13 +28,14 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint
     color: "transparent"
     readonly property var appController: AppController
+    readonly property var homeController: HomeController
     readonly property var serviceController: ServiceController
     readonly property var libraryController: LibraryController
     readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
     property bool queuePanelOpen: false
-    property string currentRoute: "search"
-    property string currentTopRoute: "search"
+    property string currentRoute: "home"
+    property string currentTopRoute: "home"
     property string currentDetailTitle: ""
     property int pendingSeekMs: -1
     property int pendingSeekAttempts: 0
@@ -86,11 +87,12 @@ ApplicationWindow {
         }
     }
 
-    function pushDetail(kind, title, subtitle) {
+    function pushDetail(kind, detailId, title, subtitle) {
         root.queuePanelOpen = false
         root.releaseTextFocus()
         contentStack.push(detailPageComponent, {
             detailKind: kind,
+            detailId: detailId,
             detailTitle: title,
             detailSubtitle: subtitle
         }, StackView.Immediate)
@@ -103,7 +105,7 @@ ApplicationWindow {
             return
         contentStack.pop(StackView.Immediate)
         root.currentDetailTitle = ""
-        root.currentRoute = root.currentTopRoute.length > 0 ? root.currentTopRoute : "search"
+        root.currentRoute = root.currentTopRoute.length > 0 ? root.currentTopRoute : "home"
     }
 
     function searchAndOpen(keyword) {
@@ -556,7 +558,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            initialItem: searchPageComponent
+            initialItem: homePageComponent
         }
     }
 
@@ -613,12 +615,16 @@ ApplicationWindow {
         id: homePageComponent
 
         Views.HomeView {
+            appController: root.appController
+            homeController: root.homeController
+            libraryController: root.libraryController
             playerController: root.playerController
+            onLoginRequested: loginDialog.open()
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
             }
-            onDetailRequested: function(kind, title, subtitle) {
-                root.pushDetail(kind, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle) {
+                root.pushDetail(kind, detailId, title, subtitle)
             }
             onNowPlayingRequested: root.navigate("now-playing")
         }
@@ -642,8 +648,8 @@ ApplicationWindow {
             libraryController: root.libraryController
             playerController: root.playerController
             onLoginRequested: loginDialog.open()
-            onDetailRequested: function(kind, title, subtitle) {
-                root.pushDetail(kind, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle) {
+                root.pushDetail(kind, detailId, title, subtitle)
             }
         }
     }

@@ -12,7 +12,14 @@ from qasync import asyncSlot
 
 from quaverq.core.models import Song
 
-from .models import SongListModel, song_from_map
+from .models import (
+    CardListModel,
+    album_to_card,
+    playlist_to_card,
+    singer_to_card,
+    SongListModel,
+    song_from_map,
+)
 from .service_controller import ServiceController
 
 logger = logging.getLogger(__name__)
@@ -22,6 +29,9 @@ class LibraryController(QObject):
     """QML-facing user library state."""
 
     likedModelChanged = Signal()
+    playlistModelChanged = Signal()
+    albumModelChanged = Signal()
+    artistModelChanged = Signal()
     likedCountChanged = Signal()
     likedRevisionChanged = Signal()
     loadingChanged = Signal()
@@ -38,6 +48,9 @@ class LibraryController(QObject):
         super().__init__(parent)
         self._service_controller = service_controller
         self._liked_model = SongListModel(self)
+        self._playlist_model = CardListModel(self)
+        self._album_model = CardListModel(self)
+        self._artist_model = CardListModel(self)
         self._liked_mids: set[str] = set()
         self._loading = False
         self._error_message = ""
@@ -47,6 +60,18 @@ class LibraryController(QObject):
     @Property(QObject, notify=likedModelChanged)
     def likedModel(self) -> SongListModel:
         return self._liked_model
+
+    @Property(QObject, notify=playlistModelChanged)
+    def playlistModel(self) -> CardListModel:
+        return self._playlist_model
+
+    @Property(QObject, notify=albumModelChanged)
+    def albumModel(self) -> CardListModel:
+        return self._album_model
+
+    @Property(QObject, notify=artistModelChanged)
+    def artistModel(self) -> CardListModel:
+        return self._artist_model
 
     @Property(int, notify=likedCountChanged)
     def likedCount(self) -> int:
@@ -92,6 +117,81 @@ class LibraryController(QObject):
             self._set_loading(False)
 
         self._set_liked_songs(songs)
+
+    @asyncSlot()
+    async def refreshMyPlaylists(self) -> None:
+        await self.refresh_my_playlists_async()
+
+    async def refresh_my_playlists_async(self) -> None:
+        self._set_error_message("")
+        if not self.authed:
+            self._playlist_model.clear()
+            return
+
+        self._set_loading(True)
+        try:
+            await self._service_controller._ensure_started()  # noqa: SLF001
+            playlists = await self._service_controller._service.get_my_playlists()  # noqa: SLF001
+        except Exception as exc:
+            logger.exception("refresh my playlists failed")
+            message = str(exc) or exc.__class__.__name__
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+            return
+        finally:
+            self._set_loading(False)
+
+        self._playlist_model.set_cards([playlist_to_card(item) for item in playlists])
+
+    @asyncSlot()
+    async def refreshFavAlbums(self) -> None:
+        await self.refresh_fav_albums_async()
+
+    async def refresh_fav_albums_async(self) -> None:
+        self._set_error_message("")
+        if not self.authed:
+            self._album_model.clear()
+            return
+
+        self._set_loading(True)
+        try:
+            await self._service_controller._ensure_started()  # noqa: SLF001
+            albums = await self._service_controller._service.get_fav_albums()  # noqa: SLF001
+        except Exception as exc:
+            logger.exception("refresh fav albums failed")
+            message = str(exc) or exc.__class__.__name__
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+            return
+        finally:
+            self._set_loading(False)
+
+        self._album_model.set_cards([album_to_card(item) for item in albums])
+
+    @asyncSlot()
+    async def refreshFollowedSingers(self) -> None:
+        await self.refresh_followed_singers_async()
+
+    async def refresh_followed_singers_async(self) -> None:
+        self._set_error_message("")
+        if not self.authed:
+            self._artist_model.clear()
+            return
+
+        self._set_loading(True)
+        try:
+            await self._service_controller._ensure_started()  # noqa: SLF001
+            singers = await self._service_controller._service.get_followed_singers()  # noqa: SLF001
+        except Exception as exc:
+            logger.exception("refresh followed singers failed")
+            message = str(exc) or exc.__class__.__name__
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+            return
+        finally:
+            self._set_loading(False)
+
+        self._artist_model.set_cards([singer_to_card(item) for item in singers])
 
     @asyncSlot("QVariant")
     async def toggleLike(self, song_data: Any) -> None:
@@ -140,6 +240,9 @@ class LibraryController(QObject):
         self.authStateChanged.emit()
         if not self.authed:
             self._set_liked_songs([])
+            self._playlist_model.clear()
+            self._album_model.clear()
+            self._artist_model.clear()
             return
         try:
             loop = asyncio.get_running_loop()

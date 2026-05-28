@@ -10,13 +10,24 @@ ScrollView {
     id: root
 
     property string routeName: "home"
+    property var appController
+    property var homeController
+    property var libraryController
     property var playerController
+
     readonly property bool hasSong: root.playerController
         && root.playerController.currentSong
-        && root.playerController.currentSong.name
+        && root.playerController.currentSong.name !== undefined
+        ? root.playerController.currentSong.name.length > 0
+        : false
+    readonly property bool dailyLoading: root.homeController ? root.homeController.dailyLoading : false
+    readonly property bool playlistLoading: root.homeController ? root.homeController.playlistLoading : false
+    readonly property bool newSongLoading: root.homeController ? root.homeController.newSongLoading : false
+    readonly property bool topLoading: root.homeController ? root.homeController.topLoading : false
 
+    signal loginRequested()
     signal searchRequested(string keyword)
-    signal detailRequested(string kind, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle)
     signal nowPlayingRequested()
 
     contentWidth: availableWidth
@@ -49,7 +60,7 @@ ScrollView {
                     Layout.fillWidth: true
                     text: root.hasSong
                         ? qsTr("继续听 %1").arg(root.playerController.currentSong.name)
-                        : qsTr("从搜索或资料库开始播放")
+                        : qsTr("每日推荐、新歌和排行榜")
                     color: ThemeTokens.Palette.onSurfaceVariant
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
@@ -85,159 +96,396 @@ ScrollView {
             }
         }
 
-        GridLayout {
+        SongSection {
             Layout.fillWidth: true
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
-            columns: root.availableWidth > 900 ? 3 : root.availableWidth > 560 ? 2 : 1
-            columnSpacing: ThemeTokens.Spacing.s4
-            rowSpacing: ThemeTokens.Spacing.s4
-
-            Repeater {
-                model: [
-                    {
-                        title: qsTr("今日推荐"),
-                        subtitle: qsTr("适合现在打开的歌单"),
-                        kind: "playlist"
-                    },
-                    {
-                        title: qsTr("新歌速递"),
-                        subtitle: qsTr("按更新时间浏览"),
-                        kind: "playlist"
-                    },
-                    {
-                        title: qsTr("排行榜"),
-                        subtitle: qsTr("热门歌曲入口"),
-                        kind: "playlist"
-                    }
-                ]
-
-                delegate: Rectangle {
-                    id: detailCard
-
-                    required property var modelData
-
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 132
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: detailHover.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceElevated
-                    border.color: ThemeTokens.Palette.outlineMuted
-                    Accessible.role: Accessible.Button
-                    Accessible.name: detailCard.modelData.title
-                    activeFocusOnTab: true
-
-                    HoverHandler {
-                        id: detailHover
-                    }
-
-                    TapHandler {
-                        onTapped: root.detailRequested(detailCard.modelData.kind, detailCard.modelData.title, detailCard.modelData.subtitle)
-                    }
-
-                    Keys.onReturnPressed: root.detailRequested(detailCard.modelData.kind, detailCard.modelData.title, detailCard.modelData.subtitle)
-                    Keys.onSpacePressed: root.detailRequested(detailCard.modelData.kind, detailCard.modelData.title, detailCard.modelData.subtitle)
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: parent.activeFocus
-                        radius: parent.radius
-                        color: "transparent"
-                        border.color: ThemeTokens.Palette.focusRing
-                        border.width: 2
-                        z: 1
-                    }
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: ThemeTokens.Spacing.s5
-                        spacing: ThemeTokens.Spacing.s3
-
-                        Components.AlbumArt {
-                            Layout.preferredWidth: 44
-                            Layout.preferredHeight: 44
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: detailCard.modelData.title
-                            color: ThemeTokens.Palette.onSurface
-                            font.pixelSize: ThemeTokens.TypeScale.body
-                            font.weight: ThemeTokens.TypeScale.medium
-                            elide: Text.ElideRight
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: detailCard.modelData.subtitle
-                            color: ThemeTokens.Palette.onSurfaceVariant
-                            font.pixelSize: ThemeTokens.TypeScale.caption
-                            elide: Text.ElideRight
-                        }
-                    }
+            title: qsTr("每日 30 首")
+            subtitle: root.homeController && root.homeController.dailyRequiresLogin
+                ? qsTr("登录后获取你的每日推荐")
+                : qsTr("为你更新的个性化歌曲")
+            model: root.homeController ? root.homeController.dailyModel : null
+            loading: root.dailyLoading
+            errorMessage: root.homeController ? root.homeController.dailyErrorMessage : ""
+            emptyText: root.homeController && root.homeController.dailyRequiresLogin
+                ? qsTr("登录后显示每日推荐")
+                : qsTr("暂无每日推荐")
+            actionText: root.homeController && root.homeController.dailyRequiresLogin ? qsTr("登录") : qsTr("播放全部")
+            actionEnabled: root.homeController
+                && (root.homeController.dailyRequiresLogin || root.homeController.dailyModel.count > 0)
+            libraryController: root.libraryController
+            onActionRequested: {
+                if (root.homeController && root.homeController.dailyRequiresLogin) {
+                    root.loginRequested()
+                } else if (root.playerController && root.homeController && root.homeController.dailyModel.count > 0) {
+                    root.playerController.playFromModel(root.homeController.dailyModel, 0)
                 }
+            }
+            onSongRequested: function(row) {
+                if (root.playerController && root.homeController)
+                    root.playerController.playFromModel(root.homeController.dailyModel, row)
             }
         }
 
-        Rectangle {
+        CardSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            title: qsTr("今日推荐")
+            subtitle: qsTr("适合现在打开的歌单")
+            model: root.homeController ? root.homeController.playlistModel : null
+            loading: root.playlistLoading
+            errorMessage: root.homeController ? root.homeController.playlistErrorMessage : ""
+            emptyText: qsTr("暂无推荐歌单")
+            onCardRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
+            }
+        }
+
+        SongSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            title: qsTr("新歌速递")
+            subtitle: qsTr("最近更新的歌曲")
+            model: root.homeController ? root.homeController.newSongModel : null
+            loading: root.newSongLoading
+            errorMessage: root.homeController ? root.homeController.newSongErrorMessage : ""
+            emptyText: qsTr("暂无新歌")
+            actionText: qsTr("播放全部")
+            actionEnabled: root.homeController && root.homeController.newSongModel.count > 0
+            libraryController: root.libraryController
+            onActionRequested: {
+                if (root.playerController && root.homeController && root.homeController.newSongModel.count > 0)
+                    root.playerController.playFromModel(root.homeController.newSongModel, 0)
+            }
+            onSongRequested: function(row) {
+                if (root.playerController && root.homeController)
+                    root.playerController.playFromModel(root.homeController.newSongModel, row)
+            }
+        }
+
+        CardSection {
             Layout.fillWidth: true
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
             Layout.bottomMargin: ThemeTokens.Spacing.s6
-            Layout.preferredHeight: 88
-            radius: ThemeTokens.Spacing.radiusMd
-            color: ThemeTokens.Palette.surfaceElevated
-            border.color: ThemeTokens.Palette.outlineMuted
+            title: qsTr("排行榜")
+            subtitle: qsTr("正在流行的榜单")
+            model: root.homeController ? root.homeController.topModel : null
+            loading: root.topLoading
+            errorMessage: root.homeController ? root.homeController.topErrorMessage : ""
+            emptyText: qsTr("暂无排行榜")
+            onCardRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
+            }
+        }
+    }
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: ThemeTokens.Spacing.s5
-                spacing: ThemeTokens.Spacing.s4
+    component SectionHeader: RowLayout {
+        id: header
 
-                ColumnLayout {
+        property string title: ""
+        property string subtitle: ""
+        property string actionText: ""
+        property bool actionEnabled: false
+
+        signal actionRequested()
+
+        spacing: ThemeTokens.Spacing.s4
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: ThemeTokens.Spacing.s2
+
+            Label {
+                Layout.fillWidth: true
+                text: header.title
+                color: ThemeTokens.Palette.onSurface
+                font.pixelSize: ThemeTokens.TypeScale.h2
+                font.weight: ThemeTokens.TypeScale.medium
+                elide: Text.ElideRight
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: header.subtitle
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.caption
+                elide: Text.ElideRight
+            }
+        }
+
+        Button {
+            id: actionButton
+
+            Layout.preferredWidth: 96
+            Layout.preferredHeight: 34
+            visible: header.actionText.length > 0
+            enabled: header.actionEnabled
+            text: header.actionText
+            Accessible.name: text
+            onClicked: header.actionRequested()
+
+            contentItem: Label {
+                text: actionButton.text
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: actionButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.caption
+                font.weight: ThemeTokens.TypeScale.medium
+            }
+
+            background: Rectangle {
+                radius: ThemeTokens.Spacing.radiusMd
+                color: actionButton.down
+                    ? ThemeTokens.Palette.statePressed
+                    : actionButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                border.color: ThemeTokens.Palette.outline
+            }
+        }
+    }
+
+    component SongSection: Rectangle {
+        id: section
+
+        property string title: ""
+        property string subtitle: ""
+        property var model
+        property bool loading: false
+        property string errorMessage: ""
+        property string emptyText: ""
+        property string actionText: ""
+        property bool actionEnabled: false
+        property var libraryController
+        readonly property bool hasRows: section.model && section.model.count > 0
+
+        signal actionRequested()
+        signal songRequested(int row)
+
+        Layout.preferredHeight: songColumn.implicitHeight + ThemeTokens.Spacing.s6 * 2
+        Layout.minimumHeight: Layout.preferredHeight
+        radius: ThemeTokens.Spacing.radiusLg
+        color: ThemeTokens.Palette.surfaceElevated
+        border.color: ThemeTokens.Palette.outlineMuted
+
+        ColumnLayout {
+            id: songColumn
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: ThemeTokens.Spacing.s5
+            spacing: ThemeTokens.Spacing.s4
+
+            SectionHeader {
+                Layout.fillWidth: true
+                title: section.title
+                subtitle: section.subtitle
+                actionText: section.actionText
+                actionEnabled: section.actionEnabled
+                onActionRequested: section.actionRequested()
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: section.loading
+                text: qsTr("正在加载...")
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: !section.loading && section.errorMessage.length > 0
+                text: section.errorMessage
+                color: ThemeTokens.Palette.error
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: !section.loading && section.errorMessage.length === 0 && !section.hasRows
+                text: section.emptyText
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Repeater {
+                model: section.hasRows ? section.model : null
+
+                delegate: Components.SongRow {
                     Layout.fillWidth: true
-                    spacing: ThemeTokens.Spacing.s2
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("打开搜索")
-                        color: ThemeTokens.Palette.onSurface
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: ThemeTokens.TypeScale.medium
-                        elide: Text.ElideRight
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("查找歌曲、歌手或专辑")
-                        color: ThemeTokens.Palette.onSurfaceVariant
-                        font.pixelSize: ThemeTokens.TypeScale.caption
-                        elide: Text.ElideRight
+                    libraryController: section.libraryController
+                    onActivated: function(songData, row) {
+                        section.songRequested(row)
                     }
                 }
+            }
+        }
+    }
 
-                Button {
-                    id: searchButton
+    component CardSection: Rectangle {
+        id: section
 
-                    Layout.preferredWidth: 96
-                    Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                    text: qsTr("搜索")
-                    Accessible.name: text
-                    onClicked: root.searchRequested("")
+        property string title: ""
+        property string subtitle: ""
+        property var model
+        property bool loading: false
+        property string errorMessage: ""
+        property string emptyText: ""
+        readonly property bool hasCards: section.model && section.model.count > 0
 
-                    contentItem: Label {
-                        text: searchButton.text
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        color: ThemeTokens.Palette.onPrimary
-                        font.pixelSize: ThemeTokens.TypeScale.bodySm
-                        font.weight: ThemeTokens.TypeScale.medium
-                    }
+        signal cardRequested(string kind, string detailId, string title, string subtitle)
 
-                    background: Rectangle {
-                        radius: ThemeTokens.Spacing.radiusMd
-                        color: ThemeTokens.Palette.primary
+        Layout.preferredHeight: cardColumn.implicitHeight + ThemeTokens.Spacing.s6 * 2
+        Layout.minimumHeight: Layout.preferredHeight
+        radius: ThemeTokens.Spacing.radiusLg
+        color: ThemeTokens.Palette.surfaceElevated
+        border.color: ThemeTokens.Palette.outlineMuted
+
+        ColumnLayout {
+            id: cardColumn
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: ThemeTokens.Spacing.s5
+            spacing: ThemeTokens.Spacing.s4
+
+            SectionHeader {
+                Layout.fillWidth: true
+                title: section.title
+                subtitle: section.subtitle
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: section.loading
+                text: qsTr("正在加载...")
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: !section.loading && section.errorMessage.length > 0
+                text: section.errorMessage
+                color: ThemeTokens.Palette.error
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: !section.loading && section.errorMessage.length === 0 && !section.hasCards
+                text: section.emptyText
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                visible: section.hasCards
+                columns: root.availableWidth > 980 ? 3 : root.availableWidth > 680 ? 2 : 1
+                columnSpacing: ThemeTokens.Spacing.s3
+                rowSpacing: ThemeTokens.Spacing.s3
+
+                Repeater {
+                    model: section.hasCards ? section.model : null
+
+                    delegate: CardTile {
+                        Layout.fillWidth: true
+                        onActivated: section.cardRequested(kind, cardId, title, subtitle)
                     }
                 }
+            }
+        }
+    }
+
+    component CardTile: Rectangle {
+        id: tile
+
+        required property string kind
+        required property string cardId
+        required property string title
+        required property string subtitle
+        required property string meta
+
+        signal activated()
+
+        implicitHeight: 84
+        radius: ThemeTokens.Spacing.radiusMd
+        color: cardHover.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
+        border.color: ThemeTokens.Palette.outlineMuted
+        Accessible.role: Accessible.Button
+        Accessible.name: tile.title
+        activeFocusOnTab: true
+
+        HoverHandler {
+            id: cardHover
+        }
+
+        TapHandler {
+            onTapped: tile.activated()
+        }
+
+        Keys.onReturnPressed: tile.activated()
+        Keys.onSpacePressed: tile.activated()
+
+        Rectangle {
+            anchors.fill: parent
+            visible: parent.activeFocus
+            radius: parent.radius
+            color: "transparent"
+            border.color: ThemeTokens.Palette.focusRing
+            border.width: 2
+            z: 1
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: ThemeTokens.Spacing.s4
+            spacing: ThemeTokens.Spacing.s4
+
+            Components.AlbumArt {
+                Layout.preferredWidth: 52
+                Layout.preferredHeight: 52
+                iconText: tile.kind === "artist" ? "◎" : tile.kind === "top" ? "↗" : "♪"
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: ThemeTokens.Spacing.s2
+
+                Label {
+                    Layout.fillWidth: true
+                    text: tile.title
+                    color: ThemeTokens.Palette.onSurface
+                    font.pixelSize: ThemeTokens.TypeScale.body
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: tile.subtitle
+                    color: ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    elide: Text.ElideRight
+                }
+            }
+
+            Label {
+                Layout.preferredWidth: 48
+                text: tile.meta
+                color: ThemeTokens.Palette.onSurfaceVariant
+                horizontalAlignment: Text.AlignRight
+                font.pixelSize: ThemeTokens.TypeScale.caption
+                elide: Text.ElideRight
             }
         }
     }

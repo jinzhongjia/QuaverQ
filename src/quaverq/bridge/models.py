@@ -16,7 +16,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from quaverq.core.models import LyricLine, Singer, Song
+from quaverq.core.models import Album, LyricLine, Playlist, Singer, Song, TopList
 
 
 def _format_duration(seconds: int) -> str:
@@ -167,6 +167,156 @@ class SongListModel(QAbstractListModel):
         if not (0 <= row < len(self._songs)):
             return {}
         return song_to_map(self._songs[row])
+
+
+def card_to_map(card: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize a card mapping for QVariantMap-friendly QML consumption."""
+    return {
+        "kind": str(card.get("kind", "") or ""),
+        "id": str(card.get("id", "") or ""),
+        "title": str(card.get("title", "") or ""),
+        "subtitle": str(card.get("subtitle", "") or ""),
+        "coverUrl": str(card.get("coverUrl", "") or ""),
+        "meta": str(card.get("meta", "") or ""),
+    }
+
+
+def playlist_to_card(playlist: Playlist) -> dict[str, Any]:
+    """Convert a Playlist into a generic card."""
+    subtitle = playlist.creator or playlist.description
+    meta = f"{playlist.song_count} 首" if playlist.song_count else ""
+    return card_to_map(
+        {
+            "kind": "playlist",
+            "id": playlist.pid,
+            "title": playlist.name,
+            "subtitle": subtitle,
+            "coverUrl": playlist.cover_url,
+            "meta": meta,
+        }
+    )
+
+
+def album_to_card(album: Album) -> dict[str, Any]:
+    """Convert an Album into a generic card."""
+    subtitle = album.singer_name or album.publish_date
+    meta = f"{album.song_count} 首" if album.song_count else album.publish_date
+    return card_to_map(
+        {
+            "kind": "album",
+            "id": album.mid,
+            "title": album.name,
+            "subtitle": subtitle,
+            "coverUrl": album.cover_url,
+            "meta": meta,
+        }
+    )
+
+
+def singer_to_card(singer: Singer) -> dict[str, Any]:
+    """Convert a Singer into a generic card."""
+    return card_to_map(
+        {
+            "kind": "artist",
+            "id": singer.mid,
+            "title": singer.name,
+            "subtitle": "艺人",
+            "coverUrl": singer.avatar_url,
+            "meta": "",
+        }
+    )
+
+
+def top_to_card(top: TopList) -> dict[str, Any]:
+    """Convert a TopList into a generic card."""
+    meta = f"{top.total_num} 首" if top.total_num else ""
+    return card_to_map(
+        {
+            "kind": "top",
+            "id": top.top_id,
+            "title": top.name,
+            "subtitle": top.intro or "排行榜",
+            "coverUrl": top.cover_url,
+            "meta": meta,
+        }
+    )
+
+
+class CardListModel(QAbstractListModel):
+    """Generic card model for playlists, albums, artists and top lists."""
+
+    CardRole = Qt.ItemDataRole.UserRole + 1
+    KindRole = Qt.ItemDataRole.UserRole + 2
+    IdRole = Qt.ItemDataRole.UserRole + 3
+    TitleRole = Qt.ItemDataRole.UserRole + 4
+    SubtitleRole = Qt.ItemDataRole.UserRole + 5
+    CoverUrlRole = Qt.ItemDataRole.UserRole + 6
+    MetaRole = Qt.ItemDataRole.UserRole + 7
+
+    countChanged = Signal()
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._cards: list[dict[str, Any]] = []
+
+    @Property(int, notify=countChanged)
+    def count(self) -> int:
+        return len(self._cards)
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._cards)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid() or not (0 <= index.row() < len(self._cards)):
+            return None
+
+        card = self._cards[index.row()]
+        if role == self.CardRole:
+            return dict(card)
+        if role == self.KindRole:
+            return card["kind"]
+        if role == self.IdRole:
+            return card["id"]
+        if role == self.TitleRole or role == Qt.ItemDataRole.DisplayRole:
+            return card["title"]
+        if role == self.SubtitleRole:
+            return card["subtitle"]
+        if role == self.CoverUrlRole:
+            return card["coverUrl"]
+        if role == self.MetaRole:
+            return card["meta"]
+        return None
+
+    def roleNames(self) -> dict[int, QByteArray]:
+        return {
+            self.CardRole: QByteArray(b"card"),
+            self.KindRole: QByteArray(b"kind"),
+            self.IdRole: QByteArray(b"cardId"),
+            self.TitleRole: QByteArray(b"title"),
+            self.SubtitleRole: QByteArray(b"subtitle"),
+            self.CoverUrlRole: QByteArray(b"coverUrl"),
+            self.MetaRole: QByteArray(b"meta"),
+        }
+
+    def set_cards(self, cards: list[Mapping[str, Any]]) -> None:
+        self.beginResetModel()
+        self._cards = [card_to_map(card) for card in cards]
+        self.endResetModel()
+        self.countChanged.emit()
+
+    def cards(self) -> list[dict[str, Any]]:
+        return [dict(card) for card in self._cards]
+
+    def clear(self) -> None:
+        self.set_cards([])
+
+    @Slot(int, result="QVariant")
+    def cardAt(self, row: int) -> dict[str, Any]:
+        if not (0 <= row < len(self._cards)):
+            return {}
+        return dict(self._cards[row])
 
 
 class LyricLineListModel(QAbstractListModel):

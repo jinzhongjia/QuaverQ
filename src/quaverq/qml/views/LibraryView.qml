@@ -16,27 +16,33 @@ ColumnLayout {
     property int currentTab: 0
 
     signal loginRequested()
-    signal detailRequested(string kind, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle)
 
     spacing: 0
 
-    function refreshLikedIfReady() {
-        if (root.libraryController && root.libraryController.authed)
+    function refreshCurrentTab() {
+        if (!root.libraryController || !root.libraryController.authed)
+            return
+        if (root.currentTab === 0) {
             root.libraryController.refreshLiked()
+        } else if (root.currentTab === 1) {
+            root.libraryController.refreshMyPlaylists()
+        } else if (root.currentTab === 2) {
+            root.libraryController.refreshFavAlbums()
+        } else if (root.currentTab === 3) {
+            root.libraryController.refreshFollowedSingers()
+        }
     }
 
-    Component.onCompleted: root.refreshLikedIfReady()
+    Component.onCompleted: root.refreshCurrentTab()
 
-    onCurrentTabChanged: {
-        if (root.currentTab === 0)
-            root.refreshLikedIfReady()
-    }
+    onCurrentTabChanged: root.refreshCurrentTab()
 
     Connections {
         target: root.libraryController
 
         function onAuthStateChanged() {
-            root.refreshLikedIfReady()
+            root.refreshCurrentTab()
         }
     }
 
@@ -288,65 +294,149 @@ ColumnLayout {
             }
         }
 
-        ColumnLayout {
-            spacing: ThemeTokens.Spacing.s3
-
-            LibraryTile {
-                Layout.fillWidth: true
-                title: qsTr("默认歌单")
-                subtitle: root.appController && root.appController.authed
-                    ? qsTr("暂无歌单")
-                    : qsTr("登录后显示我的歌单")
-                iconText: "♬"
-                onActivated: root.detailRequested("playlist", title, subtitle)
-            }
-
-            Item {
-                Layout.fillHeight: true
+        CardListTab {
+            model: root.libraryController ? root.libraryController.playlistModel : null
+            kindFallback: "playlist"
+            iconText: "♬"
+            emptyText: qsTr("暂无歌单")
+            loggedOutText: qsTr("登录后显示我的歌单")
+            onLoginRequested: root.loginRequested()
+            onCardRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
             }
         }
 
-        ColumnLayout {
-            spacing: ThemeTokens.Spacing.s3
-
-            LibraryTile {
-                Layout.fillWidth: true
-                title: qsTr("收藏专辑")
-                subtitle: qsTr("暂无专辑")
-                iconText: "◫"
-                onActivated: root.detailRequested("album", title, subtitle)
-            }
-
-            Item {
-                Layout.fillHeight: true
+        CardListTab {
+            model: root.libraryController ? root.libraryController.albumModel : null
+            kindFallback: "album"
+            iconText: "◫"
+            emptyText: qsTr("暂无专辑")
+            loggedOutText: qsTr("登录后显示收藏专辑")
+            onLoginRequested: root.loginRequested()
+            onCardRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
             }
         }
 
+        CardListTab {
+            model: root.libraryController ? root.libraryController.artistModel : null
+            kindFallback: "artist"
+            iconText: "◎"
+            emptyText: qsTr("暂无艺人")
+            loggedOutText: qsTr("登录后显示关注艺人")
+            onLoginRequested: root.loginRequested()
+            onCardRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
+            }
+        }
+    }
+
+    component CardListTab: Item {
+        id: tab
+
+        property var model
+        property string kindFallback: "playlist"
+        property string iconText: "♪"
+        property string emptyText: ""
+        property string loggedOutText: ""
+        readonly property bool hasCards: tab.model && tab.model.count > 0
+
+        signal loginRequested()
+        signal cardRequested(string kind, string detailId, string title, string subtitle)
+
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+
+        ListView {
+            id: cardList
+
+            anchors.fill: parent
+            clip: true
+            spacing: ThemeTokens.Spacing.s2
+            model: tab.model
+            boundsBehavior: Flickable.StopAtBounds
+            reuseItems: true
+
+            delegate: LibraryTile {
+                width: ListView.view.width
+                iconText: tab.iconText
+                fallbackKind: tab.kindFallback
+                onActivated: function(kind, detailId, title, subtitle) {
+                    tab.cardRequested(kind, detailId, title, subtitle)
+                }
+            }
+
+            ScrollBar.vertical: ScrollBar {}
+        }
+
         ColumnLayout {
+            anchors.centerIn: parent
+            visible: !root.libraryController
+                || !root.libraryController.authed
+                || (!root.libraryController.loading && !tab.hasCards)
             spacing: ThemeTokens.Spacing.s3
 
-            LibraryTile {
-                Layout.fillWidth: true
-                title: qsTr("关注艺人")
-                subtitle: qsTr("暂无艺人")
-                iconText: "◎"
-                onActivated: root.detailRequested("artist", title, subtitle)
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: root.libraryController && root.libraryController.authed
+                    ? tab.emptyText
+                    : tab.loggedOutText
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.body
             }
 
-            Item {
-                Layout.fillHeight: true
+            Button {
+                id: tabLoginButton
+
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 112
+                Layout.preferredHeight: 36
+                visible: !root.libraryController || !root.libraryController.authed
+                text: qsTr("登录同步")
+                Accessible.name: text
+                onClicked: tab.loginRequested()
+
+                contentItem: Label {
+                    text: tabLoginButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: ThemeTokens.Palette.onSurface
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    font.weight: ThemeTokens.TypeScale.medium
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: tabLoginButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : tabLoginButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                }
             }
+        }
+
+        Label {
+            anchors.centerIn: parent
+            visible: root.libraryController
+                && root.libraryController.authed
+                && root.libraryController.loading
+                && !tab.hasCards
+            text: qsTr("正在同步")
+            color: ThemeTokens.Palette.onSurfaceVariant
+            font.pixelSize: ThemeTokens.TypeScale.body
         }
     }
 
     component LibraryTile: Rectangle {
         id: tile
 
-        property string title: ""
-        property string subtitle: ""
+        required property string title
+        required property string subtitle
+        required property string cardId
+        required property string kind
+        property string fallbackKind: "playlist"
         property string iconText: ""
 
-        signal activated()
+        signal activated(string kind, string detailId, string title, string subtitle)
 
         implicitHeight: 72
         radius: ThemeTokens.Spacing.radiusMd
@@ -361,11 +451,11 @@ ColumnLayout {
         }
 
         TapHandler {
-            onTapped: tile.activated()
+            onTapped: tile.activated(tile.kind || tile.fallbackKind, tile.cardId, tile.title, tile.subtitle)
         }
 
-        Keys.onReturnPressed: tile.activated()
-        Keys.onSpacePressed: tile.activated()
+        Keys.onReturnPressed: tile.activated(tile.kind || tile.fallbackKind, tile.cardId, tile.title, tile.subtitle)
+        Keys.onSpacePressed: tile.activated(tile.kind || tile.fallbackKind, tile.cardId, tile.title, tile.subtitle)
 
         Rectangle {
             anchors.fill: parent
