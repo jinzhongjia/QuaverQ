@@ -23,9 +23,11 @@ Rectangle {
 
     signal activated(var songData, int row)
 
-    implicitHeight: 52
+    implicitHeight: 56
     radius: ThemeTokens.Spacing.radiusMd
-    color: hoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+    color: root.current
+        ? ThemeTokens.Palette.stateSelected
+        : hoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent"
 
     Accessible.role: Accessible.ListItem
     Accessible.name: root.current
@@ -72,25 +74,18 @@ Rectangle {
 
         Label {
             Layout.preferredWidth: 24
-            text: root.index >= 0 ? String(root.index + 1) : ""
+            text: root.current ? "♪" : (root.index >= 0 ? String(root.index + 1) : "")
             color: root.current ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
             font.weight: root.current ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
         }
 
-        Rectangle {
-            Layout.preferredWidth: 34
-            Layout.preferredHeight: 34
-            radius: ThemeTokens.Spacing.radiusMd
-            color: root.current ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.surfaceVariant
-
-            Label {
-                anchors.centerIn: parent
-                text: "♪"
-                color: ThemeTokens.Palette.primary
-                font.pixelSize: ThemeTokens.TypeScale.body
-            }
+        AlbumArt {
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
+            compact: true
+            active: root.current
         }
 
         ColumnLayout {

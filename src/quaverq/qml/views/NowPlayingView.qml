@@ -42,20 +42,12 @@ Item {
             Layout.fillHeight: true
             spacing: ThemeTokens.Spacing.s5
 
-            Rectangle {
+            Components.AlbumArt {
                 Layout.preferredWidth: root.coverSize
                 Layout.preferredHeight: root.coverSize
                 Layout.alignment: Qt.AlignHCenter
-                radius: ThemeTokens.Spacing.radiusLg
-                color: root.hasSong ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.surfaceVariant
-                border.color: ThemeTokens.Palette.outline
-
-                Label {
-                    anchors.centerIn: parent
-                    text: "♪"
-                    color: ThemeTokens.Palette.primary
-                    font.pixelSize: ThemeTokens.TypeScale.display
-                }
+                active: root.hasSong
+                iconSize: ThemeTokens.TypeScale.display
             }
 
             ColumnLayout {
@@ -86,8 +78,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 104
                 radius: ThemeTokens.Spacing.radiusMd
-                color: ThemeTokens.Palette.surface
-                border.color: ThemeTokens.Palette.outline
+                color: ThemeTokens.Palette.surfaceElevated
+                border.color: ThemeTokens.Palette.outlineMuted
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -120,8 +112,8 @@ Item {
             Layout.preferredWidth: root.width >= 980 ? 340 : 280
             Layout.fillHeight: true
             radius: ThemeTokens.Spacing.radiusMd
-            color: ThemeTokens.Palette.surface
-            border.color: ThemeTokens.Palette.outline
+            color: ThemeTokens.Palette.surfaceElevated
+            border.color: ThemeTokens.Palette.outlineMuted
             visible: root.width >= 760
 
             ColumnLayout {
@@ -177,8 +169,8 @@ Item {
                             radius: ThemeTokens.Spacing.radiusMd
                             color: queueButton.down
                                 ? ThemeTokens.Palette.statePressed
-                                : queueButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                            border.color: ThemeTokens.Palette.outline
+                                : queueButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                            border.color: "transparent"
                         }
                     }
                 }

@@ -15,6 +15,7 @@ Rectangle {
     property bool loading: false
     property string errorMessage: ""
     property int queueCount: 0
+    property int bottomCornerRadius: 0
 
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -35,8 +36,19 @@ Rectangle {
     signal nowPlayingRequested()
 
     height: ThemeTokens.Spacing.playerBarHeight
-    color: ThemeTokens.Palette.surface
-    border.color: ThemeTokens.Palette.outline
+    radius: root.bottomCornerRadius
+    antialiasing: true
+    color: ThemeTokens.Palette.surfaceElevated
+    border.color: ThemeTokens.Palette.outlineMuted
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: root.bottomCornerRadius
+        visible: root.bottomCornerRadius > 0
+        color: root.color
+    }
 
     function formatMs(ms) {
         if (ms <= 0)
@@ -85,16 +97,16 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: ThemeTokens.Spacing.s5
-        anchors.rightMargin: ThemeTokens.Spacing.s5
-        spacing: ThemeTokens.Spacing.s4
+        anchors.leftMargin: ThemeTokens.Spacing.s6
+        anchors.rightMargin: ThemeTokens.Spacing.s6
+        spacing: ThemeTokens.Spacing.s5
 
-        Rectangle {
-            Layout.preferredWidth: 52
-            Layout.preferredHeight: 52
-            radius: ThemeTokens.Spacing.radiusLg
-            color: root.hasSong ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.surfaceVariant
-            border.color: root.loading ? ThemeTokens.Palette.primary : "transparent"
+        AlbumArt {
+            id: coverArt
+
+            Layout.preferredWidth: 64
+            Layout.preferredHeight: 64
+            active: root.hasSong
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("打开正在播放")
             activeFocusOnTab: root.hasSong
@@ -113,16 +125,9 @@ Rectangle {
                     root.nowPlayingRequested()
             }
 
-            Label {
-                anchors.centerIn: parent
-                text: "♪"
-                color: ThemeTokens.Palette.primary
-                font.pixelSize: ThemeTokens.TypeScale.h2
-            }
-
             Rectangle {
                 anchors.fill: parent
-                visible: parent.activeFocus
+                visible: coverArt.activeFocus
                 radius: parent.radius
                 color: "transparent"
                 border.color: ThemeTokens.Palette.focusRing
@@ -131,9 +136,9 @@ Rectangle {
         }
 
         Item {
-            Layout.preferredWidth: 240
-            Layout.maximumWidth: 300
-            Layout.preferredHeight: 52
+            Layout.preferredWidth: 260
+            Layout.maximumWidth: 340
+            Layout.preferredHeight: 64
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("打开正在播放")
             activeFocusOnTab: root.hasSong
@@ -164,7 +169,8 @@ Rectangle {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: ThemeTokens.Spacing.s2
+                anchors.topMargin: ThemeTokens.Spacing.s3
+                anchors.bottomMargin: ThemeTokens.Spacing.s3
                 spacing: ThemeTokens.Spacing.s2
 
                 Label {
@@ -193,7 +199,7 @@ Rectangle {
             ColumnLayout {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, 520)
-                spacing: ThemeTokens.Spacing.s2
+                spacing: ThemeTokens.Spacing.s3
 
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
@@ -227,8 +233,8 @@ Rectangle {
                     Button {
                         id: playButton
 
-                        Layout.preferredWidth: 48
-                        Layout.preferredHeight: 48
+                        Layout.preferredWidth: 54
+                        Layout.preferredHeight: 54
                         text: root.playbackState === "playing" ? "Ⅱ" : "▶"
                         enabled: root.canControl
                         Accessible.name: root.playbackState === "playing" ? qsTr("暂停") : qsTr("播放")
@@ -240,6 +246,7 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                             color: playButton.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
                             font.pixelSize: ThemeTokens.TypeScale.body
+                            font.weight: ThemeTokens.TypeScale.medium
                         }
 
                         background: Rectangle {
@@ -311,9 +318,9 @@ Rectangle {
                             x: progressSlider.leftPadding
                             y: progressSlider.topPadding + progressSlider.availableHeight / 2 - height / 2
                             width: progressSlider.availableWidth
-                            height: 4
-                            radius: 2
-                            color: ThemeTokens.Palette.surfaceVariant
+                            height: 5
+                            radius: height / 2
+                            color: ThemeTokens.Palette.outlineMuted
 
                             Rectangle {
                                 width: progressSlider.visualPosition * parent.width
@@ -326,8 +333,8 @@ Rectangle {
                         handle: Rectangle {
                             x: progressSlider.leftPadding + progressSlider.visualPosition * (progressSlider.availableWidth - width)
                             y: progressSlider.topPadding + progressSlider.availableHeight / 2 - height / 2
-                            width: 12
-                            height: 12
+                            width: 13
+                            height: 13
                             radius: width / 2
                             color: progressSlider.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
                         }
@@ -346,8 +353,8 @@ Rectangle {
         Button {
             id: queueButton
 
-            Layout.preferredWidth: root.queueCount > 99 ? 92 : 74
-            Layout.preferredHeight: 34
+            Layout.preferredWidth: root.queueCount > 99 ? 96 : 78
+            Layout.preferredHeight: 36
             text: root.queueCount > 0 ? qsTr("待播 %1").arg(root.queueCount) : qsTr("待播")
             Accessible.name: qsTr("待播列表")
             onClicked: root.queueRequested()
@@ -358,13 +365,16 @@ Rectangle {
                 verticalAlignment: Text.AlignVCenter
                 color: ThemeTokens.Palette.onSurface
                 font.pixelSize: ThemeTokens.TypeScale.caption
+                font.weight: ThemeTokens.TypeScale.medium
                 elide: Text.ElideRight
             }
 
             background: Rectangle {
                 radius: ThemeTokens.Spacing.radiusMd
-                color: queueButton.down ? ThemeTokens.Palette.statePressed : queueButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                border.color: ThemeTokens.Palette.outline
+                color: queueButton.down
+                    ? ThemeTokens.Palette.statePressed
+                    : queueButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                border.color: "transparent"
             }
         }
 
@@ -379,7 +389,7 @@ Rectangle {
                 id: modeButton
 
                 Layout.preferredWidth: 88
-                Layout.preferredHeight: 34
+                Layout.preferredHeight: 36
                 text: root.modeLabel(root.mode)
                 enabled: root.canControl
                 Accessible.name: qsTr("播放模式")
@@ -391,13 +401,16 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: modeButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
                     font.pixelSize: ThemeTokens.TypeScale.caption
+                    font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
                 }
 
                 background: Rectangle {
                     radius: ThemeTokens.Spacing.radiusMd
-                    color: modeButton.down ? ThemeTokens.Palette.statePressed : modeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                    border.color: ThemeTokens.Palette.outline
+                    color: modeButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : modeButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                    border.color: "transparent"
                 }
             }
 
@@ -421,9 +434,9 @@ Rectangle {
                     x: volumeSlider.leftPadding
                     y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
                     width: volumeSlider.availableWidth
-                    height: 4
-                    radius: 2
-                    color: ThemeTokens.Palette.surfaceVariant
+                    height: 5
+                    radius: height / 2
+                    color: ThemeTokens.Palette.outlineMuted
 
                     Rectangle {
                         width: volumeSlider.visualPosition * parent.width

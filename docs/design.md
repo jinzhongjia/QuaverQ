@@ -659,6 +659,7 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q4a.1** | 搜索结果明确分页 | `bridge/service_controller.py`、`qml/views/SearchView.qml` | 首屏 30 条；上一页 / 下一页切换；无下一页时按钮禁用 |
 | **Q4b** | 自动续播完善 + 会话恢复 | `state.py`、`PlayerController` 接入 | 播放结束自动进入下一首；重启恢复队列 / 当前曲 / position / 模式 |
 | **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail / NowPlaying 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回；PlayerBar 可进入 NowPlaying |
+| **Q5.5** | 视觉基线重构：轻量 chrome、音乐列表、专辑封面占位、播放器强化 | `qml/Theme/*`、`qml/components/*`、`qml/views/*` | 界面从工具感转向现代音乐客户端；截图验收无明显错位 |
 | **Q6** | 喜欢同步 + LibraryController 接入 + LikeButton | `bridge/library_controller.py`、`qml/components/LikeButton.qml` | 双向同步、断网降级 |
 | **Q7** | 歌词 + LyricPanel 紧凑同步 + NowPlaying 大歌词 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`qml/views/NowPlayingView.qml`、`bridge/lyric_model.py` | 行同步精度 < 200 ms |
 | **Q8** | MPRIS 集成（QtMultimedia metadata 推 D-Bus）+ 媒体键 | `core/mpris.py`（小改）+ `PlayerController` | 媒体键 / GNOME / KDE 显示正常 |
@@ -761,6 +762,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q4a.1 搜索结果分页
 - [x] Q4b 自动续播 + 会话恢复
 - [x] Q5 导航 + 全视图
+- [x] Q5.5 视觉基线重构
 - [ ] Q6 喜欢同步
 - [ ] Q7 歌词
 - [ ] Q8 MPRIS

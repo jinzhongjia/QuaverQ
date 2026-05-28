@@ -16,8 +16,8 @@ Rectangle {
     signal closeRequested()
     signal playIndexRequested(int row)
 
-    color: ThemeTokens.Palette.surface
-    border.color: ThemeTokens.Palette.outline
+    color: ThemeTokens.Palette.surfaceElevated
+    border.color: ThemeTokens.Palette.outlineMuted
     focus: visible
 
     function revealCurrentItem() {

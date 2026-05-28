@@ -13,13 +13,20 @@ import "views" as Views
 ApplicationWindow {
     id: root
 
-    width: ThemeTokens.Spacing.windowWidth
-    height: ThemeTokens.Spacing.windowHeight
-    minimumWidth: ThemeTokens.Spacing.minWindowWidth
-    minimumHeight: ThemeTokens.Spacing.minWindowHeight
+    readonly property int windowShadowMarginBase: 2
+    readonly property bool maximizedWindow: root.visibility === Window.Maximized || root.visibility === Window.FullScreen
+    readonly property int windowShadowMargin: root.maximizedWindow ? 0 : root.windowShadowMarginBase
+    readonly property int windowCornerRadius: root.maximizedWindow ? 0 : ThemeTokens.Spacing.radiusSm
+    readonly property int resizeHandleSize: 8
+
+    width: ThemeTokens.Spacing.windowWidth + root.windowShadowMarginBase * 2
+    height: ThemeTokens.Spacing.windowHeight + root.windowShadowMarginBase * 2
+    minimumWidth: ThemeTokens.Spacing.minWindowWidth + root.windowShadowMarginBase * 2
+    minimumHeight: ThemeTokens.Spacing.minWindowHeight + root.windowShadowMarginBase * 2
     visible: true
     title: qsTr("QuaverQ")
-    color: ThemeTokens.Palette.background
+    flags: Qt.Window | Qt.FramelessWindowHint
+    color: "transparent"
     readonly property var appController: AppController
     readonly property var serviceController: ServiceController
     readonly property var playerController: PlayerController
@@ -108,6 +115,14 @@ ApplicationWindow {
     function releaseTextFocus() {
         searchField.releaseInputFocus()
         shortcutFocusSink.forceActiveFocus()
+    }
+
+    function toggleMaximized() {
+        if (root.visibility === Window.Maximized) {
+            root.visibility = Window.Windowed
+        } else {
+            root.visibility = Window.Maximized
+        }
     }
 
     function clearPendingSeek() {
@@ -257,6 +272,21 @@ ApplicationWindow {
         focus: true
     }
 
+    Item {
+        id: windowBackground
+
+        anchors.fill: parent
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: root.windowShadowMargin
+            radius: root.windowCornerRadius
+            antialiasing: true
+            color: ThemeTokens.Palette.background
+            border.width: 0
+        }
+    }
+
     Shortcut {
         sequence: "Ctrl+F"
         onActivated: {
@@ -311,13 +341,35 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
+        anchors.topMargin: root.windowShadowMargin
+        anchors.leftMargin: root.windowShadowMargin
+        anchors.rightMargin: root.windowShadowMargin
         height: ThemeTokens.Spacing.headerHeight
-        color: ThemeTokens.Palette.surface
+        radius: root.windowCornerRadius
+        antialiasing: true
+        color: ThemeTokens.Palette.background
+
+        DragHandler {
+            target: null
+            acceptedButtons: Qt.LeftButton
+            onActiveChanged: {
+                if (active)
+                    root.startSystemMove()
+            }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: ThemeTokens.Palette.outlineMuted
+        }
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: ThemeTokens.Spacing.s5
-            anchors.rightMargin: ThemeTokens.Spacing.s5
+            anchors.leftMargin: ThemeTokens.Spacing.s6
+            anchors.rightMargin: ThemeTokens.Spacing.s6
             spacing: ThemeTokens.Spacing.s4
 
             Button {
@@ -353,26 +405,124 @@ ApplicationWindow {
                 font.weight: ThemeTokens.TypeScale.medium
             }
 
-            Label {
-                Layout.preferredWidth: root.width < 920 ? 0 : 120
-                visible: root.width >= 920
-                text: root.routeTitle(root.currentRoute)
-                color: ThemeTokens.Palette.onSurfaceVariant
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
-                elide: Text.ElideRight
-            }
-
             Components.SearchField {
                 id: searchField
 
                 Layout.fillWidth: true
-                Layout.maximumWidth: 520
+                Layout.maximumWidth: 500
                 placeholderText: qsTr("搜索歌曲、歌手、专辑")
                 loading: root.serviceController ? root.serviceController.loading : false
                 onSearchRequested: function(keyword) {
                     root.searchAndOpen(keyword)
                 }
                 onEditingCancelled: root.releaseTextFocus()
+            }
+
+            Button {
+                id: minimizeButton
+
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                Accessible.name: qsTr("最小化")
+                onClicked: root.showMinimized()
+
+                contentItem: Item {
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 11
+                        height: 2
+                        radius: 1
+                        color: ThemeTokens.Palette.onSurfaceVariant
+                    }
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: minimizeButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : minimizeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                }
+            }
+
+            Button {
+                id: maximizeButton
+
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                Accessible.name: root.maximizedWindow ? qsTr("还原窗口") : qsTr("最大化")
+                onClicked: root.toggleMaximized()
+
+                contentItem: Item {
+                    Rectangle {
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: root.maximizedWindow ? 2 : 0
+                        anchors.verticalCenterOffset: root.maximizedWindow ? -2 : 0
+                        width: 10
+                        height: 10
+                        radius: 1
+                        color: "transparent"
+                        border.color: ThemeTokens.Palette.onSurfaceVariant
+                        border.width: 2
+                    }
+
+                    Rectangle {
+                        visible: root.maximizedWindow
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: -2
+                        anchors.verticalCenterOffset: 2
+                        width: 10
+                        height: 10
+                        radius: 1
+                        color: "transparent"
+                        border.color: ThemeTokens.Palette.onSurfaceVariant
+                        border.width: 2
+                    }
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: maximizeButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : maximizeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                }
+            }
+
+            Button {
+                id: closeButton
+
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                Accessible.name: qsTr("关闭")
+                onClicked: root.close()
+
+                contentItem: Item {
+                    readonly property color iconColor: closeButton.hovered ? ThemeTokens.Palette.error : ThemeTokens.Palette.onSurfaceVariant
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 2
+                        radius: 1
+                        rotation: 45
+                        color: parent.iconColor
+                    }
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 2
+                        radius: 1
+                        rotation: -45
+                        color: parent.iconColor
+                    }
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: closeButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : closeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                }
             }
         }
     }
@@ -382,6 +532,8 @@ ApplicationWindow {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: playerBar.top
+        anchors.leftMargin: root.windowShadowMargin
+        anchors.rightMargin: root.windowShadowMargin
         spacing: 0
 
         Components.Sidebar {
@@ -411,6 +563,9 @@ ApplicationWindow {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+        anchors.leftMargin: root.windowShadowMargin
+        anchors.rightMargin: root.windowShadowMargin
+        anchors.bottomMargin: root.windowShadowMargin
         currentSong: root.playerController ? root.playerController.currentSong : ({})
         playbackState: root.playerController ? root.playerController.playbackState : "stopped"
         positionMs: root.playerController ? root.playerController.positionMs : 0
@@ -422,6 +577,7 @@ ApplicationWindow {
             : 0
         loading: root.playerController ? root.playerController.loading : false
         errorMessage: root.playerController ? root.playerController.errorMessage : ""
+        bottomCornerRadius: root.windowCornerRadius
         onPlayPauseRequested: {
             if (root.playerController)
                 root.playerController.togglePlayPause()
@@ -524,7 +680,8 @@ ApplicationWindow {
         anchors.top: headerBar.bottom
         anchors.right: parent.right
         anchors.bottom: playerBar.top
-        width: Math.min(360, root.width - 96)
+        anchors.rightMargin: root.windowShadowMargin
+        width: Math.min(360, root.width - 96 - root.windowShadowMargin * 2)
         z: 10
 
         sourceComponent: Component {
@@ -545,5 +702,142 @@ ApplicationWindow {
         id: loginDialog
 
         appController: root.appController
+    }
+
+    Item {
+        id: windowBorderLayer
+
+        anchors.fill: parent
+        z: 990
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: root.windowShadowMargin
+            radius: root.windowCornerRadius
+            antialiasing: true
+            color: "transparent"
+            border.width: 1
+            border.color: root.active ? ThemeTokens.Palette.windowBorder : ThemeTokens.Palette.windowBorderInactive
+        }
+    }
+
+    Item {
+        id: resizeLayer
+
+        anchors.fill: parent
+        enabled: !root.maximizedWindow
+        z: 1000
+
+        MouseArea {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            width: root.resizeHandleSize
+            height: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeFDiagCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.LeftEdge | Qt.TopEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            width: root.resizeHandleSize
+            height: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeBDiagCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.RightEdge | Qt.TopEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            width: root.resizeHandleSize
+            height: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeBDiagCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.LeftEdge | Qt.BottomEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            width: root.resizeHandleSize
+            height: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeFDiagCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.RightEdge | Qt.BottomEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.topMargin: root.resizeHandleSize
+            anchors.bottomMargin: root.resizeHandleSize
+            width: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeHorCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.LeftEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.topMargin: root.resizeHandleSize
+            anchors.bottomMargin: root.resizeHandleSize
+            width: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeHorCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.RightEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.leftMargin: root.resizeHandleSize
+            anchors.rightMargin: root.resizeHandleSize
+            height: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeVerCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.TopEdge))
+                    mouse.accepted = false
+            }
+        }
+
+        MouseArea {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: root.resizeHandleSize
+            anchors.rightMargin: root.resizeHandleSize
+            height: root.resizeHandleSize
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.SizeVerCursor
+            onPressed: function(mouse) {
+                if (!root.startSystemResize(Qt.BottomEdge))
+                    mouse.accepted = false
+            }
+        }
     }
 }

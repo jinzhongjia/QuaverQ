@@ -20,7 +20,7 @@ Rectangle {
 
     signal activated(var songData, int row)
 
-    implicitHeight: 58
+    implicitHeight: 64
     radius: ThemeTokens.Spacing.radiusMd
     color: root.selected
         ? ThemeTokens.Palette.stateSelected
@@ -71,24 +71,17 @@ Rectangle {
 
         Label {
             Layout.preferredWidth: 28
-            text: root.index >= 0 ? String(root.index + 1) : ""
-            color: ThemeTokens.Palette.onSurfaceVariant
+            text: root.selected ? "♪" : (root.index >= 0 ? String(root.index + 1) : "")
+            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
+            font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
         }
 
-        Rectangle {
-            Layout.preferredWidth: 40
-            Layout.preferredHeight: 40
-            radius: ThemeTokens.Spacing.radiusMd
-            color: ThemeTokens.Palette.surfaceVariant
-
-            Label {
-                anchors.centerIn: parent
-                text: "♪"
-                color: ThemeTokens.Palette.primary
-                font.pixelSize: ThemeTokens.TypeScale.h2
-            }
+        AlbumArt {
+            Layout.preferredWidth: 46
+            Layout.preferredHeight: 46
+            active: root.selected
         }
 
         ColumnLayout {

@@ -15,13 +15,21 @@ Rectangle {
     signal loginRequested()
     signal routeRequested(string route)
 
-    color: ThemeTokens.Palette.surface
-    border.color: ThemeTokens.Palette.outline
+    color: ThemeTokens.Palette.sidebar
+    border.color: "transparent"
+
+    Rectangle {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: 1
+        color: ThemeTokens.Palette.outlineMuted
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: ThemeTokens.Spacing.s4
-        spacing: ThemeTokens.Spacing.s4
+        anchors.margins: ThemeTokens.Spacing.s5
+        spacing: ThemeTokens.Spacing.s5
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -52,7 +60,7 @@ Rectangle {
             Layout.preferredHeight: 1
             Layout.topMargin: ThemeTokens.Spacing.s2
             Layout.bottomMargin: ThemeTokens.Spacing.s2
-            color: ThemeTokens.Palette.outline
+            color: ThemeTokens.Palette.outlineMuted
             visible: !root.compact
         }
 
@@ -105,8 +113,8 @@ Rectangle {
                     radius: ThemeTokens.Spacing.radiusMd
                     color: loginButton.down
                         ? ThemeTokens.Palette.statePressed
-                        : loginButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                    border.color: ThemeTokens.Palette.outline
+                        : loginButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceElevated
+                    border.color: ThemeTokens.Palette.outlineMuted
                 }
             }
         }

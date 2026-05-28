@@ -13,9 +13,9 @@ Rectangle {
 
     signal activated()
 
-    implicitHeight: ThemeTokens.Spacing.toolHitSize
+    implicitHeight: 42
     radius: ThemeTokens.Spacing.radiusMd
-    color: selected
+    color: root.selected
         ? ThemeTokens.Palette.stateSelected
         : (hoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent")
 

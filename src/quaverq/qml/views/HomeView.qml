@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../components" as Components
 import "../Theme" as ThemeTokens
 
 ScrollView {
@@ -119,8 +120,8 @@ ScrollView {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 132
                     radius: ThemeTokens.Spacing.radiusMd
-                    color: detailHover.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
-                    border.color: ThemeTokens.Palette.outline
+                    color: detailHover.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceElevated
+                    border.color: ThemeTokens.Palette.outlineMuted
                     Accessible.role: Accessible.Button
                     Accessible.name: detailCard.modelData.title
                     activeFocusOnTab: true
@@ -151,18 +152,9 @@ ScrollView {
                         anchors.margins: ThemeTokens.Spacing.s5
                         spacing: ThemeTokens.Spacing.s3
 
-                        Rectangle {
+                        Components.AlbumArt {
                             Layout.preferredWidth: 44
                             Layout.preferredHeight: 44
-                            radius: ThemeTokens.Spacing.radiusMd
-                            color: ThemeTokens.Palette.primaryContainer
-
-                            Label {
-                                anchors.centerIn: parent
-                                text: "♪"
-                                color: ThemeTokens.Palette.primary
-                                font.pixelSize: ThemeTokens.TypeScale.h2
-                            }
                         }
 
                         Label {
@@ -193,8 +185,8 @@ ScrollView {
             Layout.bottomMargin: ThemeTokens.Spacing.s6
             Layout.preferredHeight: 88
             radius: ThemeTokens.Spacing.radiusMd
-            color: ThemeTokens.Palette.surface
-            border.color: ThemeTokens.Palette.outline
+            color: ThemeTokens.Palette.surfaceElevated
+            border.color: ThemeTokens.Palette.outlineMuted
 
             RowLayout {
                 anchors.fill: parent
@@ -207,7 +199,7 @@ ScrollView {
 
                     Label {
                         Layout.fillWidth: true
-                    text: qsTr("打开搜索")
+                        text: qsTr("打开搜索")
                         color: ThemeTokens.Palette.onSurface
                         font.pixelSize: ThemeTokens.TypeScale.body
                         font.weight: ThemeTokens.TypeScale.medium
@@ -216,7 +208,7 @@ ScrollView {
 
                     Label {
                         Layout.fillWidth: true
-                    text: qsTr("查找歌曲、歌手或专辑")
+                        text: qsTr("查找歌曲、歌手或专辑")
                         color: ThemeTokens.Palette.onSurfaceVariant
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         elide: Text.ElideRight

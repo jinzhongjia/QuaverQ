@@ -20,7 +20,7 @@ QtObject {
     readonly property int windowHeight: 720
     readonly property int minWindowWidth: 760
     readonly property int minWindowHeight: 640
-    readonly property int headerHeight: 48
-    readonly property int playerBarHeight: 88
+    readonly property int headerHeight: 56
+    readonly property int playerBarHeight: 104
     readonly property int toolHitSize: 44
 }

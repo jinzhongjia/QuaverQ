@@ -13,7 +13,7 @@ FocusScope {
     signal searchRequested(string text)
     signal editingCancelled()
 
-    implicitWidth: 560
+    implicitWidth: 500
     implicitHeight: ThemeTokens.Spacing.toolHitSize
 
     function focusInput() {
@@ -28,9 +28,9 @@ FocusScope {
 
     Rectangle {
         anchors.fill: parent
-        radius: ThemeTokens.Spacing.radiusMd
-        color: ThemeTokens.Palette.surfaceVariant
-        border.color: input.activeFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outline
+        radius: height / 2
+        color: ThemeTokens.Palette.surfaceElevated
+        border.color: input.activeFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
         border.width: input.activeFocus ? 2 : 1
     }
 
@@ -64,7 +64,7 @@ FocusScope {
         Button {
             id: searchButton
 
-            Layout.preferredWidth: 88
+            Layout.preferredWidth: 76
             Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize - ThemeTokens.Spacing.s2
             text: root.loading ? qsTr("搜索中") : qsTr("搜索")
             enabled: !root.loading
@@ -81,7 +81,7 @@ FocusScope {
             }
 
             background: Rectangle {
-                radius: ThemeTokens.Spacing.radiusMd
+                radius: height / 2
                 color: searchButton.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.stateDisabled
             }
         }
