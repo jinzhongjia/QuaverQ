@@ -6,19 +6,31 @@
 
 ## 1. 目标与边界
 
-### 1.1 In-scope
+### 1.1 V1 目标范围与当前状态
 
-| 能力 | 说明 |
-|---|---|
-| 首页发现 | 推荐歌单 / 新歌速递 / 排行榜入口 |
-| 完整搜索 | 综合 + 按类型（歌曲 / 歌手 / 专辑 / 歌单） |
-| 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 |
-| 详情页 | 专辑 / 歌手 / 歌单 |
-| 现在播放 | 大封面 + 同步歌词 + 队列侧栏 |
-| 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 |
-| 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC（Master 后续需扩展 core） |
-| 桌面集成 | MPRIS2（媒体键 / GNOME / KDE 控件） |
-| 会话恢复 | 启动恢复上次队列 / position / 模式 |
+本表区分"设计目标"和"当前落地状态"。验收时以"当前状态"为准推进，不把静态占位、假数据入口或仅有外壳的视图视为完成。
+
+| 能力 | V1 目标 | 当前状态 |
+|---|---|---|
+| 首页发现 | 默认启动页；每日 30 首推荐 + 今日推荐歌单 + 新歌速递 + 排行榜入口 | **部分完成**：`HomeView` 已有入口结构；当前三个发现板块仍是无效入口，启动还误进搜索页；每日 30 首推荐未实现 |
+| 完整搜索 | 综合 + 按类型（歌曲 / 歌手 / 专辑 / 歌单） | **部分完成**：歌曲搜索 + 明确分页已完成；多类型搜索和详情跳转待补 |
+| 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 | **部分完成**：我喜欢同步已完成；歌单 / 收藏专辑 / 关注艺人 Tab 仍未接真实数据 |
+| 详情页 | 专辑 / 歌手 / 歌单真实详情 | **部分完成**：详情路由与壳已完成；真实详情、曲目列表、播放全部待补 |
+| 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面仍依赖后续 CoverImageProvider |
+| 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 | **已完成**：PlayerController + 队列模式已验收 |
+| 登录 | 二维码登录、缓存凭据、过期重登 | **部分完成**：二维码登录与缓存已完成；过期检测和失效重登待 Q9 |
+| 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC | **待 Q10**：core 支持 preference；设置 UI 和持久化未完成 |
+| 桌面集成 | MPRIS2（媒体键 / GNOME / KDE 控件） | **已完成**：Q8 已验收 |
+| 会话恢复 | 启动恢复上次队列 / position / 模式 | **已完成**：Q4b 已验收 |
+| 设置 | 主题、减弱动效、音质、缓存管理、账号状态 | **待 Q10** |
+| 打包 | Linux AppImage + release workflow | **待 Q11** |
+
+### 1.1.1 完成口径
+
+- 真实数据视图必须具备 `loading / empty / error / content` 四态；只展示静态卡片或"暂无"不算完成。
+- 任何能触发网络请求的入口必须有可恢复错误：重试、重新登录或返回上一级，不能只写日志。
+- 播放链路优先级高于信息浏览：任何新视图不得破坏搜索、点歌、队列、歌词和媒体键。
+- UI 验收以截图和真实交互为准：没有明显错位、文本不溢出、滚动边界正确、键盘快捷键不干扰输入框。
 
 ### 1.2 Out-of-scope（v1 不做）
 
@@ -41,7 +53,7 @@
 | Python 绑定 | **PySide6 ≥ 6.6** | 官方 Qt for Python（LGPL，与项目 GPL-3.0 兼容） |
 | UI | **Qt Quick / QML** | 声明式、动画原生、与暗色现代风格契合 |
 | 控件基底 | Qt Quick Controls **Basic** + 自定义主题 | Basic 不带 OS 样式干扰，方便自由布局 |
-| 音频 | **`QtMultimedia.MediaPlayer`** (QML 元素) | Linux 下走 GStreamer，与既有 codec 链路一致；不再需要 `core/player.py` 自管 GStreamer |
+| 音频 | **`QtMultimedia.MediaPlayer`** (QML 元素) | 由 Qt 多媒体插件处理音频；当前 PySide6/Qt 6 Linux 环境默认走 FFmpeg 后端；不再需要 `core/player.py` 自管 GStreamer |
 | 进程模型 | 单进程，Python + QML | 通过 `QQmlApplicationEngine` 暴露 `QObject` |
 | MPRIS | 沿用 `core/mpris.py` | dbus-next 挂到 qasync/Qt 主事件循环；不另起 D-Bus 后台线程 |
 | API 风控策略 | vkey bypass + **随机 safe `ct`** | 避开库默认 `ct=11` 等热门客户端风控值；每次启动从安全池随机选择并在实例生命周期内固定 |
@@ -72,10 +84,12 @@
 │   │ Bridge (src/quaverq/bridge/)                            │    │
 │   │   - AppController (QObject)  — 总入口 + 鉴权 + 路由    │    │
 │   │   - PlayerController         — 播放/队列/状态           │    │
-│   │   - LibraryController        — 喜欢 / 我的             │    │
+│   │   - LibraryController        — 喜欢 / 歌单 / 专辑 / 艺人│    │
 │   │   - LyricController          — 歌词同步 / 当前行        │    │
+│   │   - HomeController           — 每日推荐 / 发现数据      │    │
 │   │   - MprisController          — 桌面媒体键 / D-Bus 同步  │    │
-│   │   - ServiceController        — 搜索 / 详情 / 推荐       │    │
+│   │   - SettingsController       — 主题 / 音质 / 缓存设置   │    │
+│   │   - ServiceController        — 搜索 / 详情 / 取链       │    │
 │   │   - SongListModel (QAbstractListModel) — 歌曲列表       │    │
 │   │   - CardListModel            — 歌单 / 专辑 / 艺人卡片  │    │
 │   │   - LyricModel               — LRC 同步行              │    │
@@ -90,7 +104,7 @@
 └─────────────────────────────────────────────────────────────────┘
                               ↓
                        系统 D-Bus（MPRIS）
-                       QtMultimedia（Linux 后端走 GStreamer）
+                       QtMultimedia（当前环境走 FFmpeg 后端；由 Qt 插件选择）
 ```
 
 ### 3.1 关键约束
@@ -252,7 +266,7 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 
 | 视图 | 路由 | 内容 |
 |---|---|---|
-| Home | `home` | 推荐歌单 + 新歌速递 + 排行榜入口（卡片栅格） |
+| Home | `home` | 每日 30 首推荐 + 今日推荐歌单 + 新歌速递 + 排行榜入口 |
 | Search | `search` | 输入栏 + 4 类型 tab 结果列表 |
 | Library | `library` | 4 Tabs：我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 |
 | AlbumDetail | `detail/album/:mid` | Hero（封面 + 元信息 + 播放全部） + 曲目列表 |
@@ -263,6 +277,47 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 | Login | overlay | 二维码登录弹窗 |
 
 侧栏内置：**Home / Search / Library**，下方动态列出"我的歌单"（点击直跳 PlaylistDetail）。NowPlaying 不占侧栏主导航位置，由 PlayerBar 的封面 / 歌名区域或歌词按钮进入。
+
+### 5.1.1 启动默认页
+
+应用启动后的默认顶级路由必须是 `home`，不是 `search`。
+
+- 首次启动、已登录启动、未登录启动都进入 Home。
+- `Ctrl+F`、顶部搜索框聚焦、侧栏搜索项才进入 Search。
+- 会话恢复只恢复队列 / 当前曲 / position / 模式，不改变默认内容页；后续可单独设计"恢复上次页面"设置，但 v1 不做。
+- 如果 Home 数据加载失败，仍停留在 Home 并显示局部错误，不自动跳到 Search。
+
+### 5.1.2 Home 信息架构
+
+Home 是发现页，不是搜索页。内容优先级从上到下：
+
+1. **每日 30 首推荐**：首页主功能。登录后展示 30 首个性化推荐歌曲，提供"播放全部"和单曲点播；未登录时显示登录入口，不用热门歌伪装成每日推荐。
+2. **今日推荐**：推荐歌单横向卡片，数据来自 `QuaverService.get_recommend_playlists(limit=...)`，点击进入 PlaylistDetail。
+3. **新歌速递**：歌曲列表或横向紧凑列表，数据来自 `QuaverService.get_recommend_new_songs(limit=...)`，点击直接播放或加入队列。
+4. **排行榜**：排行榜入口卡片，数据来自 `QuaverService.get_top_categories(limit_per_group=...)`，点击后用 `get_top_detail(top_id)` 进入 PlaylistDetail。
+
+Home 完成口径：
+- 四个板块都不能是静态假入口；每个板块都要有真实数据、loading、empty、error 状态。
+- 每日 30 首推荐必须严格显示 30 首；服务端不足时展示实际数量和原因，不补假数据。
+- 推荐歌单、排行榜卡片必须可点击进入详情；新歌和每日推荐必须可播放。
+- 每个板块局部失败不影响其他板块显示。
+
+### 5.1.3 Library 信息架构
+
+Library 的四个 Tab 都必须接真实数据：
+
+| Tab | 数据源 | 交互 |
+|---|---|---|
+| 我喜欢 | `LibraryController.likedModel` / `QuaverService.get_liked_songs()` | 点击播放；喜欢状态可切换 |
+| 歌单 | `QuaverService.get_my_playlists()`，排除"我喜欢"虚拟歌单 | 点击进入 PlaylistDetail；支持播放全部 |
+| 专辑 | `QuaverService.get_fav_albums()` | 点击进入 AlbumDetail |
+| 艺人 | `QuaverService.get_followed_singers()` | 点击进入 ArtistDetail |
+
+Library 完成口径：
+- 未登录时四个 Tab 显示同一套登录引导，不发无意义请求。
+- 已登录时每个 Tab 独立 loading / empty / error；某个 Tab 失败不清空其他 Tab。
+- 资料库数据刷新后要保持当前 Tab，不强制跳回"我喜欢"。
+- 歌单 / 专辑 / 艺人不是只显示名称，至少要展示封面或头像占位、标题、二级信息和可点击 affordance。
 
 ### 5.2 导航模型
 
@@ -329,9 +384,10 @@ ApplicationWindow (Main.qml)
 │   │   └── PlaylistList  (我的歌单)
 │   ├── StackView (id: contentStack)
 │   │   ├── HomeView
-│   │   │   ├── SectionRow ("为你推荐", CardListModel)
-│   │   │   ├── SectionRow ("新歌速递", CardListModel)
-│   │   │   └── SectionRow ("排行榜")
+│   │   │   ├── DailyThirtySection (SongListModel)
+│   │   │   ├── SectionRow ("今日推荐", CardListModel)
+│   │   │   ├── SectionRow ("新歌速递", SongListModel)
+│   │   │   └── SectionRow ("排行榜", CardListModel)
 │   │   ├── SearchView
 │   │   │   ├── ResultTabs (TabBar + StackLayout)
 │   │   │   └── SongList / CardGrid
@@ -386,11 +442,13 @@ QML_IMPORT_MAJOR_VERSION = 1
 
 | Controller | 关键 property / slot | signal |
 |---|---|---|
-| **AppController** (singleton) | `authed: bool`, `vipInfo`, `darkMode: bool`<br>slot `loginByQrCode()`, `logout()` | `qrcodeChanged(bytes, kind)`, `authChanged(bool, reason)`, `credExpired()` |
-| **ServiceController** | slot `search(kw, types) -> Future`, `getAlbumDetail(mid)`, `getArtistDetail(mid)`, `getPlaylistDetail(pid)`, `getSongUrl(song, qualityPreference) -> {url, quality, expiresAt}`, `getLyric(mid)`, `getHomeFeed()`, `getTopDetail(topId, limit)` | `errorRaised(str)` |
-| **LibraryController** | `likedCount: int`, slot `listLiked()`, `isLiked(mid)`, `toggleLike(songJson)`, `myPlaylists()`, `favAlbums()`, `followedSingers()` | `likedChanged(mid, liked)`, `synced(count)` |
+| **AppController** (singleton) | `authed: bool`, `loginState: str`, `loginMessage: str`, `qrcodeDataUrl: str`, `qrcodeKind: str`<br>slot `loginByQrCode()`, `logout()`, `refreshAuthState()` | `authChanged(bool, reason)`, `credExpired()`, `qrcodeChanged()`, `loginStateChanged()` |
+| **ServiceController** | slot `search(kw, types) -> Future`, `getAlbumDetail(mid)`, `getArtistDetail(mid)`, `getPlaylistDetail(pid)`, `getSongUrl(song, qualityPreference) -> {url, quality, expiresAt}`, `getLyric(mid)` | `errorRaised(str)` |
+| **HomeController** | `dailyModel: SongListModel`, `playlistModel: CardListModel`, `newSongModel: SongListModel`, `topModel: CardListModel`, `loadingSections: QStringList`<br>slot `refreshHome()`, `refreshDailyThirty()`, `playDailyThirty()` | `sectionChanged(str)`, `errorRaised(str)` |
+| **LibraryController** | `likedCount: int`, `likedModel: SongListModel`, `playlistModel: CardListModel`, `albumModel: CardListModel`, `artistModel: CardListModel`<br>slot `refreshLiked()`, `refreshMyPlaylists()`, `refreshFavAlbums()`, `refreshFollowedSingers()`, `isLiked(mid)`, `toggleLike(songJson)` | `likedChanged(mid, liked)`, `sectionChanged(str)`, `errorRaised(str)` |
 | **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()` |
 | **MprisController** | 监听 PlayerController 的曲目 / 状态 / 进度 / 音量 / 模式并推送到 `core/mpris.py` | D-Bus Play/Pause/Next/Previous/Seek 回调直接调用 PlayerController slot |
+| **SettingsController** | `themeMode: "system"|"light"|"dark"`, `reducedMotion: bool`, `qualityPreference: "standard"|"balanced"|"high"`, `coverCacheSizeText: str`<br>slot `setThemeMode(mode)`, `setReducedMotion(enabled)`, `setQualityPreference(value)`, `clearCoverCache()` | `settingsChanged()`, `cacheChanged()`, `errorRaised(str)` |
 
 ### 8.3 列表模型（`QAbstractListModel`）
 
@@ -409,7 +467,17 @@ class SongListModel(QAbstractListModel):
 模型实例：
 - `PlayerController.queueModel` — 队列
 - `LibraryController.likedModel` — 我喜欢
+- `HomeController.dailyModel` — 每日 30 首推荐
+- `HomeController.newSongModel` — 首页新歌速递
+- `HomeController.playlistModel` / `topModel` — 首页歌单 / 排行榜卡片
+- `LibraryController.playlistModel` / `albumModel` / `artistModel` — 资料库非歌曲卡片
 - 详情页临时实例（VM 持有）
+
+Card role 契约：
+- `kind`: `playlist` / `album` / `artist` / `top`
+- `id`: 详情请求用的稳定 ID（playlist pid、album mid、artist mid、top_id 字符串）
+- `title`, `subtitle`, `coverUrl`, `meta`
+- QML 点击 `kind=top` 时先走 `get_top_detail(top_id)` 并进入 PlaylistDetail；不要把排行榜只当外部链接。
 
 Song 结构契约：
 - QML 行点击 / 播放动作优先传完整 `song` QVariantMap，而不是只传 `mid`
@@ -421,6 +489,20 @@ Song 结构契约：
 - 播放 URL 返回的 `quality` 是实际命中的文件档位：`MP3_128` / `OGG_192` / `MP3_320` / `FLAC`
 - UI 设置页展示偏好文案（标准 / 均衡 / 高品质），PlayerBar / NowPlaying 可展示实际档位
 - Master 不作为 v1 设置项；若后续支持，先在 core 的 `_QUALITY_FILE` / `_QUALITY_PROFILES` 加入对应 prefix 并补测试，再开放 UI
+
+发现 / 资料库数据契约：
+
+| 功能 | core 方法 | bridge model | 备注 |
+|---|---|---|---|
+| 每日 30 首推荐 | `get_daily_recommend_songs(limit=30)` | `HomeController.dailyModel` | 新增 core 方法；优先评估 `recommend.get_guess_recommend()`，必要时 fallback 到 `get_radar_recommend()`，但不能伪造个性化推荐 |
+| 今日推荐歌单 | `get_recommend_playlists(limit=...)` | `HomeController.playlistModel` | 已有 core 方法，接 UI |
+| 新歌速递 | `get_recommend_new_songs(limit=...)` | `HomeController.newSongModel` | 已有 core 方法，接 UI |
+| 排行榜入口 | `get_top_categories(limit_per_group=...)` | `HomeController.topModel` | 已有 core 方法，点击后拉 `get_top_detail(top_id)` |
+| 我的歌单 | `get_my_playlists()` | `LibraryController.playlistModel` | 已有 core 方法，排除"我喜欢" |
+| 收藏专辑 | `get_fav_albums()` | `LibraryController.albumModel` | 已有 core 方法 |
+| 关注艺人 | `get_followed_singers()` | `LibraryController.artistModel` | 已有 core 方法 |
+
+每日 30 首推荐需要登录态。未登录时 `HomeController.dailyModel` 保持空，并通过 section state 暴露 `requires_login`；QML 显示登录 CTA，不自动搜索或填充热门歌曲。
 
 ### 8.4 异步桥（`bridge/async_bridge.py`）
 
@@ -515,6 +597,65 @@ D-Bus MPRIS Play/Pause/Next/Previous
   → controller 改 state + QML binding 刷新
 ```
 
+### 9.5 凭据过期与重新登录（Q9）
+
+```
+启动 / 播放 / 同步喜欢
+  → ServiceController.ensureAuthenticated()
+  → 有缓存凭据：先注入 service，再跑轻量鉴权探测
+  → 探测成功：authChanged(True, "cached")
+  → 探测失败或业务接口返回登录失效：
+       · 清内存凭据；保留队列、歌词、当前页面和会话快照
+       · authChanged(False, "expired")
+       · credExpired()
+       · LoginDialog 以"登录已过期，请重新扫码"状态打开
+  → 登录成功：
+       · 保存 credential.json
+       · authChanged(True, "login")
+       · 恢复可恢复任务（例如刷新喜欢）；播放任务由用户重新触发，避免误自动播放
+```
+
+过期判断规则：
+- 优先用 QQ 音乐账号态 / 资料库轻量接口做主动探测，避免等到点歌才失败。
+- `get_song_url`、`get_liked_songs`、`toggleLike` 等用户态接口遇到登录失效时必须统一转成 `CredentialExpiredError` 或等价错误码，再由 controller 触发 `credExpired()`。
+- 退出登录是显式用户动作：必须写日志、清内存凭据、删除 `credential.json`，并广播 `authChanged(False, "logout")`。
+- 登录弹窗状态枚举固定为 `idle / loading / waiting / scanned / confirming / authenticated / expired / error`，QML 不解析任意中文文案做逻辑判断。
+
+### 9.6 设置持久化（Q10）
+
+```
+SettingsView 控件
+  → SettingsController slot
+  → QSettings 写入
+  → Theme / PlayerController / ServiceController 通过绑定或 signal 接收变更
+```
+
+设置键：
+- `ui/themeMode`: `system` / `light` / `dark`
+- `ui/reducedMotion`: `true` / `false`
+- `playback/qualityPreference`: `standard` / `balanced` / `high`
+- `cache/coverMaxBytes`: v1 可先只读默认值；清理动作必须二次确认
+
+Q10 应把设置逻辑集中到 `SettingsController`。当前 `AppController.darkMode` 可保留为兼容别名，但不再作为设置主入口。
+
+### 9.7 首页发现与资料库加载（Q8.5）
+
+```
+启动
+  → AppController.route = "home"
+  → HomeController.refreshHome()
+       · daily: 需要登录；未登录只暴露 requires_login 状态
+       · playlists / newSongs / topLists: 可并发加载
+  → QML 按 section 独立渲染 loading / error / content
+
+进入 Library
+  → 当前 Tab 触发对应 refresh
+  → 登录失效: credExpired() + 保留当前 Tab
+  → 成功: 更新对应 model，不重置其他 Tab
+```
+
+Home 和 Library 的网络请求可以并发，但 model 更新必须回到 Qt 主事件循环。每个 section 维护自己的 `loading/error/empty`，不要用一个全局 loading 覆盖整页。
+
 ---
 
 ## 10. 可访问性 / 键盘 / 国际化
@@ -580,11 +721,14 @@ src/quaverq/
 │   ├── __init__.py
 │   ├── app_controller.py
 │   ├── service_controller.py
+│   ├── home_controller.py
 │   ├── library_controller.py
 │   ├── player_controller.py
-│   ├── models.py           QAbstractListModel 族
-│   ├── image_provider.py
-│   └── async_bridge.py     qasync 接入
+│   ├── lyric_controller.py
+│   ├── mpris_controller.py
+│   ├── settings_controller.py   Q10 新增：QSettings / 音质 / 主题 / 缓存
+│   ├── models.py                QAbstractListModel 族
+│   └── image_provider.py        后续：CoverImageProvider
 ├── core/                   保持
 │   ├── service / library / queue / cache / cover_cache /
 │   │   state / lyric / mpris / models
@@ -598,14 +742,20 @@ src/quaverq/
     │   ├── Spacing.qml
     │   └── Motion.qml
     ├── components/
-    │   ├── SongRow.qml
-    │   ├── Card.qml
-    │   ├── CoverImage.qml
+    │   ├── AlbumArt.qml
     │   ├── LikeButton.qml
-    │   ├── IconButton.qml
-    │   ├── LoadingSkeleton.qml
-    │   ├── Snackbar.qml
-    │   └── Banner.qml
+    │   ├── NavItem.qml
+    │   ├── PlayerBar.qml
+    │   ├── QueueRow.qml
+    │   ├── SearchField.qml
+    │   ├── Sidebar.qml
+    │   ├── SongRow.qml
+    │   ├── Card.qml             后续：歌单 / 专辑 / 艺人统一卡片
+    │   ├── CoverImage.qml       后续：封面 image provider 入口
+    │   ├── IconButton.qml       后续：统一工具按钮
+    │   ├── LoadingSkeleton.qml  后续：加载骨架
+    │   ├── Snackbar.qml         后续：轻量反馈
+    │   └── Banner.qml           后续：持久错误 / 重登提示
     ├── views/
     │   ├── HomeView.qml
     │   ├── SearchView.qml
@@ -614,8 +764,6 @@ src/quaverq/
     │   ├── NowPlayingView.qml
     │   └── SettingsView.qml
     ├── panels/
-    │   ├── Sidebar.qml
-    │   ├── PlayerBar.qml
     │   ├── QueuePanel.qml
     │   └── LyricPanel.qml
     └── dialogs/
@@ -664,10 +812,11 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q5** | Sidebar 导航 + StackView 路由 + Home / Library / Detail / NowPlaying 视图 | `qml/Main.qml`、`qml/views/*` | 全视图可达；详情页能跳能回；PlayerBar 可进入 NowPlaying |
 | **Q5.5** | 视觉基线重构：轻量 chrome、音乐列表、专辑封面占位、播放器强化 | `qml/Theme/*`、`qml/components/*`、`qml/views/*` | 界面从工具感转向现代音乐客户端；截图验收无明显错位 |
 | **Q6** | 喜欢同步 + LibraryController 接入 + LikeButton | `bridge/library_controller.py`、`qml/components/LikeButton.qml` | 双向同步、断网降级 |
-| **Q7** | 歌词 + LyricPanel 紧凑同步 + NowPlaying 大歌词 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`qml/views/NowPlayingView.qml`、`bridge/lyric_model.py` | 行同步精度 < 200 ms |
-| **Q8** | MPRIS 集成（QtMultimedia metadata 推 D-Bus）+ 媒体键 | `core/mpris.py`（小改）+ `PlayerController` | 媒体键 / GNOME / KDE 显示正常 |
-| **Q9** | 登录完善：凭据过期检测 + 失效重登 + 登录 UX polish | `qml/dialogs/LoginDialog.qml`、`AppController` | 凭据过期可提示并重新扫码 |
-| **Q10** | 设置页 + 减弱动效 / 音质 / 缓存清理 | `qml/views/SettingsView.qml` | 设置生效；persistent |
+| **Q7** | 歌词 + LyricPanel 紧凑同步 + NowPlaying 大歌词 + LRC 翻译 | `qml/panels/LyricPanel.qml`、`qml/views/NowPlayingView.qml`、`bridge/lyric_controller.py`、`bridge/models.py` | 行同步精度 < 200 ms |
+| **Q8** | MPRIS 集成（QtMultimedia metadata 推 D-Bus）+ 媒体键 | `core/mpris.py`、`bridge/mpris_controller.py`、`PlayerController` | 媒体键 / GNOME / KDE 显示正常 |
+| **Q8.5** | 信息架构补齐：默认 Home + 每日 30 首推荐 + 发现真实数据 + 资料库非喜欢 Tab | `bridge/home_controller.py`、`bridge/library_controller.py`、`bridge/models.py`、`qml/views/HomeView.qml`、`qml/views/LibraryView.qml` | 启动进 Home；首页四板块有效；资料库歌单 / 专辑 / 艺人可点进详情 |
+| **Q9** | 登录完善：凭据过期检测 + 失效重登 + 登录 UX polish | `bridge/app_controller.py`、`bridge/service_controller.py`、`qml/dialogs/LoginDialog.qml` | 凭据过期可提示并重新扫码 |
+| **Q10** | 设置页 + 减弱动效 / 音质 / 缓存清理 | `bridge/settings_controller.py`、`qml/views/SettingsView.qml`、`qml/Theme/*` | 设置生效；persistent |
 | **Q11** | 打包：Nuitka + AppImage + GH Actions | `build.py`、`.github/workflows/release.yml` | AppImage 双击能跑 |
 
 ### 14.1 工作模式（与既有约定一致）
@@ -684,7 +833,7 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 
 | 风险 | 缓解 |
 |---|---|
-| QtMultimedia codec 缺失（无 GStreamer plugins-good） | AppImage 内嵌核心 codec；启动检测缺失 codec 给提示 |
+| QtMultimedia / FFmpeg 插件或系统 codec 缺失 | AppImage 内嵌 Qt 多媒体插件和核心 codec；启动检测缺失 codec 给提示 |
 | qasync 与 `asyncio.run_coroutine_threadsafe` 冲突 | 全局只一个 loop = Qt 主 loop；core 内部不再 `asyncio.run` |
 | MediaPlayer 进度回调频率高 | 用 `PositionInterval` 200 ms；MPRIS 推送同源去抖 |
 | Nuitka × PySide6 QML 资源 | 用 `qt_add_qml_module` 或 `qrc:/` 打包；走 `--include-data-dir` |
@@ -754,6 +903,89 @@ PY
 QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 ```
 
+### 14.4 剩余里程碑细化
+
+**Q8.5 信息架构补齐**
+
+目标：把当前无效的发现 / 资料库入口补成真实产品主路径，并修正启动默认页。
+
+必须交付：
+- 启动默认路由改为 `home`，Search 只由侧栏、顶部搜索框或 `Ctrl+F` 进入。
+- 新增 `HomeController`，接每日 30 首推荐、今日推荐歌单、新歌速递、排行榜四个 section。
+- `QuaverService` 新增 `get_daily_recommend_songs(limit=30)`；优先对接 QQ 音乐猜你喜欢 / 雷达推荐类接口，失败时展示可恢复错误，不用假数据。
+- `LibraryController` 扩展 `playlistModel / albumModel / artistModel`，接 `get_my_playlists()`、`get_fav_albums()`、`get_followed_singers()`。
+- Home / Library 的卡片点击进入对应 Detail；每日推荐和新歌可直接播放。
+- 每个 section 独立 loading / empty / error，不用整页空白替代局部失败。
+- 测试覆盖：默认 route、HomeController section 映射、LibraryController 三个非喜欢模型、点击路由目标。
+
+验收：
+- `uv run quaverq` 启动后第一屏是发现页，不是搜索页。
+- 首页能看到每日 30 首推荐；今日推荐 / 新歌速递 / 排行榜都能点击或播放。
+- 资料库的歌单、专辑、艺人 Tab 不再是占位，能进入详情页。
+- 未登录时每日推荐和资料库展示登录引导；公共发现板块仍可加载。
+
+**Q9 登录完善**
+
+目标：登录态从"能扫码"升级为"可诊断、可恢复、不会误导用户"。
+
+必须交付：
+- 缓存凭据启动探测：有效才显示"已同步账号"，失效触发 `credExpired()`。
+- 登录失效统一错误：播放、喜欢同步、资料库刷新遇到失效时走同一条重登路径。
+- `LoginDialog` 状态 polish：获取二维码、等待扫码、已扫码、确认中、过期、取消、失败、成功都可区分。
+- 退出登录日志完整：请求、清内存、删缓存文件、状态广播都要有日志。
+- 测试覆盖：缓存凭据有效 / 失效、登录超时、拒绝登录、退出登录、业务接口触发过期。
+
+验收：
+- 删除或伪造 `~/.config/quaverq/credential.json` 后启动，不误显示已登录。
+- 二维码过期 / 手机取消后能重新获取。
+- 凭据失效后队列和当前页面不丢，重新登录后资料库可刷新。
+
+**Q10 设置页**
+
+目标：让用户可控的偏好真正生效并持久化。
+
+必须交付：
+- `SettingsController`：集中管理 QSettings，不继续把设置逻辑散落在 AppController / QML。
+- 音质偏好：标准 / 均衡 / 高品质，对应 `standard / balanced / high`，影响后续取链。
+- 外观：跟随系统 / 浅色 / 深色，切换只更新 token，不重建主界面。
+- 减弱动效：关闭非必要动画；歌词滚动保留功能但不做平滑动画。
+- 缓存：显示封面缓存大小；清理前二次确认；清理后刷新大小。
+- 测试覆盖：设置读写、非法值回退默认值、音质 preference 传入播放链路。
+
+验收：
+- 重启后设置保持。
+- 切换主题、音质、减弱动效后立即生效。
+- 清理缓存不会影响正在播放。
+
+**Q11 打包**
+
+目标：交付 Linux 用户能直接运行的 AppImage。
+
+必须交付：
+- Nuitka standalone 构建脚本。
+- QML / Theme / 图标 / metadata 正确进入 bundle。
+- `.desktop`、应用图标、AppImage 文件名与版本号。
+- CI release workflow：tag 触发构建并产出 artifact。
+- smoke test：AppImage 启动、搜索页渲染、登录弹窗可打开、播放链路依赖检查有明确提示。
+
+验收：
+- 干净 Linux 环境双击 AppImage 能启动。
+- `QT_DEBUG_PLUGINS=1` 不出现缺失 Qt platform plugin 的阻断错误。
+- 没有本地源码目录时 QML 仍能加载。
+
+### 14.5 产品完整度 Backlog（不阻塞 Q9-Q11，但阻塞 1.0 完整体验）
+
+| 优先级 | 项目 | 完成口径 |
+|---|---|---|
+| P1 | CoverImageProvider + `CoverImage` | 搜索、队列、NowPlaying、详情页都能显示真实封面；失败有统一占位 |
+| P1 | 首页真实数据 | Q8.5 处理：每日 30 首推荐 / 推荐歌单 / 新歌 / 排行榜接 core 数据；支持 loading / empty / error |
+| P1 | 详情页真实数据 | Q8.5 依赖：歌单 / 专辑 / 艺人详情能显示封面、元信息、曲目，并支持播放全部 |
+| P1 | 资料库非喜欢 Tab | Q8.5 处理：我的歌单 / 收藏专辑 / 关注艺人接远端数据；点击能进入详情 |
+| P1 | 多类型搜索 | 歌曲 / 歌手 / 专辑 / 歌单分栏或 segmented control；结果能跳详情 |
+| P2 | 统一反馈组件 | `Snackbar` / `Banner` 替代散落错误文案 |
+| P2 | 统一 IconButton | 工具按钮无障碍、焦点环、hover/pressed 状态统一 |
+| P2 | 离线和缓存策略 | 封面缓存大小上限、LRU、后续音频缓存预留 |
+
 ---
 
 ## 15. 验收看板（按期勾选）
@@ -773,6 +1005,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q6 喜欢同步
 - [x] Q7 歌词
 - [x] Q8 MPRIS
+- [ ] Q8.5 信息架构补齐
 - [ ] Q9 登录
 - [ ] Q10 设置
 - [ ] Q11 打包
