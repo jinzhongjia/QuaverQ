@@ -17,6 +17,7 @@ from .bridge import (
     AppController,
     LibraryController,
     LyricController,
+    MprisController,
     PlayerController,
     ServiceController,
 )
@@ -59,6 +60,22 @@ def _qml_root_path() -> Path:
     return Path(__file__).resolve().parent / "qml"
 
 
+def _raise_main_window(engine: QQmlApplicationEngine) -> None:
+    roots = engine.rootObjects()
+    if not roots:
+        return
+    window = roots[0]
+    show_normal = getattr(window, "showNormal", None)
+    if callable(show_normal):
+        show_normal()
+    raise_window = getattr(window, "raise_", None)
+    if callable(raise_window):
+        raise_window()
+    request_activate = getattr(window, "requestActivate", None)
+    if callable(request_activate):
+        request_activate()
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -99,10 +116,18 @@ def main() -> None:
         logger.error("QML load failed: %s", qml_path)
         sys.exit(1)
 
+    mpris_controller = MprisController(
+        player_controller,
+        raise_window=lambda: _raise_main_window(engine),
+        quit_app=app.quit,
+    )
+    app.aboutToQuit.connect(lambda: loop.create_task(mpris_controller.stop_async()))
+
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
         loop.create_task(app_controller.refresh_auth_state_async())
         loop.create_task(lyric_controller.refresh_current_lyric_async())
+        loop.create_task(mpris_controller.start_async())
         loop.run_forever()
 
 

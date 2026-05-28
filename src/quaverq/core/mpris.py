@@ -6,9 +6,9 @@
 接口规范: https://specifications.freedesktop.org/mpris-spec/latest/
 
 设计:
-- 用 dbus-next (pure-python async) 跑在 AsyncRunner 后台 loop
-- D-Bus 收到方法调用时, 回调由 controller 注入 (e.g. play/pause/next 协程提交)
-- 状态/元数据变化由 controller 主动推 (push_metadata / push_playback_status)
+- 用 dbus-next (pure-python async) 挂在 qasync / Qt 主事件循环
+- D-Bus 收到方法调用时, 回调由 bridge.MprisController 注入
+- 状态/元数据变化由 controller 主动推
 """
 
 from __future__ import annotations
@@ -67,6 +67,20 @@ def normalize_status(state: str | None) -> str:
     return "Stopped"
 
 
+def normalize_loop_status(mode: str | None) -> str:
+    """controller mode → MPRIS LoopStatus."""
+    if mode == "repeat_all":
+        return "Playlist"
+    if mode == "repeat_one":
+        return "Track"
+    return "None"
+
+
+def normalize_shuffle(mode: str | None) -> bool:
+    """controller mode → MPRIS Shuffle."""
+    return mode == "shuffle"
+
+
 # ---------------------------------------------------------------- 回调容器
 
 @dataclass
@@ -79,6 +93,7 @@ class MprisCallbacks:
     next: Callable[[], None] = field(default=lambda: None)  # noqa: A003
     prev: Callable[[], None] = field(default=lambda: None)
     stop: Callable[[], None] = field(default=lambda: None)
+    seek: Callable[[int], None] = field(default=lambda _position_ms: None)
     quit: Callable[[], None] = field(default=lambda: None)  # noqa: A003
     raise_window: Callable[[], None] = field(default=lambda: None)
 
@@ -163,6 +178,10 @@ def _build_interfaces(cb: MprisCallbacks):
             super().__init__("org.mpris.MediaPlayer2.Player")
             self._status = "Stopped"
             self._metadata: dict[str, Any] = {}
+            self._position_us = 0
+            self._volume = 1.0
+            self._loop_status = "None"
+            self._shuffle = False
 
         # 方法
         @method()
@@ -190,12 +209,13 @@ def _build_interfaces(cb: MprisCallbacks):
             cb.prev()
 
         @method()
-        def Seek(self, _offset: "x"):  # noqa: N802
-            pass  # 暂不支持 seek
+        def Seek(self, offset: "x"):  # noqa: N802
+            next_position_us = max(0, self._position_us + int(offset))
+            cb.seek(next_position_us // 1000)
 
         @method()
-        def SetPosition(self, _track_id: "o", _position: "x"):  # noqa: N802
-            pass
+        def SetPosition(self, _track_id: "o", position: "x"):  # noqa: N802
+            cb.seek(max(0, int(position) // 1000))
 
         @method()
         def OpenUri(self, _uri: "s"):  # noqa: N802
@@ -208,7 +228,7 @@ def _build_interfaces(cb: MprisCallbacks):
 
         @dbus_property(access=PropertyAccess.READ)
         def LoopStatus(self) -> "s":  # noqa: N802
-            return "None"
+            return self._loop_status
 
         @dbus_property(access=PropertyAccess.READ)
         def Rate(self) -> "d":  # noqa: N802
@@ -216,7 +236,7 @@ def _build_interfaces(cb: MprisCallbacks):
 
         @dbus_property(access=PropertyAccess.READ)
         def Shuffle(self) -> "b":  # noqa: N802
-            return False
+            return self._shuffle
 
         @dbus_property(access=PropertyAccess.READ)
         def Metadata(self) -> "a{sv}":  # noqa: N802
@@ -224,11 +244,11 @@ def _build_interfaces(cb: MprisCallbacks):
 
         @dbus_property(access=PropertyAccess.READ)
         def Volume(self) -> "d":  # noqa: N802
-            return 1.0
+            return self._volume
 
         @dbus_property(access=PropertyAccess.READ)
         def Position(self) -> "x":  # noqa: N802
-            return 0
+            return self._position_us
 
         @dbus_property(access=PropertyAccess.READ)
         def MinimumRate(self) -> "d":  # noqa: N802
@@ -256,7 +276,7 @@ def _build_interfaces(cb: MprisCallbacks):
 
         @dbus_property(access=PropertyAccess.READ)
         def CanSeek(self) -> "b":  # noqa: N802
-            return False
+            return True
 
         @dbus_property(access=PropertyAccess.READ)
         def CanControl(self) -> "b":  # noqa: N802
@@ -276,6 +296,29 @@ def _build_interfaces(cb: MprisCallbacks):
                 return
             self._status = new_status
             self.emit_properties_changed({"PlaybackStatus": new_status})
+
+        def update_position(self, position_ms: int) -> None:
+            self._position_us = max(0, int(position_ms)) * 1000
+
+        def update_volume(self, volume: float) -> None:
+            new_volume = min(1.0, max(0.0, float(volume)))
+            if self._volume == new_volume:
+                return
+            self._volume = new_volume
+            self.emit_properties_changed({"Volume": new_volume})
+
+        def update_playback_mode(self, mode: str | None) -> None:
+            new_loop_status = normalize_loop_status(mode)
+            new_shuffle = normalize_shuffle(mode)
+            changed: dict[str, Any] = {}
+            if self._loop_status != new_loop_status:
+                self._loop_status = new_loop_status
+                changed["LoopStatus"] = new_loop_status
+            if self._shuffle != new_shuffle:
+                self._shuffle = new_shuffle
+                changed["Shuffle"] = new_shuffle
+            if changed:
+                self.emit_properties_changed(changed)
 
     return _RootInterface, _PlayerInterface
 
@@ -330,6 +373,8 @@ class MprisService:
         except Exception as exc:
             logger.warning("MPRIS 启动失败 (%s), 桌面媒体集成不可用", exc)
             self._bus = None
+            self._root = None
+            self._player = None
             return False
 
     def push_metadata(
@@ -350,6 +395,27 @@ class MprisService:
             except Exception:
                 logger.exception("MPRIS 推 status 异常")
 
+    def push_position(self, position_ms: int) -> None:
+        if self._player is not None:
+            try:
+                self._player.update_position(position_ms)
+            except Exception:
+                logger.exception("MPRIS 推 position 异常")
+
+    def push_volume(self, volume: float) -> None:
+        if self._player is not None:
+            try:
+                self._player.update_volume(volume)
+            except Exception:
+                logger.exception("MPRIS 推 volume 异常")
+
+    def push_playback_mode(self, mode: str | None) -> None:
+        if self._player is not None:
+            try:
+                self._player.update_playback_mode(mode)
+            except Exception:
+                logger.exception("MPRIS 推 mode 异常")
+
     async def stop(self) -> None:
         if self._bus is not None:
             try:
@@ -357,3 +423,5 @@ class MprisService:
             except Exception:
                 logger.exception("MPRIS 关闭异常")
             self._bus = None
+            self._root = None
+            self._player = None

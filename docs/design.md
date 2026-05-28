@@ -73,6 +73,8 @@
 │   │   - AppController (QObject)  — 总入口 + 鉴权 + 路由    │    │
 │   │   - PlayerController         — 播放/队列/状态           │    │
 │   │   - LibraryController        — 喜欢 / 我的             │    │
+│   │   - LyricController          — 歌词同步 / 当前行        │    │
+│   │   - MprisController          — 桌面媒体键 / D-Bus 同步  │    │
 │   │   - ServiceController        — 搜索 / 详情 / 推荐       │    │
 │   │   - SongListModel (QAbstractListModel) — 歌曲列表       │    │
 │   │   - CardListModel            — 歌单 / 专辑 / 艺人卡片  │    │
@@ -387,7 +389,8 @@ QML_IMPORT_MAJOR_VERSION = 1
 | **AppController** (singleton) | `authed: bool`, `vipInfo`, `darkMode: bool`<br>slot `loginByQrCode()`, `logout()` | `qrcodeChanged(bytes, kind)`, `authChanged(bool, reason)`, `credExpired()` |
 | **ServiceController** | slot `search(kw, types) -> Future`, `getAlbumDetail(mid)`, `getArtistDetail(mid)`, `getPlaylistDetail(pid)`, `getSongUrl(song, qualityPreference) -> {url, quality, expiresAt}`, `getLyric(mid)`, `getHomeFeed()`, `getTopDetail(topId, limit)` | `errorRaised(str)` |
 | **LibraryController** | `likedCount: int`, slot `listLiked()`, `isLiked(mid)`, `toggleLike(songJson)`, `myPlaylists()`, `favAlbums()`, `followedSingers()` | `likedChanged(mid, liked)`, `synced(count)` |
-| **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()`, `mediaCommandReceived(cmd)` (来自 MPRIS) |
+| **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()` |
+| **MprisController** | 监听 PlayerController 的曲目 / 状态 / 进度 / 音量 / 模式并推送到 `core/mpris.py` | D-Bus Play/Pause/Next/Previous/Seek 回调直接调用 PlayerController slot |
 
 ### 8.3 列表模型（`QAbstractListModel`）
 
@@ -507,7 +510,8 @@ MediaPlayer.onMediaStatusChanged(EndOfMedia)
 ```
 D-Bus MPRIS Play/Pause/Next/Previous
   → core/mpris.py callback (qasync / Qt 主事件循环)
-  → PlayerController.handleMprisCommand(cmd)
+  → MprisController 回调
+  → PlayerController slot
   → controller 改 state + QML binding 刷新
 ```
 
@@ -767,8 +771,8 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q5 导航 + 全视图
 - [x] Q5.5 视觉基线重构
 - [x] Q6 喜欢同步
-- [ ] Q7 歌词
-- [ ] Q8 MPRIS
+- [x] Q7 歌词
+- [x] Q8 MPRIS
 - [ ] Q9 登录
 - [ ] Q10 设置
 - [ ] Q11 打包

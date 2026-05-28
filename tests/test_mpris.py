@@ -8,7 +8,12 @@ D-Bus 实际发送在集成测试范围 (启动 session bus + playerctl 查). �
 from __future__ import annotations
 
 from quaverq.core.models import Singer, Song
-from quaverq.core.mpris import song_to_metadata, normalize_status
+from quaverq.core.mpris import (
+    normalize_loop_status,
+    normalize_shuffle,
+    normalize_status,
+    song_to_metadata,
+)
 
 
 # ============================================================== metadata mapping
@@ -105,3 +110,18 @@ def test_normalize_status_stop_default():
     assert normalize_status("stopped") == "Stopped"
     assert normalize_status(None) == "Stopped"
     assert normalize_status("xxx") == "Stopped"
+
+
+def test_normalize_loop_status():
+    assert normalize_loop_status("repeat_all") == "Playlist"
+    assert normalize_loop_status("repeat_one") == "Track"
+    assert normalize_loop_status("sequence") == "None"
+    assert normalize_loop_status("shuffle") == "None"
+    assert normalize_loop_status(None) == "None"
+
+
+def test_normalize_shuffle():
+    assert normalize_shuffle("shuffle") is True
+    assert normalize_shuffle("sequence") is False
+    assert normalize_shuffle("repeat_all") is False
+    assert normalize_shuffle(None) is False
