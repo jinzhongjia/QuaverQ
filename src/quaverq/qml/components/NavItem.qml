@@ -21,6 +21,7 @@ Rectangle {
 
     Accessible.role: Accessible.Button
     Accessible.name: text
+    activeFocusOnTab: true
 
     HoverHandler {
         id: hoverHandler
@@ -30,29 +31,42 @@ Rectangle {
         onTapped: root.activated()
     }
 
+    Keys.onReturnPressed: root.activated()
+    Keys.onSpacePressed: root.activated()
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.activeFocus
+        radius: parent.radius
+        color: "transparent"
+        border.color: ThemeTokens.Palette.focusRing
+        border.width: 2
+        z: 1
+    }
+
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: compact ? 0 : ThemeTokens.Spacing.s4
-        anchors.rightMargin: compact ? 0 : ThemeTokens.Spacing.s4
+        anchors.leftMargin: root.compact ? 0 : ThemeTokens.Spacing.s4
+        anchors.rightMargin: root.compact ? 0 : ThemeTokens.Spacing.s4
         spacing: ThemeTokens.Spacing.s3
 
         Label {
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: compact ? parent.width : ThemeTokens.Spacing.s5
-            text: iconText || text.slice(0, 1)
+            Layout.preferredWidth: root.compact ? parent.width : ThemeTokens.Spacing.s5
+            text: root.iconText || root.text.slice(0, 1)
             horizontalAlignment: Text.AlignHCenter
-            color: selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
             font.pixelSize: ThemeTokens.TypeScale.body
             font.weight: ThemeTokens.TypeScale.medium
         }
 
         Label {
             Layout.fillWidth: true
-            visible: !compact
+            visible: !root.compact
             text: root.text
-            color: selected ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+            color: root.selected ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
             font.pixelSize: ThemeTokens.TypeScale.bodySm
-            font.weight: selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
+            font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
             elide: Text.ElideRight
         }
     }

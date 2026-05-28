@@ -13,6 +13,7 @@ Rectangle {
     property var appController
 
     signal loginRequested()
+    signal routeRequested(string route)
 
     color: ThemeTokens.Palette.surface
     border.color: ThemeTokens.Palette.outline
@@ -41,6 +42,7 @@ Rectangle {
                     iconText: modelData.icon
                     compact: root.compact
                     selected: modelData.route === root.selectedRoute
+                    onActivated: root.routeRequested(modelData.route)
                 }
             }
         }
@@ -118,7 +120,8 @@ Rectangle {
             text: qsTr("设置")
             iconText: "⚙"
             compact: root.compact
-            selected: false
+            selected: root.selectedRoute === "settings"
+            onActivated: root.routeRequested("settings")
         }
     }
 }

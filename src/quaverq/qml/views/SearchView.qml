@@ -11,6 +11,7 @@ ColumnLayout {
 
     property var serviceController
     property var playerController
+    property string routeName: "search"
     readonly property bool hasSearched: root.serviceController
         && root.serviceController.currentPage > 0
     readonly property bool hasResults: root.serviceController

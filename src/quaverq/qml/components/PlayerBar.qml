@@ -32,6 +32,7 @@ Rectangle {
     signal volumeRequested(real volume)
     signal modeRequested(string mode)
     signal queueRequested()
+    signal nowPlayingRequested()
 
     height: ThemeTokens.Spacing.playerBarHeight
     color: ThemeTokens.Palette.surface
@@ -94,6 +95,23 @@ Rectangle {
             radius: ThemeTokens.Spacing.radiusLg
             color: root.hasSong ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.surfaceVariant
             border.color: root.loading ? ThemeTokens.Palette.primary : "transparent"
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("打开正在播放")
+            activeFocusOnTab: root.hasSong
+
+            TapHandler {
+                enabled: root.hasSong
+                onTapped: root.nowPlayingRequested()
+            }
+
+            Keys.onReturnPressed: {
+                if (root.hasSong)
+                    root.nowPlayingRequested()
+            }
+            Keys.onSpacePressed: {
+                if (root.hasSong)
+                    root.nowPlayingRequested()
+            }
 
             Label {
                 anchors.centerIn: parent
@@ -101,28 +119,70 @@ Rectangle {
                 color: ThemeTokens.Palette.primary
                 font.pixelSize: ThemeTokens.TypeScale.h2
             }
+
+            Rectangle {
+                anchors.fill: parent
+                visible: parent.activeFocus
+                radius: parent.radius
+                color: "transparent"
+                border.color: ThemeTokens.Palette.focusRing
+                border.width: 2
+            }
         }
 
-        ColumnLayout {
+        Item {
             Layout.preferredWidth: 240
             Layout.maximumWidth: 300
-            spacing: ThemeTokens.Spacing.s2
+            Layout.preferredHeight: 52
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("打开正在播放")
+            activeFocusOnTab: root.hasSong
 
-            Label {
-                Layout.fillWidth: true
-                text: root.songTitle
-                color: ThemeTokens.Palette.onSurface
-                font.pixelSize: ThemeTokens.TypeScale.body
-                font.weight: ThemeTokens.TypeScale.medium
-                elide: Text.ElideRight
+            TapHandler {
+                enabled: root.hasSong
+                onTapped: root.nowPlayingRequested()
             }
 
-            Label {
-                Layout.fillWidth: true
-                text: root.loading ? qsTr("正在准备播放链接") : root.songMeta
-                color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.onSurfaceVariant
-                font.pixelSize: ThemeTokens.TypeScale.caption
-                elide: Text.ElideRight
+            Keys.onReturnPressed: {
+                if (root.hasSong)
+                    root.nowPlayingRequested()
+            }
+            Keys.onSpacePressed: {
+                if (root.hasSong)
+                    root.nowPlayingRequested()
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                visible: parent.activeFocus
+                radius: ThemeTokens.Spacing.radiusMd
+                color: "transparent"
+                border.color: ThemeTokens.Palette.focusRing
+                border.width: 2
+                z: 1
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: ThemeTokens.Spacing.s2
+                spacing: ThemeTokens.Spacing.s2
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.songTitle
+                    color: ThemeTokens.Palette.onSurface
+                    font.pixelSize: ThemeTokens.TypeScale.body
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.loading ? qsTr("正在准备播放链接") : root.songMeta
+                    color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    elide: Text.ElideRight
+                }
             }
         }
 

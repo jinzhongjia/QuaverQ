@@ -7,8 +7,8 @@ QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Win
 ## 状态
 
 - **后端核心已完成**：搜索 / 详情 / 推荐 / 排行榜 / 喜欢同步 / 歌词 / 播放队列 / MPRIS / 会话快照 / 封面磁盘缓存 / SQLite TTL cache（`uv run pytest` 全绿）
-- **UI 重建进行中**：旧实现已清理；Q0 最小 PySide6 + Qt Quick shell、Q1 Theme tokens、Q2 搜索 bridge、Q2.5 基础视觉组件、Q3 播放器、二维码登录、Q4 队列 / 续播 / 会话恢复已接入，后续 Q5–Q11 见 [`docs/design.md`](docs/design.md) §14
-- 目前 `uv run quaverq` 会打开 QML 搜索 + 播放器 + 二维码登录 + 队列面板工作台，并恢复上次队列 / 位置 / 模式 / 音量
+- **UI 重建进行中**：旧实现已清理；Q0 最小 PySide6 + Qt Quick shell、Q1 Theme tokens、Q2 搜索 bridge、Q2.5 基础视觉组件、Q3 播放器、二维码登录、Q4 队列 / 续播 / 会话恢复、Q5 导航 / 全视图骨架已接入，后续 Q6–Q11 见 [`docs/design.md`](docs/design.md) §14
+- 目前 `uv run quaverq` 会打开 QML 搜索 + 播放器 + 二维码登录 + 队列面板 + Home / Library / Detail / NowPlaying / Settings 工作台，并恢复上次队列 / 位置 / 模式 / 音量
 
 ## 环境
 
@@ -20,7 +20,7 @@ QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Win
 ```bash
 uv sync
 uv run pytest        # core + bridge 层测试
-uv run quaverq       # 当前为 Q4 搜索 + 播放器 + 二维码登录 + 队列工作台
+uv run quaverq       # 当前为 Q5 导航 + 搜索 + 播放器 + 登录 + 队列工作台
 ```
 
 ## 配置
