@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from PySide6.QtCore import QObject, Property, Signal
 from qasync import asyncSlot
@@ -16,6 +16,7 @@ from .models import (
     CardListModel,
     SongListModel,
     playlist_to_card,
+    song_to_map,
     top_to_card,
 )
 from .service_controller import ServiceController
@@ -60,6 +61,13 @@ class HomeController(QObject):
     @Property(QObject, notify=dailyModelChanged)
     def dailyModel(self) -> SongListModel:
         return self._daily_model
+
+    @Property("QVariant", notify=dailyModelChanged)
+    def dailyPreviewSong(self) -> dict[str, Any]:
+        songs = self._daily_model.songs()
+        if not songs:
+            return {}
+        return song_to_map(songs[0])
 
     @Property(QObject, notify=playlistModelChanged)
     def playlistModel(self) -> CardListModel:
@@ -138,15 +146,19 @@ class HomeController(QObject):
         await self.refresh_daily_thirty_async()
 
     async def refresh_daily_thirty_async(self) -> None:
+        task = self._daily_refresh_task
+        current_task = asyncio.current_task()
+        if task is not None and task is not current_task and not task.done():
+            await task
+            return
         if "daily" in self._loading_sections:
-            task = self._daily_refresh_task
-            current_task = asyncio.current_task()
             if task is not None and task is not current_task:
                 await task
             return
         if not self._service_controller.authed:
             self._set_daily_requires_login(True)
             self._daily_model.clear()
+            self.dailyModelChanged.emit()
             self._clear_section_error("daily")
             return
 
@@ -165,6 +177,7 @@ class HomeController(QObject):
             songs = await self._load_section("daily", load)
             if songs is not None:
                 self._daily_model.set_songs(songs)
+                self.dailyModelChanged.emit()
         finally:
             if self._daily_refresh_task is current_task:
                 self._daily_refresh_task = None
@@ -257,6 +270,7 @@ class HomeController(QObject):
             return
         self._set_daily_requires_login(True)
         self._daily_model.clear()
+        self.dailyModelChanged.emit()
 
     def _set_section_loading(self, section: str, value: bool) -> None:
         old_loading = bool(self._loading_sections)

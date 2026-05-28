@@ -60,6 +60,7 @@ async def test_refresh_home_populates_discovery_models():
     assert service.daily_calls == 1
     assert controller.dailyRequiresLogin is False
     assert controller.dailyModel.count == 30
+    assert controller.dailyPreviewSong["name"] == "每日0"
     assert controller.playlistModel.cardAt(0)["title"] == "今日推荐"
     assert controller.newSongModel.songAt(0)["name"] == "新歌"
     assert controller.topModel.cardAt(0)["kind"] == "top"
@@ -76,6 +77,7 @@ async def test_daily_recommend_requires_login_but_public_sections_load():
     assert service.daily_calls == 0
     assert controller.dailyRequiresLogin is True
     assert controller.dailyModel.count == 0
+    assert controller.dailyPreviewSong == {}
     assert controller.playlistModel.count == 1
     assert controller.newSongModel.count == 1
     assert controller.topModel.count == 1

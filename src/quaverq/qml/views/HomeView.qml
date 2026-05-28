@@ -96,34 +96,21 @@ ScrollView {
             }
         }
 
-        SongSection {
+        DailyRecommendCard {
             Layout.fillWidth: true
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
-            title: qsTr("每日 30 首")
-            subtitle: root.homeController && root.homeController.dailyRequiresLogin
-                ? qsTr("登录后获取你的每日推荐")
-                : qsTr("为你更新的个性化歌曲")
-            model: root.homeController ? root.homeController.dailyModel : null
+            previewSong: root.homeController ? root.homeController.dailyPreviewSong : ({})
             loading: root.dailyLoading
+            requiresLogin: root.homeController ? root.homeController.dailyRequiresLogin : false
             errorMessage: root.homeController ? root.homeController.dailyErrorMessage : ""
-            emptyText: root.homeController && root.homeController.dailyRequiresLogin
-                ? qsTr("登录后显示每日推荐")
-                : qsTr("暂无每日推荐")
-            actionText: root.homeController && root.homeController.dailyRequiresLogin ? qsTr("登录") : qsTr("播放全部")
-            actionEnabled: root.homeController
-                && (root.homeController.dailyRequiresLogin || root.homeController.dailyModel.count > 0)
-            libraryController: root.libraryController
-            onActionRequested: {
+            queueCount: root.homeController ? root.homeController.dailyModel.count : 0
+            onPlayRequested: {
                 if (root.homeController && root.homeController.dailyRequiresLogin) {
                     root.loginRequested()
                 } else if (root.playerController && root.homeController && root.homeController.dailyModel.count > 0) {
                     root.playerController.playFromModel(root.homeController.dailyModel, 0)
                 }
-            }
-            onSongRequested: function(row) {
-                if (root.playerController && root.homeController)
-                    root.playerController.playFromModel(root.homeController.dailyModel, row)
             }
         }
 
@@ -242,6 +229,128 @@ ScrollView {
                     ? ThemeTokens.Palette.statePressed
                     : actionButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                 border.color: ThemeTokens.Palette.outline
+            }
+        }
+    }
+
+    component DailyRecommendCard: Rectangle {
+        id: section
+
+        property var previewSong: ({})
+        property bool loading: false
+        property bool requiresLogin: false
+        property string errorMessage: ""
+        property int queueCount: 0
+        readonly property bool hasPreview: section.previewSong
+            && section.previewSong.name !== undefined
+            && section.previewSong.name.length > 0
+        readonly property string singerText: section.hasPreview
+            && section.previewSong.singerNames !== undefined
+            ? section.previewSong.singerNames.join(" / ")
+            : ""
+        readonly property string statusText: section.requiresLogin
+            ? qsTr("登录后获取你的猜你喜欢")
+            : section.loading
+                ? qsTr("正在加载...")
+                : section.errorMessage.length > 0
+                    ? section.errorMessage
+                    : section.hasPreview
+                        ? section.singerText
+                        : qsTr("暂无推荐")
+
+        signal playRequested()
+
+        Layout.preferredHeight: root.availableWidth < 720 ? 184 : 156
+        Layout.minimumHeight: Layout.preferredHeight
+        radius: ThemeTokens.Spacing.radiusLg
+        color: ThemeTokens.Palette.primaryContainer
+        border.color: ThemeTokens.Palette.outlineMuted
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: ThemeTokens.Spacing.s5
+            spacing: ThemeTokens.Spacing.s5
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: ThemeTokens.Spacing.s3
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("猜你喜欢")
+                    color: ThemeTokens.Palette.onSurface
+                    font.pixelSize: ThemeTokens.TypeScale.h2
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: section.hasPreview ? section.previewSong.name : qsTr("每日推荐")
+                    color: ThemeTokens.Palette.onSurface
+                    font.pixelSize: ThemeTokens.TypeScale.h1
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: section.statusText
+                    color: section.errorMessage.length > 0
+                        ? ThemeTokens.Palette.error
+                        : ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: section.hasPreview && section.queueCount > 1
+                    text: qsTr("今日队列 · %1 首").arg(section.queueCount)
+                    color: ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    elide: Text.ElideRight
+                }
+            }
+
+            Components.AlbumArt {
+                Layout.preferredWidth: root.availableWidth < 720 ? 72 : 92
+                Layout.preferredHeight: root.availableWidth < 720 ? 72 : 92
+                active: section.hasPreview
+                iconText: "♪"
+                iconSize: ThemeTokens.TypeScale.h1
+            }
+
+            Button {
+                id: dailyPlayButton
+
+                Layout.preferredWidth: 56
+                Layout.preferredHeight: 56
+                enabled: section.requiresLogin || section.hasPreview
+                text: section.requiresLogin ? qsTr("登录") : "▶"
+                Accessible.name: section.requiresLogin ? qsTr("登录") : qsTr("播放猜你喜欢")
+                onClicked: section.playRequested()
+
+                contentItem: Label {
+                    text: dailyPlayButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: dailyPlayButton.enabled
+                        ? ThemeTokens.Palette.onPrimary
+                        : ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: section.requiresLogin
+                        ? ThemeTokens.TypeScale.bodySm
+                        : ThemeTokens.TypeScale.h2
+                    font.weight: ThemeTokens.TypeScale.medium
+                }
+
+                background: Rectangle {
+                    radius: width / 2
+                    color: dailyPlayButton.enabled
+                        ? ThemeTokens.Palette.primary
+                        : ThemeTokens.Palette.surfaceVariant
+                }
             }
         }
     }

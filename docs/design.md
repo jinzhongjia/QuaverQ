@@ -291,14 +291,14 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 
 Home 是发现页，不是搜索页。内容优先级从上到下：
 
-1. **每日 30 首推荐**：首页主功能。登录后展示 30 首个性化推荐歌曲，提供"播放全部"和单曲点播；未登录时显示登录入口，不用热门歌伪装成每日推荐。
+1. **猜你喜欢 / 每日推荐**：首页主功能。登录后只展示一个推荐卡，卡片上明确展示点击后会从哪首歌开始播放；底层仍使用每日 30 首作为播放队列，不在首页展开完整 30 首列表。未登录时显示登录入口，不用热门歌伪装成每日推荐。
 2. **今日推荐**：推荐歌单横向卡片，数据来自 `QuaverService.get_recommend_playlists(limit=...)`，点击进入 PlaylistDetail。
 3. **新歌速递**：歌曲列表或横向紧凑列表，数据来自 `QuaverService.get_recommend_new_songs(limit=...)`，点击直接播放或加入队列。
 4. **排行榜**：排行榜入口卡片，数据来自 `QuaverService.get_top_categories(limit_per_group=...)`，点击后用 `get_top_detail(top_id)` 进入 PlaylistDetail。
 
 Home 完成口径：
 - 四个板块都不能是静态假入口；每个板块都要有真实数据、loading、empty、error 状态。
-- 每日 30 首推荐必须严格显示 30 首；服务端不足时展示实际数量和原因，不补假数据。
+- 每日推荐底层队列目标是 30 首；首页只展示预览歌曲和实际队列数量，服务端不足时展示实际数量和原因，不补假数据。
 - 推荐歌单、排行榜卡片必须可点击进入详情；新歌和每日推荐必须可播放。
 - 每个板块局部失败不影响其他板块显示。
 
@@ -444,7 +444,7 @@ QML_IMPORT_MAJOR_VERSION = 1
 |---|---|---|
 | **AppController** (singleton) | `authed: bool`, `loginState: str`, `loginMessage: str`, `qrcodeDataUrl: str`, `qrcodeKind: str`<br>slot `loginByQrCode()`, `logout()`, `refreshAuthState()` | `authChanged(bool, reason)`, `credExpired()`, `qrcodeChanged()`, `loginStateChanged()` |
 | **ServiceController** | slot `search(kw, types) -> Future`, `getAlbumDetail(mid)`, `getArtistDetail(mid)`, `getPlaylistDetail(pid)`, `getSongUrl(song, qualityPreference) -> {url, quality, expiresAt}`, `getLyric(mid)` | `errorRaised(str)` |
-| **HomeController** | `dailyModel: SongListModel`, `playlistModel: CardListModel`, `newSongModel: SongListModel`, `topModel: CardListModel`, `loadingSections: QStringList`<br>slot `refreshHome()`, `refreshDailyThirty()`, `playDailyThirty()` | `sectionChanged(str)`, `errorRaised(str)` |
+| **HomeController** | `dailyModel: SongListModel`, `dailyPreviewSong: QVariantMap`, `playlistModel: CardListModel`, `newSongModel: SongListModel`, `topModel: CardListModel`, `loadingSections: QStringList`<br>slot `refreshHome()`, `refreshDailyThirty()`, `playDailyThirty()` | `sectionChanged(str)`, `errorRaised(str)` |
 | **LibraryController** | `likedCount: int`, `likedModel: SongListModel`, `playlistModel: CardListModel`, `albumModel: CardListModel`, `artistModel: CardListModel`<br>slot `refreshLiked()`, `refreshMyPlaylists()`, `refreshFavAlbums()`, `refreshFollowedSingers()`, `isLiked(mid)`, `toggleLike(songJson)` | `likedChanged(mid, liked)`, `sectionChanged(str)`, `errorRaised(str)` |
 | **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()` |
 | **MprisController** | 监听 PlayerController 的曲目 / 状态 / 进度 / 音量 / 模式并推送到 `core/mpris.py` | D-Bus Play/Pause/Next/Previous/Seek 回调直接调用 PlayerController slot |
@@ -915,16 +915,16 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 
 必须交付：
 - 启动默认路由改为 `home`，Search 只由侧栏、顶部搜索框或 `Ctrl+F` 进入。
-- 新增 `HomeController`，接每日 30 首推荐、今日推荐歌单、新歌速递、排行榜四个 section。
+- 新增 `HomeController`，接猜你喜欢 / 每日 30 首队列、今日推荐歌单、新歌速递、排行榜四个 section。
 - `QuaverService` 新增 `get_daily_recommend_songs(limit=30)`；优先对接 QQ 音乐猜你喜欢 / 雷达推荐类接口，失败时展示可恢复错误，不用假数据。
 - `LibraryController` 扩展 `playlistModel / albumModel / artistModel`，接 `get_my_playlists()`、`get_fav_albums()`、`get_followed_singers()`。
-- Home / Library 的卡片点击进入对应 Detail；每日推荐和新歌可直接播放。
+- Home / Library 的卡片点击进入对应 Detail；猜你喜欢卡片和新歌可直接播放。
 - 每个 section 独立 loading / empty / error，不用整页空白替代局部失败。
 - 测试覆盖：默认 route、HomeController section 映射、LibraryController 三个非喜欢模型、点击路由目标。
 
 验收：
 - `uv run quaverq` 启动后第一屏是发现页，不是搜索页。
-- 首页能看到每日 30 首推荐；今日推荐 / 新歌速递 / 排行榜都能点击或播放。
+- 首页能看到猜你喜欢预览歌曲；今日推荐 / 新歌速递 / 排行榜都能点击或播放。
 - 资料库的歌单、专辑、艺人 Tab 不再是占位，能进入详情页。
 - 未登录时每日推荐和资料库展示登录引导；公共发现板块仍可加载。
 
