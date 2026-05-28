@@ -10,7 +10,7 @@ from typing import Any, Callable
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from qasync import asyncSlot
 
-from quaverq.core.models import Song
+from quaverq.core.models import Lyric, Song
 from quaverq.core.service import QuaverService
 
 from .models import SongListModel, song_from_map
@@ -172,6 +172,18 @@ class ServiceController(QObject):
         return await self._service.get_song_url(
             song_from_map(song),
             quality_preference=quality_preference or "balanced",
+        )
+
+    async def get_lyric(
+        self,
+        mid: str,
+        *,
+        with_translation: bool = True,
+    ) -> Lyric:
+        await self._ensure_started()
+        return await self._service.get_lyric(
+            mid,
+            with_translation=with_translation,
         )
 
     async def login_by_qrcode(

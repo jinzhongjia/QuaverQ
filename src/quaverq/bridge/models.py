@@ -16,7 +16,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from quaverq.core.models import Singer, Song
+from quaverq.core.models import LyricLine, Singer, Song
 
 
 def _format_duration(seconds: int) -> str:
@@ -81,6 +81,15 @@ def song_from_map(data: Mapping[str, Any] | Song) -> Song:
         media_mid=str(data.get("mediaMid", "") or ""),
         id=int(data.get("id", 0) or 0),
     )
+
+
+def lyric_line_to_map(line: LyricLine) -> dict[str, Any]:
+    """Convert a core LyricLine into a QVariantMap-friendly dict."""
+    return {
+        "timestampMs": line.timestamp_ms,
+        "lineText": line.text,
+        "translation": line.translation,
+    }
 
 
 class SongListModel(QAbstractListModel):
@@ -158,3 +167,68 @@ class SongListModel(QAbstractListModel):
         if not (0 <= row < len(self._songs)):
             return {}
         return song_to_map(self._songs[row])
+
+
+class LyricLineListModel(QAbstractListModel):
+    """Lyric line model consumed by synchronized lyric views."""
+
+    LineRole = Qt.ItemDataRole.UserRole + 1
+    TimestampMsRole = Qt.ItemDataRole.UserRole + 2
+    LineTextRole = Qt.ItemDataRole.UserRole + 3
+    TranslationRole = Qt.ItemDataRole.UserRole + 4
+
+    countChanged = Signal()
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._lines: list[LyricLine] = []
+
+    @Property(int, notify=countChanged)
+    def count(self) -> int:
+        return len(self._lines)
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._lines)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid() or not (0 <= index.row() < len(self._lines)):
+            return None
+
+        line = self._lines[index.row()]
+        if role == self.LineRole:
+            return lyric_line_to_map(line)
+        if role == self.TimestampMsRole:
+            return line.timestamp_ms
+        if role == self.LineTextRole or role == Qt.ItemDataRole.DisplayRole:
+            return line.text
+        if role == self.TranslationRole:
+            return line.translation
+        return None
+
+    def roleNames(self) -> dict[int, QByteArray]:
+        return {
+            self.LineRole: QByteArray(b"line"),
+            self.TimestampMsRole: QByteArray(b"timestampMs"),
+            self.LineTextRole: QByteArray(b"lineText"),
+            self.TranslationRole: QByteArray(b"translation"),
+        }
+
+    def set_lines(self, lines: list[LyricLine]) -> None:
+        self.beginResetModel()
+        self._lines = list(lines)
+        self.endResetModel()
+        self.countChanged.emit()
+
+    def lines(self) -> list[LyricLine]:
+        return list(self._lines)
+
+    def clear(self) -> None:
+        self.set_lines([])
+
+    @Slot(int, result="QVariant")
+    def lineAt(self, row: int) -> dict[str, Any]:
+        if not (0 <= row < len(self._lines)):
+            return {}
+        return lyric_line_to_map(self._lines[row])

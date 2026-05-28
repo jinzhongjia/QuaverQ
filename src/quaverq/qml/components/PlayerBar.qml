@@ -16,6 +16,7 @@ Rectangle {
     property string errorMessage: ""
     property int queueCount: 0
     property int bottomCornerRadius: 0
+    property var libraryController
 
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -190,6 +191,13 @@ Rectangle {
                     elide: Text.ElideRight
                 }
             }
+        }
+
+        LikeButton {
+            Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+            Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+            libraryController: root.libraryController
+            song: root.currentSong
         }
 
         Item {

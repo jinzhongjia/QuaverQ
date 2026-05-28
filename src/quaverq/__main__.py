@@ -13,7 +13,13 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
-from .bridge import AppController, PlayerController, ServiceController
+from .bridge import (
+    AppController,
+    LibraryController,
+    LyricController,
+    PlayerController,
+    ServiceController,
+)
 from .config import CONFIG_DIR, load as load_config
 from .core.state import SessionState
 
@@ -72,16 +78,20 @@ def main() -> None:
 
     service_controller = ServiceController()
     app_controller = AppController(service_controller)
+    library_controller = LibraryController(service_controller)
     player_controller = PlayerController(
         service_controller,
         session_state=SessionState(CONFIG_DIR / "state.json"),
     )
+    lyric_controller = LyricController(service_controller, player_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
     engine.rootContext().setContextProperty("AppController", app_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)
+    engine.rootContext().setContextProperty("LibraryController", library_controller)
+    engine.rootContext().setContextProperty("LyricController", lyric_controller)
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
@@ -92,6 +102,7 @@ def main() -> None:
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
         loop.create_task(app_controller.refresh_auth_state_async())
+        loop.create_task(lyric_controller.refresh_current_lyric_async())
         loop.run_forever()
 
 

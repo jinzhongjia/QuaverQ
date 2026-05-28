@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../components" as Components
+import "../panels" as Panels
 import "../Theme" as ThemeTokens
 
 Item {
@@ -11,6 +12,8 @@ Item {
 
     property string routeName: "now-playing"
     property var playerController
+    property var libraryController
+    property var lyricController
     readonly property var currentSong: root.playerController ? root.playerController.currentSong : ({})
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -18,7 +21,7 @@ Item {
     readonly property int queueCount: root.playerController && root.playerController.queueModel
         ? root.playerController.queueModel.count
         : 0
-    readonly property int coverSize: Math.max(220, Math.min(root.width >= 980 ? 420 : 340, root.height - 220))
+    readonly property int headerCoverSize: root.width >= 900 ? 112 : 88
 
     signal queueRequested()
 
@@ -32,33 +35,33 @@ Item {
         return songData.albumName || ""
     }
 
-    RowLayout {
+    ColumnLayout {
         anchors.fill: parent
         anchors.margins: ThemeTokens.Spacing.s6
-        spacing: ThemeTokens.Spacing.s6
+        spacing: ThemeTokens.Spacing.s5
 
-        ColumnLayout {
+        RowLayout {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.preferredHeight: Math.max(root.headerCoverSize, 96)
             spacing: ThemeTokens.Spacing.s5
 
             Components.AlbumArt {
-                Layout.preferredWidth: root.coverSize
-                Layout.preferredHeight: root.coverSize
-                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: root.headerCoverSize
+                Layout.preferredHeight: root.headerCoverSize
+                Layout.alignment: Qt.AlignVCenter
                 active: root.hasSong
-                iconSize: ThemeTokens.TypeScale.display
+                iconSize: ThemeTokens.TypeScale.h1
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 spacing: ThemeTokens.Spacing.s2
 
                 Label {
                     Layout.fillWidth: true
                     text: root.hasSong ? root.currentSong.name : qsTr("尚未播放")
                     color: ThemeTokens.Palette.onSurface
-                    horizontalAlignment: Text.AlignHCenter
                     font.pixelSize: ThemeTokens.TypeScale.h1
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -68,148 +71,55 @@ Item {
                     Layout.fillWidth: true
                     text: root.hasSong ? root.singerText(root.currentSong) : qsTr("选择一首歌曲后开始")
                     color: ThemeTokens.Palette.onSurfaceVariant
-                    horizontalAlignment: Text.AlignHCenter
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
             }
 
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 104
-                radius: ThemeTokens.Spacing.radiusMd
-                color: ThemeTokens.Palette.surfaceElevated
-                border.color: ThemeTokens.Palette.outlineMuted
+            Components.LikeButton {
+                Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+                Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+                Layout.alignment: Qt.AlignVCenter
+                libraryController: root.libraryController
+                song: root.currentSong
+            }
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: ThemeTokens.Spacing.s5
-                    spacing: ThemeTokens.Spacing.s2
+            Button {
+                id: queueButton
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.hasSong ? root.currentSong.name : qsTr("暂无歌词")
-                        color: ThemeTokens.Palette.onSurface
-                        horizontalAlignment: Text.AlignHCenter
-                        font.pixelSize: ThemeTokens.TypeScale.h2
-                        font.weight: ThemeTokens.TypeScale.medium
-                        elide: Text.ElideRight
-                    }
+                Layout.preferredWidth: root.queueCount > 99 ? 96 : 84
+                Layout.preferredHeight: 38
+                Layout.alignment: Qt.AlignVCenter
+                text: root.queueCount > 0 ? qsTr("待播 %1").arg(root.queueCount) : qsTr("待播")
+                Accessible.name: qsTr("打开待播列表")
+                onClicked: root.queueRequested()
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.hasSong ? qsTr("暂无歌词") : qsTr("播放后显示歌曲信息")
-                        color: ThemeTokens.Palette.onSurfaceVariant
-                        horizontalAlignment: Text.AlignHCenter
-                        font.pixelSize: ThemeTokens.TypeScale.bodySm
-                        elide: Text.ElideRight
-                    }
+                contentItem: Label {
+                    text: queueButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: ThemeTokens.Palette.onSurface
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: queueButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : queueButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                    border.color: "transparent"
                 }
             }
         }
 
-        Rectangle {
-            Layout.preferredWidth: root.width >= 980 ? 340 : 280
+        Panels.LyricPanel {
+            Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: ThemeTokens.Spacing.radiusMd
-            color: ThemeTokens.Palette.surfaceElevated
-            border.color: ThemeTokens.Palette.outlineMuted
-            visible: root.width >= 760
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: ThemeTokens.Spacing.s4
-                spacing: ThemeTokens.Spacing.s3
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 40
-                    spacing: ThemeTokens.Spacing.s3
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("当前队列")
-                            color: ThemeTokens.Palette.onSurface
-                            font.pixelSize: ThemeTokens.TypeScale.body
-                            font.weight: ThemeTokens.TypeScale.medium
-                            elide: Text.ElideRight
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("%1 首歌曲").arg(root.queueCount)
-                            color: ThemeTokens.Palette.onSurfaceVariant
-                            font.pixelSize: ThemeTokens.TypeScale.caption
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    Button {
-                        id: queueButton
-
-                        Layout.preferredWidth: 68
-                        Layout.preferredHeight: 34
-                        text: qsTr("待播")
-                        Accessible.name: qsTr("打开待播列表")
-                        onClicked: root.queueRequested()
-
-                        contentItem: Label {
-                            text: queueButton.text
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: ThemeTokens.Palette.onSurface
-                            font.pixelSize: ThemeTokens.TypeScale.caption
-                        }
-
-                        background: Rectangle {
-                            radius: ThemeTokens.Spacing.radiusMd
-                            color: queueButton.down
-                                ? ThemeTokens.Palette.statePressed
-                                : queueButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
-                            border.color: "transparent"
-                        }
-                    }
-                }
-
-                ListView {
-                    id: queueList
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    spacing: ThemeTokens.Spacing.s2
-                    model: root.playerController ? root.playerController.queueModel : null
-                    currentIndex: root.playerController ? root.playerController.currentIndex : -1
-                    boundsBehavior: Flickable.StopAtBounds
-                    reuseItems: true
-
-                    delegate: Components.QueueRow {
-                        id: queueRow
-
-                        width: ListView.view.width
-                        current: queueRow.index === queueList.currentIndex
-                        onActivated: function(songData, row) {
-                            if (root.playerController)
-                                root.playerController.playQueueIndex(row)
-                        }
-                    }
-
-                    ScrollBar.vertical: ScrollBar {}
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    visible: root.queueCount === 0
-                    text: qsTr("暂无待播歌曲")
-                    color: ThemeTokens.Palette.onSurfaceVariant
-                    horizontalAlignment: Text.AlignHCenter
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                }
-            }
+            compact: false
+            hasSong: root.hasSong
+            lyricController: root.lyricController
         }
     }
 }

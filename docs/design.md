@@ -256,7 +256,7 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 | AlbumDetail | `detail/album/:mid` | Hero（封面 + 元信息 + 播放全部） + 曲目列表 |
 | ArtistDetail | `detail/artist/:mid` | Hero（头像 + 简介） + 热门曲目 + 专辑 |
 | PlaylistDetail | `detail/playlist/:pid` | Hero + 曲目 + "全部播放" |
-| NowPlaying | `now-playing` | 大封面 + 同步歌词 + 当前队列摘要 + 播放模式 |
+| NowPlaying | `now-playing` | 小封面歌曲信息 + 大面积同步歌词 + 待播抽屉入口 |
 | Settings | `settings` | 音质 / 缓存 / 凭据状态 / 退出登录 |
 | Login | overlay | 二维码登录弹窗 |
 
@@ -338,9 +338,8 @@ ApplicationWindow (Main.qml)
 │   │   │   ├── DetailHero (cover + 元信息 + PlayAllButton)
 │   │   │   └── SongList
 │   │   ├── NowPlayingView
-│   │   │   ├── LargeCover
-│   │   │   ├── SyncedLyrics
-│   │   │   └── QueueSummary
+│   │   │   ├── NowPlayingHeader (small cover + title + like + queue button)
+│   │   │   └── SyncedLyrics (primary content)
 │   │   └── SettingsView
 │   └── ContextPanel (Drawer | 嵌入)
 │       ├── SegmentedControl (Queue / Lyrics)
@@ -701,7 +700,7 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from quaverq.__main__ import _qml_main_path, _qml_root_path
-from quaverq.bridge import AppController, PlayerController, ServiceController
+from quaverq.bridge import AppController, LibraryController, LyricController, PlayerController, ServiceController
 from quaverq.core.models import Singer, Song
 
 out = Path("/tmp/quaverq-ui.png")
@@ -710,7 +709,9 @@ QQuickStyle.setStyle("Basic")
 app = QApplication([])
 service_controller = ServiceController()
 app_controller = AppController(service_controller)
+library_controller = LibraryController(service_controller)
 player_controller = PlayerController(service_controller)
+lyric_controller = LyricController(service_controller, player_controller)
 service_controller.songResults.set_songs([
     Song(mid="m1", name="晴天", singers=[Singer(mid="s1", name="周杰伦")], album_name="叶惠美", duration=269),
     Song(mid="m2", name="七里香", singers=[Singer(mid="s1", name="周杰伦")], album_name="七里香", duration=299),
@@ -724,6 +725,8 @@ engine = QQmlApplicationEngine()
 engine.addImportPath(str(_qml_root_path()))
 engine.rootContext().setContextProperty("AppController", app_controller)
 engine.rootContext().setContextProperty("ServiceController", service_controller)
+engine.rootContext().setContextProperty("LibraryController", library_controller)
+engine.rootContext().setContextProperty("LyricController", lyric_controller)
 engine.rootContext().setContextProperty("PlayerController", player_controller)
 engine.load(QUrl.fromLocalFile(str(_qml_main_path())))
 root = engine.rootObjects()[0]
@@ -731,7 +734,7 @@ root.setProperty("queuePanelOpen", True)
 root.show()
 
 def grab():
-    image = root.grabWindow()
+    image = app.primaryScreen().grabWindow(root.winId())
     ok = image.save(str(out))
     print("saved", out, ok, image.size())
     app.quit()
@@ -763,7 +766,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q4b 自动续播 + 会话恢复
 - [x] Q5 导航 + 全视图
 - [x] Q5.5 视觉基线重构
-- [ ] Q6 喜欢同步
+- [x] Q6 喜欢同步
 - [ ] Q7 歌词
 - [ ] Q8 MPRIS
 - [ ] Q9 登录

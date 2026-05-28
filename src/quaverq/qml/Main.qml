@@ -29,6 +29,8 @@ ApplicationWindow {
     color: "transparent"
     readonly property var appController: AppController
     readonly property var serviceController: ServiceController
+    readonly property var libraryController: LibraryController
+    readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
     property bool queuePanelOpen: false
     property string currentRoute: "search"
@@ -567,6 +569,7 @@ ApplicationWindow {
         anchors.rightMargin: root.windowShadowMargin
         anchors.bottomMargin: root.windowShadowMargin
         currentSong: root.playerController ? root.playerController.currentSong : ({})
+        libraryController: root.libraryController
         playbackState: root.playerController ? root.playerController.playbackState : "stopped"
         positionMs: root.playerController ? root.playerController.positionMs : 0
         durationMs: root.playerController ? root.playerController.durationMs : 0
@@ -627,6 +630,7 @@ ApplicationWindow {
         Views.SearchView {
             serviceController: root.serviceController
             playerController: root.playerController
+            libraryController: root.libraryController
         }
     }
 
@@ -635,6 +639,8 @@ ApplicationWindow {
 
         Views.LibraryView {
             appController: root.appController
+            libraryController: root.libraryController
+            playerController: root.playerController
             onLoginRequested: loginDialog.open()
             onDetailRequested: function(kind, title, subtitle) {
                 root.pushDetail(kind, title, subtitle)
@@ -658,6 +664,8 @@ ApplicationWindow {
 
         Views.NowPlayingView {
             playerController: root.playerController
+            libraryController: root.libraryController
+            lyricController: root.lyricController
             onQueueRequested: root.queuePanelOpen = true
         }
     }

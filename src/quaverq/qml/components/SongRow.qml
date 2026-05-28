@@ -12,6 +12,7 @@ Rectangle {
     required property string albumName
     required property string durationText
     required property int index
+    property var libraryController
     property bool selected: false
 
     readonly property string accessibleText: root.albumName
@@ -104,6 +105,13 @@ Rectangle {
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
             }
+        }
+
+        LikeButton {
+            Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+            Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+            libraryController: root.libraryController
+            song: root.song
         }
 
         Label {

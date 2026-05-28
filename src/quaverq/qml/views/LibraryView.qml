@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../components" as Components
 import "../Theme" as ThemeTokens
 
 ColumnLayout {
@@ -10,12 +11,34 @@ ColumnLayout {
 
     property string routeName: "library"
     property var appController
+    property var libraryController
+    property var playerController
     property int currentTab: 0
 
     signal loginRequested()
     signal detailRequested(string kind, string title, string subtitle)
 
     spacing: 0
+
+    function refreshLikedIfReady() {
+        if (root.libraryController && root.libraryController.authed)
+            root.libraryController.refreshLiked()
+    }
+
+    Component.onCompleted: root.refreshLikedIfReady()
+
+    onCurrentTabChanged: {
+        if (root.currentTab === 0)
+            root.refreshLikedIfReady()
+    }
+
+    Connections {
+        target: root.libraryController
+
+        function onAuthStateChanged() {
+            root.refreshLikedIfReady()
+        }
+    }
 
     ColumnLayout {
         Layout.fillWidth: true
@@ -185,29 +208,83 @@ ColumnLayout {
         Layout.bottomMargin: ThemeTokens.Spacing.s6
         currentIndex: root.currentTab
 
-        ColumnLayout {
-            spacing: ThemeTokens.Spacing.s3
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
 
-            LibraryTile {
-                Layout.fillWidth: true
-                title: qsTr("我喜欢的音乐")
-                subtitle: root.appController && root.appController.authed
-                    ? qsTr("暂无账号歌曲")
-                    : qsTr("登录后显示喜欢的歌曲")
-                iconText: "♥"
-                onActivated: root.detailRequested("playlist", title, subtitle)
+            ListView {
+                id: likedList
+
+                anchors.fill: parent
+                clip: true
+                spacing: ThemeTokens.Spacing.s2
+                model: root.libraryController ? root.libraryController.likedModel : null
+                boundsBehavior: Flickable.StopAtBounds
+                reuseItems: true
+
+                delegate: Components.SongRow {
+                    width: ListView.view.width
+                    libraryController: root.libraryController
+                    onActivated: function(songData, row) {
+                        if (root.playerController && root.libraryController)
+                            root.playerController.playFromModel(root.libraryController.likedModel, row)
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {}
             }
 
-            LibraryTile {
-                Layout.fillWidth: true
-                title: qsTr("最近播放")
-                subtitle: qsTr("本机播放历史")
-                iconText: "↻"
-                onActivated: root.detailRequested("playlist", title, subtitle)
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: !root.libraryController
+                    || !root.libraryController.authed
+                    || (!root.libraryController.loading && root.libraryController.likedCount === 0)
+                spacing: ThemeTokens.Spacing.s3
+
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: root.libraryController && root.libraryController.authed
+                        ? qsTr("暂无喜欢的歌曲")
+                        : qsTr("登录后显示喜欢的歌曲")
+                    color: ThemeTokens.Palette.onSurfaceVariant
+                    font.pixelSize: ThemeTokens.TypeScale.body
+                }
+
+                Button {
+                    id: likedLoginButton
+
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 112
+                    Layout.preferredHeight: 36
+                    visible: !root.libraryController || !root.libraryController.authed
+                    text: qsTr("登录同步")
+                    Accessible.name: qsTr("登录同步喜欢")
+                    onClicked: root.loginRequested()
+
+                    contentItem: Label {
+                        text: likedLoginButton.text
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        color: ThemeTokens.Palette.onSurface
+                        font.pixelSize: ThemeTokens.TypeScale.caption
+                        font.weight: ThemeTokens.TypeScale.medium
+                    }
+
+                    background: Rectangle {
+                        radius: ThemeTokens.Spacing.radiusMd
+                        color: likedLoginButton.down
+                            ? ThemeTokens.Palette.statePressed
+                            : likedLoginButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                    }
+                }
             }
 
-            Item {
-                Layout.fillHeight: true
+            Label {
+                anchors.centerIn: parent
+                visible: root.libraryController && root.libraryController.loading
+                text: qsTr("正在同步喜欢")
+                color: ThemeTokens.Palette.onSurfaceVariant
+                font.pixelSize: ThemeTokens.TypeScale.body
             }
         }
 
