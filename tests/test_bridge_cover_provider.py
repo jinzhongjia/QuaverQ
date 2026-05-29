@@ -36,7 +36,7 @@ def test_cover_provider_returns_cached_image(tmp_path):
 
 
 def test_cover_provider_accepts_qml_escaped_separator(tmp_path):
-    url = "https://example.test/cover.jpg?size=300"
+    url = "https://example.test/cover.jpg?size=300|quality=high"
     cache = CoverCache(tmp_path / "covers")
     _write_cached_cover(cache, url)
     provider = CoverImageProvider(cache)
@@ -48,6 +48,25 @@ def test_cover_provider_accepts_qml_escaped_separator(tmp_path):
     )
 
     assert not image.isNull()
+
+
+def test_cover_provider_applies_rounded_alpha_mask(tmp_path):
+    url = "https://example.test/cover.jpg?size=300|quality=high"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, url)
+    provider = CoverImageProvider(cache)
+
+    image = provider.requestImage(
+        urllib.parse.quote(f"{url}|32|6|1", safe=""),
+        QSize(),
+        QSize(32, 32),
+    )
+
+    assert not image.isNull()
+    assert image.width() == 32
+    assert image.height() == 32
+    assert image.pixelColor(0, 0).alpha() == 0
+    assert image.pixelColor(16, 16).alpha() == 255
 
 
 def test_cover_provider_returns_null_when_uncached(tmp_path):

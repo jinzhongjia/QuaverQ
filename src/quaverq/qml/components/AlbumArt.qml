@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import "../Theme" as ThemeTokens
 
-Rectangle {
+Item {
     id: root
 
     property bool active: false
@@ -11,23 +11,24 @@ Rectangle {
     property var coverController
     property string iconText: "♪"
     property int iconSize: compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h2
-    property int imageSize: compact ? 96 : 512
+    readonly property int imageSize: Math.max(
+        1,
+        Math.round(Math.max(root.width, root.height, root.implicitWidth, root.implicitHeight))
+    )
     property int imageRevision: 0
+    property int coverRadius: compact ? ThemeTokens.Spacing.radiusSm : ThemeTokens.Spacing.radiusMd
+    readonly property int placeholderRadius: compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
     readonly property bool coverCached: root.coverUrl.length > 0
         && root.coverController
         && root.imageRevision >= 0
         && root.coverController.isCached(root.coverUrl)
     readonly property string imageSource: root.coverCached
-        ? "image://covers/" + encodeURIComponent(root.coverUrl) + "|" + root.imageSize + "|" + root.imageRevision
+        ? "image://covers/" + encodeURIComponent(root.coverUrl) + "|" + root.imageSize + "|" + root.coverRadius + "|" + root.imageRevision
         : ""
     readonly property bool hasImage: root.coverCached && coverImage.status === Image.Ready
 
     implicitWidth: compact ? 36 : 52
     implicitHeight: implicitWidth
-    radius: compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
-    clip: true
-    color: root.active ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.albumSurface
-    border.color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outlineMuted
 
     function requestCover() {
         if (root.coverUrl.length > 0 && root.coverController)
@@ -51,12 +52,19 @@ Rectangle {
     }
 
     Rectangle {
+        anchors.fill: parent
+        visible: !root.hasImage
+        radius: root.placeholderRadius
+        color: root.active ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.albumSurface
+    }
+
+    Rectangle {
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         width: Math.min(34, Math.max(4, parent.width * 0.1))
         visible: !root.hasImage
-        radius: parent.radius
+        radius: root.placeholderRadius
         color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.accent
     }
 
@@ -81,24 +89,28 @@ Rectangle {
         font.weight: ThemeTokens.TypeScale.medium
     }
 
-    Image {
-        id: coverImage
-
+    Item {
         anchors.fill: parent
         visible: root.coverCached
-        opacity: root.hasImage ? 1 : 0
-        source: root.imageSource
-        sourceSize.width: root.imageSize
-        sourceSize.height: root.imageSize
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        cache: false
-        mipmap: true
+
+        Image {
+            id: coverImage
+
+            anchors.fill: parent
+            opacity: root.hasImage ? 1 : 0
+            source: root.imageSource
+            sourceSize.width: root.imageSize
+            sourceSize.height: root.imageSize
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: false
+            mipmap: true
+        }
     }
 
     Rectangle {
         anchors.fill: parent
-        radius: root.radius
+        radius: root.hasImage ? root.coverRadius : root.placeholderRadius
         color: "transparent"
         border.color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outlineMuted
         border.width: 1

@@ -132,7 +132,7 @@ Rectangle {
             Rectangle {
                 anchors.fill: parent
                 visible: coverArt.activeFocus
-                radius: parent.radius
+                radius: coverArt.hasImage ? coverArt.coverRadius : coverArt.placeholderRadius
                 color: "transparent"
                 border.color: ThemeTokens.Palette.focusRing
                 border.width: 2
