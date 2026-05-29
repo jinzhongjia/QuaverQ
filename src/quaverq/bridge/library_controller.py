@@ -12,6 +12,7 @@ from qasync import asyncSlot
 
 from quaverq.core.models import Song
 
+from .error_utils import log_bridge_error
 from .models import (
     CardListModel,
     album_to_card,
@@ -108,8 +109,7 @@ class LibraryController(QObject):
             await self._service_controller._ensure_started()  # noqa: SLF001
             songs = await self._service_controller._service.get_liked_songs()  # noqa: SLF001
         except Exception as exc:
-            logger.exception("refresh liked songs failed")
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(logger, "refresh liked songs failed", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
@@ -133,8 +133,7 @@ class LibraryController(QObject):
             await self._service_controller._ensure_started()  # noqa: SLF001
             playlists = await self._service_controller._service.get_my_playlists()  # noqa: SLF001
         except Exception as exc:
-            logger.exception("refresh my playlists failed")
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(logger, "refresh my playlists failed", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
@@ -158,8 +157,7 @@ class LibraryController(QObject):
             await self._service_controller._ensure_started()  # noqa: SLF001
             albums = await self._service_controller._service.get_fav_albums()  # noqa: SLF001
         except Exception as exc:
-            logger.exception("refresh fav albums failed")
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(logger, "refresh fav albums failed", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
@@ -183,8 +181,7 @@ class LibraryController(QObject):
             await self._service_controller._ensure_started()  # noqa: SLF001
             singers = await self._service_controller._service.get_followed_singers()  # noqa: SLF001
         except Exception as exc:
-            logger.exception("refresh followed singers failed")
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(logger, "refresh followed singers failed", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
@@ -219,8 +216,9 @@ class LibraryController(QObject):
             else:
                 ok = await self._service_controller._service.like_song(song)  # noqa: SLF001
         except Exception as exc:
-            logger.exception("toggle like failed: %s", song.name)
-            self._raise_error(str(exc) or exc.__class__.__name__)
+            self._raise_error(
+                log_bridge_error(logger, f"toggle like failed: {song.name}", exc)
+            )
             return
         finally:
             self._set_loading(False)

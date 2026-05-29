@@ -13,6 +13,7 @@ from qasync import asyncSlot
 from quaverq.core.models import Lyric, Song
 from quaverq.core.service import QuaverService
 
+from .error_utils import log_bridge_error
 from .models import SongListModel, song_from_map
 
 logger = logging.getLogger(__name__)
@@ -147,8 +148,11 @@ class ServiceController(QObject):
             self._set_current_page(page if songs or page == 1 else 0)
             self._set_has_next_page(len(songs) >= self._page_size)
         except Exception as exc:
-            logger.exception("search failed: %s page %d", keyword, page)
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(
+                logger,
+                f"search failed: {keyword} page {page}",
+                exc,
+            )
             self._set_error_message(message)
             self.errorRaised.emit(message)
         finally:

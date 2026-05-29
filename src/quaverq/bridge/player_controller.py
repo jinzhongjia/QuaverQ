@@ -14,6 +14,7 @@ from quaverq.core.models import Song
 from quaverq.core.queue import PlayMode, PlayQueue
 from quaverq.core.state import SessionState
 
+from .error_utils import log_bridge_error
 from .models import SongListModel, song_from_map, song_to_map
 from .service_controller import ServiceController
 
@@ -307,11 +308,16 @@ class PlayerController(QObject):
                 quality_preference="balanced",
             )
         except Exception as exc:
-            message = str(exc) or exc.__class__.__name__
-            if message == "播放需要先登录 QQ 音乐":
+            raw_message = str(exc) or exc.__class__.__name__
+            if raw_message == "播放需要先登录 QQ 音乐":
+                message = raw_message
                 logger.warning("%s: %s", message, song.name)
             else:
-                logger.exception("load song url failed: %s", song.name)
+                message = log_bridge_error(
+                    logger,
+                    f"load song url failed: {song.name}",
+                    exc,
+                )
             if generation != self._load_generation:
                 return
             self._set_playback_state("stopped")

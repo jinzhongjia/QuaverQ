@@ -12,6 +12,7 @@ from qasync import asyncSlot
 
 from quaverq.core.models import Playlist, Song, TopList
 
+from .error_utils import log_bridge_error
 from .models import (
     CardListModel,
     SongListModel,
@@ -247,8 +248,7 @@ class HomeController(QObject):
         try:
             return await loader()
         except Exception as exc:
-            logger.exception("home section failed: %s", section)
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(logger, f"home section failed: {section}", exc)
             self._set_section_error(section, message)
             self._set_error_message(message)
             self.errorRaised.emit(message)

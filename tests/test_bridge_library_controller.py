@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from quaverq.bridge.library_controller import LibraryController
 from quaverq.bridge.service_controller import ServiceController
 from quaverq.core.models import Album, Playlist, Singer, Song
@@ -87,6 +89,29 @@ async def test_refresh_liked_async_populates_model_and_lookup():
     assert controller.likedModel.songAt(0)["name"] == "晴天"
     assert controller.isLiked("m1") is True
     assert controller.isLiked("missing") is False
+
+
+async def test_refresh_liked_async_logs_network_failure_without_traceback(caplog):
+    service = _FakeLibraryService()
+
+    async def fail_liked_songs(*, limit: int = 500) -> list[Song]:
+        raise ConnectionError(
+            "Failed to resolve 'u.y.qq.com' (Name or service not known)"
+        )
+
+    service.get_liked_songs = fail_liked_songs  # type: ignore[method-assign]
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    with caplog.at_level(logging.WARNING, logger="quaverq.bridge.library_controller"):
+        await controller.refresh_liked_async()
+
+    expected = "网络连接失败：无法解析 QQ 音乐服务域名，请检查 DNS 或网络连接"
+    assert controller.errorMessage == expected
+    assert errors == [expected]
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 async def test_toggle_like_async_adds_song_and_emits_state():

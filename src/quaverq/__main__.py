@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from .bridge import (
     AppController,
+    DetailController,
     HomeController,
     LibraryController,
     LyricController,
@@ -109,6 +110,7 @@ def main() -> None:
     service_controller = ServiceController()
     app_controller = AppController(service_controller)
     home_controller = HomeController(service_controller)
+    detail_controller = DetailController(service_controller)
     library_controller = LibraryController(service_controller)
     player_controller = PlayerController(
         service_controller,
@@ -121,6 +123,7 @@ def main() -> None:
     engine.addImportPath(str(_qml_root_path()))
     engine.rootContext().setContextProperty("AppController", app_controller)
     engine.rootContext().setContextProperty("HomeController", home_controller)
+    engine.rootContext().setContextProperty("DetailController", detail_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)
     engine.rootContext().setContextProperty("LibraryController", library_controller)
     engine.rootContext().setContextProperty("LyricController", lyric_controller)

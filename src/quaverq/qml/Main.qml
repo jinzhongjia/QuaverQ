@@ -29,6 +29,7 @@ ApplicationWindow {
     color: "transparent"
     readonly property var appController: AppController
     readonly property var homeController: HomeController
+    readonly property var detailController: DetailController
     readonly property var serviceController: ServiceController
     readonly property var libraryController: LibraryController
     readonly property var lyricController: LyricController
@@ -658,6 +659,9 @@ ApplicationWindow {
         id: detailPageComponent
 
         Views.DetailView {
+            detailController: root.detailController
+            playerController: root.playerController
+            libraryController: root.libraryController
             onBackRequested: root.goBack()
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)

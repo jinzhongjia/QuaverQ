@@ -12,6 +12,7 @@ from qasync import asyncSlot
 from quaverq.core.lyric import LyricSync
 from quaverq.core.models import Lyric
 
+from .error_utils import log_bridge_error
 from .models import LyricLineListModel, song_from_map
 from .player_controller import PlayerController
 from .service_controller import ServiceController
@@ -154,8 +155,7 @@ class LyricController(QObject):
         except Exception as exc:
             if generation != self._load_generation:
                 return
-            logger.exception("load lyric failed: %s", mid)
-            message = str(exc) or exc.__class__.__name__
+            message = log_bridge_error(logger, f"load lyric failed: {mid}", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
