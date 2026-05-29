@@ -16,7 +16,9 @@ Item {
         Math.round(Math.max(root.width, root.height, root.implicitWidth, root.implicitHeight))
     )
     property int imageRevision: 0
-    property int coverRadius: compact ? ThemeTokens.Spacing.radiusSm : ThemeTokens.Spacing.radiusMd
+    property int coverRadius: compact
+        ? ThemeTokens.Spacing.radiusSm
+        : Math.max(ThemeTokens.Spacing.radiusSm, Math.min(6, Math.round(root.imageSize * 0.1)))
     readonly property int placeholderRadius: compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
     readonly property bool coverCached: root.coverUrl.length > 0
         && root.coverController
@@ -110,6 +112,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
+        visible: !root.hasImage
         radius: root.hasImage ? root.coverRadius : root.placeholderRadius
         color: "transparent"
         border.color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outlineMuted
