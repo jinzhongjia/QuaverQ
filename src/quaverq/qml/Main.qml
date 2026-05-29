@@ -28,6 +28,7 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint
     color: "transparent"
     readonly property var appController: AppController
+    readonly property var coverController: CoverController
     readonly property var homeController: HomeController
     readonly property var detailController: DetailController
     readonly property var serviceController: ServiceController
@@ -573,6 +574,7 @@ ApplicationWindow {
         anchors.bottomMargin: root.windowShadowMargin
         currentSong: root.playerController ? root.playerController.currentSong : ({})
         libraryController: root.libraryController
+        coverController: root.coverController
         playbackState: root.playerController ? root.playerController.playbackState : "stopped"
         positionMs: root.playerController ? root.playerController.positionMs : 0
         durationMs: root.playerController ? root.playerController.durationMs : 0
@@ -617,6 +619,7 @@ ApplicationWindow {
 
         Views.HomeView {
             appController: root.appController
+            coverController: root.coverController
             homeController: root.homeController
             libraryController: root.libraryController
             playerController: root.playerController
@@ -638,6 +641,7 @@ ApplicationWindow {
             serviceController: root.serviceController
             playerController: root.playerController
             libraryController: root.libraryController
+            coverController: root.coverController
         }
     }
 
@@ -646,6 +650,7 @@ ApplicationWindow {
 
         Views.LibraryView {
             appController: root.appController
+            coverController: root.coverController
             libraryController: root.libraryController
             playerController: root.playerController
             onLoginRequested: loginDialog.open()
@@ -659,6 +664,7 @@ ApplicationWindow {
         id: detailPageComponent
 
         Views.DetailView {
+            coverController: root.coverController
             detailController: root.detailController
             playerController: root.playerController
             libraryController: root.libraryController
@@ -673,6 +679,7 @@ ApplicationWindow {
         id: nowPlayingPageComponent
 
         Views.NowPlayingView {
+            coverController: root.coverController
             playerController: root.playerController
             libraryController: root.libraryController
             lyricController: root.lyricController
@@ -705,6 +712,7 @@ ApplicationWindow {
         sourceComponent: Component {
             Panels.QueuePanel {
                 anchors.fill: parent
+                coverController: root.coverController
                 queueModel: root.playerController ? root.playerController.queueModel : null
                 currentIndex: root.playerController ? root.playerController.currentIndex : -1
                 onCloseRequested: root.queuePanelOpen = false

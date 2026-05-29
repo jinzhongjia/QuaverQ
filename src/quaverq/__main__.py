@@ -15,6 +15,8 @@ from PySide6.QtWidgets import QApplication
 
 from .bridge import (
     AppController,
+    CoverController,
+    CoverImageProvider,
     DetailController,
     HomeController,
     LibraryController,
@@ -23,7 +25,8 @@ from .bridge import (
     PlayerController,
     ServiceController,
 )
-from .config import CONFIG_DIR, load as load_config
+from .config import CACHE_DIR, CONFIG_DIR, load as load_config
+from .core.cover_cache import CoverCache
 from .core.state import SessionState
 
 logger = logging.getLogger("quaverq")
@@ -108,6 +111,8 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     service_controller = ServiceController()
+    cover_cache = CoverCache(CACHE_DIR / "covers")
+    cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
     home_controller = HomeController(service_controller)
     detail_controller = DetailController(service_controller)
@@ -121,7 +126,9 @@ def main() -> None:
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
+    engine.addImageProvider("covers", CoverImageProvider(cover_cache))
     engine.rootContext().setContextProperty("AppController", app_controller)
+    engine.rootContext().setContextProperty("CoverController", cover_controller)
     engine.rootContext().setContextProperty("HomeController", home_controller)
     engine.rootContext().setContextProperty("DetailController", detail_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)

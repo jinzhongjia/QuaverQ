@@ -14,6 +14,7 @@ ColumnLayout {
     property string detailId: ""
     property string detailTitle: qsTr("详情")
     property string detailSubtitle: ""
+    property var coverController
     property var detailController
     property var playerController
     property var libraryController
@@ -111,6 +112,8 @@ ColumnLayout {
                 iconText: root.displayKind === "artist" ? "◎" : root.displayKind === "top" ? "↗" : "♪"
                 iconSize: ThemeTokens.TypeScale.display
                 active: root.hasSongs
+                coverUrl: root.detailController ? root.detailController.coverUrl : ""
+                coverController: root.coverController
             }
 
             ColumnLayout {
@@ -261,6 +264,7 @@ ColumnLayout {
                 delegate: Components.SongRow {
                     width: ListView.view.width
                     libraryController: root.libraryController
+                    coverController: root.coverController
                     selected: root.playerController
                         && root.playerController.currentSong
                         && root.playerController.currentSong.mid === song.mid

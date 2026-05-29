@@ -13,6 +13,8 @@ Rectangle {
     required property string durationText
     required property int index
     property bool current: false
+    property var coverController
+    readonly property string coverUrl: root.song && root.song.coverUrl ? root.song.coverUrl : ""
 
     readonly property string metaText: root.albumName
         ? qsTr("%1 · %2").arg(root.singers).arg(root.albumName)
@@ -86,6 +88,8 @@ Rectangle {
             Layout.preferredHeight: 38
             compact: true
             active: root.current
+            coverUrl: root.coverUrl
+            coverController: root.coverController
         }
 
         ColumnLayout {

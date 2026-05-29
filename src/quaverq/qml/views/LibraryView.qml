@@ -11,6 +11,7 @@ ColumnLayout {
 
     property string routeName: "library"
     property var appController
+    property var coverController
     property var libraryController
     property var playerController
     property int currentTab: 0
@@ -231,6 +232,7 @@ ColumnLayout {
                 delegate: Components.SongRow {
                     width: ListView.view.width
                     libraryController: root.libraryController
+                    coverController: root.coverController
                     onActivated: function(songData, row) {
                         if (root.playerController && root.libraryController)
                             root.playerController.playFromModel(root.libraryController.likedModel, row)
@@ -296,6 +298,7 @@ ColumnLayout {
 
         CardListTab {
             model: root.libraryController ? root.libraryController.playlistModel : null
+            coverController: root.coverController
             kindFallback: "playlist"
             iconText: "♬"
             emptyText: qsTr("暂无歌单")
@@ -308,6 +311,7 @@ ColumnLayout {
 
         CardListTab {
             model: root.libraryController ? root.libraryController.albumModel : null
+            coverController: root.coverController
             kindFallback: "album"
             iconText: "◫"
             emptyText: qsTr("暂无专辑")
@@ -320,6 +324,7 @@ ColumnLayout {
 
         CardListTab {
             model: root.libraryController ? root.libraryController.artistModel : null
+            coverController: root.coverController
             kindFallback: "artist"
             iconText: "◎"
             emptyText: qsTr("暂无艺人")
@@ -335,6 +340,7 @@ ColumnLayout {
         id: tab
 
         property var model
+        property var coverController
         property string kindFallback: "playlist"
         property string iconText: "♪"
         property string emptyText: ""
@@ -361,6 +367,7 @@ ColumnLayout {
                 width: ListView.view.width
                 iconText: tab.iconText
                 fallbackKind: tab.kindFallback
+                coverController: tab.coverController
                 onActivated: function(kind, detailId, title, subtitle) {
                     tab.cardRequested(kind, detailId, title, subtitle)
                 }
@@ -431,10 +438,12 @@ ColumnLayout {
 
         required property string title
         required property string subtitle
+        required property string coverUrl
         required property string cardId
         required property string kind
         property string fallbackKind: "playlist"
         property string iconText: ""
+        property var coverController
 
         signal activated(string kind, string detailId, string title, string subtitle)
 
@@ -472,18 +481,14 @@ ColumnLayout {
             anchors.margins: ThemeTokens.Spacing.s4
             spacing: ThemeTokens.Spacing.s4
 
-            Rectangle {
+            Components.AlbumArt {
                 Layout.preferredWidth: 44
                 Layout.preferredHeight: 44
-                radius: ThemeTokens.Spacing.radiusMd
-                color: ThemeTokens.Palette.surfaceVariant
-
-                Label {
-                    anchors.centerIn: parent
-                    text: tile.iconText
-                    color: ThemeTokens.Palette.primary
-                    font.pixelSize: ThemeTokens.TypeScale.h2
-                }
+                compact: true
+                iconText: tile.iconText
+                iconSize: ThemeTokens.TypeScale.h2
+                coverUrl: tile.coverUrl
+                coverController: tile.coverController
             }
 
             ColumnLayout {

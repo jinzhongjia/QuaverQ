@@ -1,0 +1,76 @@
+"""Cover image provider tests."""
+
+from __future__ import annotations
+
+import urllib.parse
+
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QColor, QImage
+
+from quaverq.bridge.cover_provider import CoverController, CoverImageProvider
+from quaverq.core.cover_cache import CoverCache
+
+
+def _write_cached_cover(cache: CoverCache, url: str) -> None:
+    cache.dir.mkdir(parents=True, exist_ok=True)
+    image = QImage(24, 24, QImage.Format.Format_RGB32)
+    image.fill(QColor("#15803d"))
+    assert image.save(str(cache.dir / cache._filename_for(url)))
+
+
+def test_cover_provider_returns_cached_image(tmp_path):
+    url = "https://example.test/cover.jpg?size=300"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, url)
+    provider = CoverImageProvider(cache)
+
+    image = provider.requestImage(
+        f"{urllib.parse.quote(url, safe='')}|32|1",
+        QSize(),
+        QSize(32, 32),
+    )
+
+    assert not image.isNull()
+    assert image.width() == 32
+    assert image.height() == 32
+
+
+def test_cover_provider_accepts_qml_escaped_separator(tmp_path):
+    url = "https://example.test/cover.jpg?size=300"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, url)
+    provider = CoverImageProvider(cache)
+
+    image = provider.requestImage(
+        urllib.parse.quote(f"{url}|32|1", safe=""),
+        QSize(),
+        QSize(32, 32),
+    )
+
+    assert not image.isNull()
+
+
+def test_cover_provider_returns_null_when_uncached(tmp_path):
+    provider = CoverImageProvider(CoverCache(tmp_path / "covers"))
+
+    image = provider.requestImage(
+        f"{urllib.parse.quote('https://example.test/missing.jpg', safe='')}|32|1",
+        QSize(),
+        QSize(32, 32),
+    )
+
+    assert image.isNull()
+
+
+def test_cover_controller_emits_ready_for_cached_url(tmp_path):
+    url = "https://example.test/cover.jpg"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, url)
+    controller = CoverController(cache)
+    ready: list[str] = []
+    controller.coverReady.connect(ready.append)
+
+    assert controller.isCached(url) is True
+    controller.fetchCover(url)
+
+    assert ready == [url]

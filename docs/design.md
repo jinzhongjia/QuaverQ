@@ -15,8 +15,8 @@
 | 首页发现 | 默认启动页；每日 30 首推荐 + 今日推荐歌单 + 新歌速递 + 排行榜入口 | **已完成 Q8.5**：默认进 Home；四个 section 接真实数据，具备 loading / empty / error / content |
 | 完整搜索 | 综合 + 按类型（歌曲 / 歌手 / 专辑 / 歌单） | **部分完成**：歌曲搜索 + 明确分页已完成；多类型搜索和详情跳转待补 |
 | 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 | **部分完成**：我喜欢同步已完成；歌单 / 收藏专辑 / 关注艺人 Tab 已接真实列表，点击可进入真实详情 |
-| 详情页 | 专辑 / 歌手 / 歌单真实详情 | **已完成 Q8.6**：歌单 / 专辑 / 艺人 / 排行榜详情接真实元信息与曲目，支持播放全部；真实封面仍依赖 CoverImageProvider |
-| 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面仍依赖后续 CoverImageProvider |
+| 详情页 | 专辑 / 歌手 / 歌单真实详情 | **已完成 Q8.6**：歌单 / 专辑 / 艺人 / 排行榜详情接真实元信息、曲目与封面，支持播放全部 |
+| 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面已接 CoverImageProvider |
 | 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 | **已完成**：PlayerController + 队列模式已验收 |
 | 登录 | 二维码登录、缓存凭据、过期重登 | **部分完成**：二维码登录与缓存已完成；过期检测和失效重登待 Q9 |
 | 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC | **待 Q10**：core 支持 preference；设置 UI 和持久化未完成 |
@@ -91,6 +91,7 @@
 │   │   - MprisController          — 桌面媒体键 / D-Bus 同步  │    │
 │   │   - SettingsController       — 主题 / 音质 / 缓存设置   │    │
 │   │   - ServiceController        — 搜索 / 详情 / 取链       │    │
+│   │   - CoverController          — 封面下载 / 缓存通知      │    │
 │   │   - SongListModel (QAbstractListModel) — 歌曲列表       │    │
 │   │   - CardListModel            — 歌单 / 专辑 / 艺人卡片  │    │
 │   │   - LyricModel               — LRC 同步行              │    │
@@ -448,6 +449,7 @@ QML_IMPORT_MAJOR_VERSION = 1
 | **HomeController** | `dailyModel: SongListModel`, `dailyPreviewSong: QVariantMap`, `playlistModel: CardListModel`, `newSongModel: SongListModel`, `topModel: CardListModel`, `loadingSections: QStringList`<br>slot `refreshHome()`, `refreshDailyThirty()`, `playDailyThirty()` | `sectionChanged(str)`, `errorRaised(str)` |
 | **LibraryController** | `likedCount: int`, `likedModel: SongListModel`, `playlistModel: CardListModel`, `albumModel: CardListModel`, `artistModel: CardListModel`<br>slot `refreshLiked()`, `refreshMyPlaylists()`, `refreshFavAlbums()`, `refreshFollowedSingers()`, `isLiked(mid)`, `toggleLike(songJson)` | `likedChanged(mid, liked)`, `sectionChanged(str)`, `errorRaised(str)` |
 | **DetailController** | `songModel: SongListModel`, `kind: str`, `detailId: str`, `title: str`, `subtitle: str`, `description: str`, `coverUrl: str`, `songCount: int`, `loading: bool`, `errorMessage: str`<br>slot `loadDetail(kind, id, fallbackTitle, fallbackSubtitle)` | `detailChanged()`, `songModelChanged()`, `loadingChanged()`, `errorMessageChanged()`, `errorRaised(str)` |
+| **CoverController** | slot `fetchCover(url)`，把封面 URL 下载进 `CoverCache` 并触发 QML 刷新 | `coverReady(url)`, `coverFailed(url)` |
 | **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()` |
 | **MprisController** | 监听 PlayerController 的曲目 / 状态 / 进度 / 音量 / 模式并推送到 `core/mpris.py` | D-Bus Play/Pause/Next/Previous/Seek 回调直接调用 PlayerController slot |
 | **SettingsController** | `themeMode: "system"|"light"|"dark"`, `reducedMotion: bool`, `qualityPreference: "standard"|"balanced"|"high"`, `coverCacheSizeText: str`<br>slot `setThemeMode(mode)`, `setReducedMotion(enabled)`, `setQualityPreference(value)`, `clearCoverCache()` | `settingsChanged()`, `cacheChanged()`, `errorRaised(str)` |
@@ -532,17 +534,20 @@ class CoverImageProvider(QQuickImageProvider):
         encoded_url, size_hint = id.split("|", 1)
         url = urllib.parse.unquote(encoded_url)
         path = self._cover_cache.get_path(url)
-        if not path: schedule self._cover_cache.fetch(url), 返回 placeholder
+        if not path: return null image, QML 继续显示占位
         return QPixmap(str(path)).scaled(...)
 ```
 
 QML：
 
 ```qml
-CoverImage { source: "image://covers/" + encodeURIComponent(song.coverUrl) + "|512" }
+AlbumArt {
+    coverUrl: song.coverUrl
+    coverController: root.coverController
+}
 ```
 
-说明：`core/cover_cache.py` 的权威接口是原始 URL，不是 hash。Provider 不维护第二套 hash → URL registry；hash 仅作为磁盘文件名内部细节。
+说明：`core/cover_cache.py` 的权威接口是原始 URL，不是 hash。Provider 不维护第二套 hash → URL registry；hash 仅作为磁盘文件名内部细节。下载由 `CoverController.fetchCover(url)` 异步调度，`coverReady(url)` 后 QML 刷新 `image://covers/<percent-encoded-url>|<size>|<revision>`。
 
 ### 8.6 MPRIS 与 QML 协作
 
@@ -730,9 +735,9 @@ src/quaverq/
 │   ├── player_controller.py
 │   ├── lyric_controller.py
 │   ├── mpris_controller.py
+│   ├── cover_provider.py       CoverController + CoverImageProvider
 │   ├── settings_controller.py   Q10 新增：QSettings / 音质 / 主题 / 缓存
-│   ├── models.py                QAbstractListModel 族
-│   └── image_provider.py        后续：CoverImageProvider
+│   └── models.py                QAbstractListModel 族
 ├── core/                   保持
 │   ├── service / library / queue / cache / cover_cache /
 │   │   state / lyric / mpris / models
@@ -755,7 +760,6 @@ src/quaverq/
     │   ├── Sidebar.qml
     │   ├── SongRow.qml
     │   ├── Card.qml             后续：歌单 / 专辑 / 艺人统一卡片
-    │   ├── CoverImage.qml       后续：封面 image provider 入口
     │   ├── IconButton.qml       后续：统一工具按钮
     │   ├── LoadingSkeleton.qml  后续：加载骨架
     │   ├── Snackbar.qml         后续：轻量反馈
@@ -820,6 +824,7 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q8** | MPRIS 集成（QtMultimedia metadata 推 D-Bus）+ 媒体键 | `core/mpris.py`、`bridge/mpris_controller.py`、`PlayerController` | 媒体键 / GNOME / KDE 显示正常 |
 | **Q8.5** | 信息架构补齐：默认 Home + 每日 30 首推荐 + 发现真实数据 + 资料库非喜欢 Tab | `bridge/home_controller.py`、`bridge/library_controller.py`、`bridge/models.py`、`qml/views/HomeView.qml`、`qml/views/LibraryView.qml` | 启动进 Home；首页四板块有效；资料库歌单 / 专辑 / 艺人可点进详情 |
 | **Q8.6** | 详情页真实数据：歌单 / 专辑 / 艺人 / 排行榜详情 + 曲目播放 | `bridge/detail_controller.py`、`qml/views/DetailView.qml`、`qml/Main.qml` | 卡片进入详情后显示真实元信息和曲目；播放全部可用 |
+| **Q8.7** | 封面管线：歌曲 / 歌单 / 专辑 / 艺人封面缓存与显示 | `bridge/cover_provider.py`、`core/cover_cache.py`、`qml/components/AlbumArt.qml` | 搜索、队列、底栏、NowPlaying、Home、Library、详情页显示真实封面；失败回占位 |
 | **Q9** | 登录完善：凭据过期检测 + 失效重登 + 登录 UX polish | `bridge/app_controller.py`、`bridge/service_controller.py`、`qml/dialogs/LoginDialog.qml` | 凭据过期可提示并重新扫码 |
 | **Q10** | 设置页 + 减弱动效 / 音质 / 缓存清理 | `bridge/settings_controller.py`、`qml/views/SettingsView.qml`、`qml/Theme/*` | 设置生效；persistent |
 | **Q11** | 打包：Nuitka + AppImage + GH Actions | `build.py`、`.github/workflows/release.yml` | AppImage 双击能跑 |
@@ -858,7 +863,8 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from quaverq.__main__ import _qml_main_path, _qml_root_path
-from quaverq.bridge import AppController, DetailController, HomeController, LibraryController, LyricController, PlayerController, ServiceController
+from quaverq.bridge import AppController, CoverController, CoverImageProvider, DetailController, HomeController, LibraryController, LyricController, PlayerController, ServiceController
+from quaverq.core.cover_cache import CoverCache
 from quaverq.core.models import Singer, Song
 
 out = Path("/tmp/quaverq-ui.png")
@@ -866,6 +872,8 @@ out = Path("/tmp/quaverq-ui.png")
 QQuickStyle.setStyle("Basic")
 app = QApplication([])
 service_controller = ServiceController()
+cover_cache = CoverCache(Path("/tmp/quaverq-ui-covers"))
+cover_controller = CoverController(cover_cache)
 app_controller = AppController(service_controller)
 home_controller = HomeController(service_controller)
 library_controller = LibraryController(service_controller)
@@ -883,7 +891,9 @@ player_controller._emit_current_changed()
 
 engine = QQmlApplicationEngine()
 engine.addImportPath(str(_qml_root_path()))
+engine.addImageProvider("covers", CoverImageProvider(cover_cache))
 engine.rootContext().setContextProperty("AppController", app_controller)
+engine.rootContext().setContextProperty("CoverController", cover_controller)
 engine.rootContext().setContextProperty("HomeController", home_controller)
 engine.rootContext().setContextProperty("DetailController", detail_controller)
 engine.rootContext().setContextProperty("ServiceController", service_controller)
@@ -939,7 +949,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 
 必须交付：
 - 新增 `DetailController`，统一处理 `playlist / album / artist / top` 四类详情。
-- 详情页展示真实标题、二级信息、描述、曲目数量和曲目列表；封面先继续走统一占位，待 CoverImageProvider 接入。
+- 详情页展示真实标题、二级信息、描述、曲目数量和曲目列表；封面走统一 CoverImageProvider。
 - 详情页必须具备 loading / empty / error / content 四态，失败后可重试。
 - `播放全部` 从当前详情曲目模型开始播放；点击单曲从对应行开始播放。
 - 测试覆盖：四类详情模型填充、空 ID 错误、排行榜 detail kind 保持。
@@ -1002,7 +1012,6 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 
 | 优先级 | 项目 | 完成口径 |
 |---|---|---|
-| P1 | CoverImageProvider + `CoverImage` | 搜索、队列、NowPlaying、详情页都能显示真实封面；失败有统一占位 |
 | P1 | 多类型搜索 | 歌曲 / 歌手 / 专辑 / 歌单分栏或 segmented control；结果能跳详情 |
 | P2 | 统一反馈组件 | `Snackbar` / `Banner` 替代散落错误文案 |
 | P2 | 统一 IconButton | 工具按钮无障碍、焦点环、hover/pressed 状态统一 |
@@ -1029,6 +1038,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q8 MPRIS
 - [x] Q8.5 信息架构补齐
 - [ ] Q8.6 详情页真实数据（代码已实现，待验收）
+- [ ] Q8.7 封面管线（代码已实现，待验收）
 - [ ] Q9 登录
 - [ ] Q10 设置
 - [ ] Q11 打包

@@ -10,6 +10,7 @@ Rectangle {
     id: root
 
     property var queueModel
+    property var coverController
     property int currentIndex: -1
     readonly property int queueCount: root.queueModel ? root.queueModel.count : 0
 
@@ -136,6 +137,7 @@ Rectangle {
 
                     width: ListView.view.width
                     current: queueRow.index === root.currentIndex
+                    coverController: root.coverController
                     onActivated: function(songData, row) {
                         root.playIndexRequested(row)
                     }

@@ -12,6 +12,7 @@ ColumnLayout {
     property var serviceController
     property var playerController
     property var libraryController
+    property var coverController
     property string routeName: "search"
     readonly property bool hasSearched: root.serviceController
         && root.serviceController.currentPage > 0
@@ -88,6 +89,7 @@ ColumnLayout {
                 delegate: Components.SongRow {
                     width: ListView.view.width
                     libraryController: root.libraryController
+                    coverController: root.coverController
                     onActivated: function(songData, row) {
                         if (root.playerController)
                             root.playerController.playFromModel(root.serviceController.songResults, row)

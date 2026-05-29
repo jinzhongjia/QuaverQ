@@ -25,6 +25,17 @@ CONFIG_DIR = _config_dir()
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 
+def _cache_dir() -> Path:
+    """获取缓存目录."""
+    if sys.platform == "linux":
+        base = os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
+        return Path(base) / "quaverq"
+    return Path.home() / ".cache" / "quaverq"
+
+
+CACHE_DIR = _cache_dir()
+
+
 # 默认配置
 DEFAULTS: dict[str, Any] = {
     "api": {

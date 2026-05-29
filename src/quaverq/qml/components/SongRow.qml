@@ -13,7 +13,9 @@ Rectangle {
     required property string durationText
     required property int index
     property var libraryController
+    property var coverController
     property bool selected: false
+    readonly property string coverUrl: root.song && root.song.coverUrl ? root.song.coverUrl : ""
 
     readonly property string accessibleText: root.albumName
         ? qsTr("%1, %2, %3").arg(root.name).arg(root.singers).arg(root.albumName)
@@ -83,6 +85,8 @@ Rectangle {
             Layout.preferredWidth: 46
             Layout.preferredHeight: 46
             active: root.selected
+            coverUrl: root.coverUrl
+            coverController: root.coverController
         }
 
         ColumnLayout {

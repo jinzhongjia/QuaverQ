@@ -17,6 +17,7 @@ Rectangle {
     property int queueCount: 0
     property int bottomCornerRadius: 0
     property var libraryController
+    property var coverController
 
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -108,6 +109,8 @@ Rectangle {
             Layout.preferredWidth: 64
             Layout.preferredHeight: 64
             active: root.hasSong
+            coverUrl: root.hasSong && root.currentSong.coverUrl ? root.currentSong.coverUrl : ""
+            coverController: root.coverController
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("打开正在播放")
             activeFocusOnTab: root.hasSong

@@ -11,6 +11,7 @@ Item {
     id: root
 
     property string routeName: "now-playing"
+    property var coverController
     property var playerController
     property var libraryController
     property var lyricController
@@ -50,6 +51,8 @@ Item {
                 Layout.preferredHeight: root.headerCoverSize
                 Layout.alignment: Qt.AlignVCenter
                 active: root.hasSong
+                coverUrl: root.hasSong && root.currentSong.coverUrl ? root.currentSong.coverUrl : ""
+                coverController: root.coverController
                 iconSize: ThemeTokens.TypeScale.h1
             }
 

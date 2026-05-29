@@ -11,6 +11,7 @@ ScrollView {
 
     property string routeName: "home"
     property var appController
+    property var coverController
     property var homeController
     property var libraryController
     property var playerController
@@ -101,6 +102,7 @@ ScrollView {
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
             previewSong: root.homeController ? root.homeController.dailyPreviewSong : ({})
+            coverController: root.coverController
             loading: root.dailyLoading
             requiresLogin: root.homeController ? root.homeController.dailyRequiresLogin : false
             errorMessage: root.homeController ? root.homeController.dailyErrorMessage : ""
@@ -124,6 +126,7 @@ ScrollView {
             loading: root.playlistLoading
             errorMessage: root.homeController ? root.homeController.playlistErrorMessage : ""
             emptyText: qsTr("暂无推荐歌单")
+            coverController: root.coverController
             onCardRequested: function(kind, detailId, title, subtitle) {
                 root.detailRequested(kind, detailId, title, subtitle)
             }
@@ -142,6 +145,7 @@ ScrollView {
             actionText: qsTr("播放全部")
             actionEnabled: root.homeController && root.homeController.newSongModel.count > 0
             libraryController: root.libraryController
+            coverController: root.coverController
             onActionRequested: {
                 if (root.playerController && root.homeController && root.homeController.newSongModel.count > 0)
                     root.playerController.playFromModel(root.homeController.newSongModel, 0)
@@ -163,6 +167,7 @@ ScrollView {
             loading: root.topLoading
             errorMessage: root.homeController ? root.homeController.topErrorMessage : ""
             emptyText: qsTr("暂无排行榜")
+            coverController: root.coverController
             onCardRequested: function(kind, detailId, title, subtitle) {
                 root.detailRequested(kind, detailId, title, subtitle)
             }
@@ -237,6 +242,7 @@ ScrollView {
         id: section
 
         property var previewSong: ({})
+        property var coverController
         property bool loading: false
         property bool requiresLogin: false
         property string errorMessage: ""
@@ -318,6 +324,8 @@ ScrollView {
                 Layout.preferredWidth: root.availableWidth < 720 ? 72 : 92
                 Layout.preferredHeight: root.availableWidth < 720 ? 72 : 92
                 active: section.hasPreview
+                coverUrl: section.hasPreview && section.previewSong.coverUrl ? section.previewSong.coverUrl : ""
+                coverController: section.coverController
                 iconText: "♪"
                 iconSize: ThemeTokens.TypeScale.h1
             }
@@ -367,6 +375,7 @@ ScrollView {
         property string actionText: ""
         property bool actionEnabled: false
         property var libraryController
+        property var coverController
         readonly property bool hasRows: section.model && section.model.count > 0
 
         signal actionRequested()
@@ -428,6 +437,7 @@ ScrollView {
                 delegate: Components.SongRow {
                     Layout.fillWidth: true
                     libraryController: section.libraryController
+                    coverController: section.coverController
                     onActivated: function(songData, row) {
                         section.songRequested(row)
                     }
@@ -445,6 +455,7 @@ ScrollView {
         property bool loading: false
         property string errorMessage: ""
         property string emptyText: ""
+        property var coverController
         readonly property bool hasCards: section.model && section.model.count > 0
 
         signal cardRequested(string kind, string detailId, string title, string subtitle)
@@ -508,6 +519,7 @@ ScrollView {
 
                     delegate: CardTile {
                         Layout.fillWidth: true
+                        coverController: section.coverController
                         onActivated: section.cardRequested(kind, cardId, title, subtitle)
                     }
                 }
@@ -522,7 +534,9 @@ ScrollView {
         required property string cardId
         required property string title
         required property string subtitle
+        required property string coverUrl
         required property string meta
+        property var coverController
 
         signal activated()
 
@@ -564,6 +578,8 @@ ScrollView {
                 Layout.preferredWidth: 52
                 Layout.preferredHeight: 52
                 iconText: tile.kind === "artist" ? "◎" : tile.kind === "top" ? "↗" : "♪"
+                coverUrl: tile.coverUrl
+                coverController: tile.coverController
             }
 
             ColumnLayout {
