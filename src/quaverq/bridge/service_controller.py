@@ -5,18 +5,24 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable, TypeVar
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from qasync import asyncSlot
 
 from quaverq.core.models import Lyric, Song
-from quaverq.core.service import QuaverService
+from quaverq.core.service import (
+    CredentialExpiredError,
+    is_credential_expired_error,
+    QuaverService,
+)
 
 from .error_utils import log_bridge_error
 from .models import SongListModel, song_from_map
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class ServiceController(QObject):
@@ -29,6 +35,7 @@ class ServiceController(QObject):
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
     authStateChanged = Signal()
+    credentialExpired = Signal(str)
 
     def __init__(
         self,
@@ -84,8 +91,22 @@ class ServiceController(QObject):
             cached_credential = await get_cached()
             if cached_credential is not None:
                 await set_credential(cached_credential)
-                logger.info("loaded cached QQ Music credential")
-                self.authStateChanged.emit()
+                probe_result = await self._probe_current_credential()
+                if probe_result is False:
+                    await self._expire_credential(
+                        "登录已过期，请重新扫码",
+                        remove_cache=True,
+                        emit_error=False,
+                    )
+                else:
+                    if probe_result is True:
+                        logger.info("loaded verified QQ Music credential")
+                    else:
+                        logger.info(
+                            "loaded cached QQ Music credential "
+                            "(credential probe unavailable)"
+                        )
+                    self.authStateChanged.emit()
         self._started = True
 
     async def stop(self) -> None:
@@ -97,6 +118,25 @@ class ServiceController(QObject):
     async def _ensure_started(self) -> None:
         if not self._started:
             await self.start()
+
+    async def call_service(
+        self,
+        operation: Callable[[QuaverService], Awaitable[T]],
+        *,
+        operation_name: str = "service operation",
+    ) -> T:
+        await self._ensure_started()
+        try:
+            return await operation(self._service)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                logger.warning("%s detected expired credential", operation_name)
+                await self._expire_credential(
+                    "登录已过期，请重新扫码",
+                    remove_cache=True,
+                )
+                raise CredentialExpiredError("登录已过期，请重新扫码") from exc
+            raise
 
     @asyncSlot(str)
     async def search(self, keyword: str) -> None:
@@ -134,11 +174,13 @@ class ServiceController(QObject):
         self._set_loading(True)
         self._set_error_message("")
         try:
-            await self._ensure_started()
-            songs = await self._service.search_songs(
-                keyword,
-                page=page,
-                limit=self._page_size,
+            songs = await self.call_service(
+                lambda service: service.search_songs(
+                    keyword,
+                    page=page,
+                    limit=self._page_size,
+                ),
+                operation_name=f"search {keyword}",
             )
             if page > 1 and not songs:
                 self._set_has_next_page(False)
@@ -173,9 +215,12 @@ class ServiceController(QObject):
         is_authenticated = getattr(self._service, "is_authenticated", True)
         if is_authenticated is False:
             raise RuntimeError("播放需要先登录 QQ 音乐")
-        return await self._service.get_song_url(
-            song_from_map(song),
-            quality_preference=quality_preference or "balanced",
+        return await self.call_service(
+            lambda service: service.get_song_url(
+                song_from_map(song),
+                quality_preference=quality_preference or "balanced",
+            ),
+            operation_name="get song url",
         )
 
     async def get_lyric(
@@ -185,9 +230,12 @@ class ServiceController(QObject):
         with_translation: bool = True,
     ) -> Lyric:
         await self._ensure_started()
-        return await self._service.get_lyric(
-            mid,
-            with_translation=with_translation,
+        return await self.call_service(
+            lambda service: service.get_lyric(
+                mid,
+                with_translation=with_translation,
+            ),
+            operation_name="get lyric",
         )
 
     async def login_by_qrcode(
@@ -227,6 +275,48 @@ class ServiceController(QObject):
         else:
             logger.info("no cached QQ Music credential to remove")
         self.authStateChanged.emit()
+
+    async def _probe_current_credential(self) -> bool | None:
+        probe = getattr(self._service, "probe_login_expired", None)
+        if not callable(probe):
+            return True if self.authed else False
+        expired = await probe()
+        if expired is None:
+            return None
+        return not bool(expired)
+
+    async def _expire_credential(
+        self,
+        message: str,
+        *,
+        remove_cache: bool,
+        emit_error: bool = True,
+    ) -> None:
+        logger.warning("QQ Music credential expired: %s", message)
+        await self._clear_credential(remove_cache=remove_cache)
+        if emit_error:
+            self.errorRaised.emit(message)
+        self.credentialExpired.emit(message)
+        self.authStateChanged.emit()
+
+    async def _clear_credential(self, *, remove_cache: bool) -> None:
+        set_credential = getattr(self._service, "set_credential", None)
+        if callable(set_credential):
+            await set_credential(None)
+            logger.info("cleared QQ Music credential from memory")
+        else:
+            try:
+                setattr(self._service, "is_authenticated", False)
+            except Exception:
+                pass
+
+        if not remove_cache:
+            return
+
+        credential_path = getattr(self._service, "_credential_cache_path", "")
+        if credential_path and os.path.exists(credential_path):
+            os.remove(credential_path)
+            logger.info("removed cached QQ Music credential: %s", credential_path)
 
     def _set_loading(self, value: bool) -> None:
         if self._loading == value:

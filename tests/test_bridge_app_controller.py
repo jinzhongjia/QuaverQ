@@ -11,6 +11,7 @@ from quaverq.bridge.app_controller import AppController
 
 class _FakeServiceController(QObject):
     authStateChanged = Signal()
+    credentialExpired = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -39,6 +40,11 @@ class _FakeServiceController(QObject):
         self.logout_calls += 1
         self.authed = False
         self.authStateChanged.emit()
+
+    def expire(self, message: str = "登录已过期，请重新扫码") -> None:
+        self.authed = False
+        self.authStateChanged.emit()
+        self.credentialExpired.emit(message)
 
 
 async def test_login_by_qrcode_exposes_qrcode_and_marks_authenticated():
@@ -91,6 +97,43 @@ async def test_login_by_qrcode_updates_scan_and_confirm_messages():
     assert "已确认，正在等待 QQ 音乐返回登录凭据" in messages
 
 
+async def test_login_by_qrcode_timeout_sets_retryable_state():
+    class _TimeoutFakeService(_FakeServiceController):
+        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
+            on_qrcode(b"qr-bytes", "qq", "image/png")
+            if on_status is not None:
+                on_status("timeout")
+            self.authed = False
+            return False
+
+    controller = AppController(_TimeoutFakeService())  # type: ignore[arg-type]
+
+    await controller.login_by_qrcode_async()
+
+    assert controller.authed is False
+    assert controller.loginState == "error"
+    assert controller.loginMessage == "二维码已过期，请重新获取"
+
+
+async def test_login_by_qrcode_refuse_sets_cancelled_reason():
+    class _RefuseFakeService(_FakeServiceController):
+        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
+            on_qrcode(b"qr-bytes", "qq", "image/png")
+            if on_status is not None:
+                on_status("refuse")
+            self.authed = False
+            self.authStateChanged.emit()
+            return False
+
+    controller = AppController(_RefuseFakeService())  # type: ignore[arg-type]
+
+    await controller.login_by_qrcode_async()
+
+    assert controller.authed is False
+    assert controller.loginState == "error"
+    assert controller.loginMessage == "已取消登录"
+
+
 async def test_refresh_auth_state_reads_service_state():
     service = _FakeServiceController()
     service.authed = True
@@ -115,3 +158,24 @@ async def test_logout_clears_auth_state(caplog):
     assert controller.authed is False
     assert "logout requested" in caplog.text
     assert "logout completed" in caplog.text
+
+
+async def test_credential_expired_updates_login_state_and_emits_signal():
+    service = _FakeServiceController()
+    service.authed = True
+    controller = AppController(service)  # type: ignore[arg-type]
+    await controller.refresh_auth_state_async()
+    expired_count = 0
+
+    def on_expired() -> None:
+        nonlocal expired_count
+        expired_count += 1
+
+    controller.credExpired.connect(on_expired)
+
+    service.expire()
+
+    assert controller.authed is False
+    assert controller.loginState == "expired"
+    assert controller.loginMessage == "登录已过期，请重新扫码"
+    assert expired_count == 1

@@ -36,10 +36,19 @@ _TIMEOUT_TEXT_TOKENS = (
     "timed out",
     "timeout",
 )
+_AUTH_EXPIRED_TEXT_TOKENS = (
+    "credential expired",
+    "login expired",
+    "登录已过期",
+    "登录过期",
+    "登录失效",
+)
 
 
 def user_error_message(exc: BaseException) -> str:
     """Return a user-facing message for common transient failures."""
+    if is_auth_expired_error(exc):
+        return "登录已过期，请重新扫码"
     if _has_text(exc, _DNS_TEXT_TOKENS) or _has_exception_name(exc, "NameResolution"):
         return "网络连接失败：无法解析 QQ 音乐服务域名，请检查 DNS 或网络连接"
     if _has_text(exc, _TIMEOUT_TEXT_TOKENS) or _has_exception_name(exc, "Timeout"):
@@ -56,11 +65,18 @@ def log_bridge_error(
 ) -> str:
     """Log expected network failures tersely, preserving traces for unknown bugs."""
     message = user_error_message(exc)
-    if is_network_error(exc):
+    if is_network_error(exc) or is_auth_expired_error(exc):
         logger.warning("%s: %s", operation, message)
     else:
         logger.exception(operation)
     return message
+
+
+def is_auth_expired_error(exc: BaseException) -> bool:
+    return _has_exception_name(exc, "CredentialExpiredError") or _has_text(
+        exc,
+        _AUTH_EXPIRED_TEXT_TOKENS,
+    )
 
 
 def is_network_error(exc: BaseException) -> bool:

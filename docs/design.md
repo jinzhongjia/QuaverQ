@@ -18,7 +18,7 @@
 | 详情页 | 专辑 / 歌手 / 歌单真实详情 | **已完成 Q8.6**：歌单 / 专辑 / 艺人 / 排行榜详情接真实元信息、曲目与封面，支持播放全部 |
 | 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面已接 CoverImageProvider |
 | 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 | **已完成**：PlayerController + 队列模式已验收 |
-| 登录 | 二维码登录、缓存凭据、过期重登 | **部分完成**：二维码登录与缓存已完成；过期检测和失效重登待 Q9 |
+| 登录 | 二维码登录、缓存凭据、过期重登 | **Q9 代码已完成，待验收**：缓存凭据启动探测、业务接口登录失效统一重登、二维码终态文案、退出登录日志已接入 |
 | 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC | **待 Q10**：core 支持 preference；设置 UI 和持久化未完成 |
 | 桌面集成 | MPRIS2（媒体键 / GNOME / KDE 控件） | **已完成**：Q8 已验收 |
 | 会话恢复 | 启动恢复上次队列 / position / 模式 | **已完成**：Q4b 已验收 |
@@ -624,6 +624,7 @@ D-Bus MPRIS Play/Pause/Next/Previous
 
 过期判断规则：
 - 优先用 QQ 音乐账号态 / 资料库轻量接口做主动探测，避免等到点歌才失败。
+- 网络不可用导致探测无法判断时，不删除缓存凭据；只记录日志并保留当前账号态，避免把 DNS / 超时误判为凭据失效。
 - `get_song_url`、`get_liked_songs`、`toggleLike` 等用户态接口遇到登录失效时必须统一转成 `CredentialExpiredError` 或等价错误码，再由 controller 触发 `credExpired()`。
 - 退出登录是显式用户动作：必须写日志、清内存凭据、删除 `credential.json`，并广播 `authChanged(False, "logout")`。
 - 登录弹窗状态枚举固定为 `idle / loading / waiting / scanned / confirming / authenticated / expired / error`，QML 不解析任意中文文案做逻辑判断。
@@ -1037,8 +1038,8 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q7 歌词
 - [x] Q8 MPRIS
 - [x] Q8.5 信息架构补齐
-- [ ] Q8.6 详情页真实数据（代码已实现，待验收）
-- [ ] Q8.7 封面管线（代码已实现，待验收）
+- [x] Q8.6 详情页真实数据
+- [x] Q8.7 封面管线
 - [ ] Q9 登录
 - [ ] Q10 设置
 - [ ] Q11 打包

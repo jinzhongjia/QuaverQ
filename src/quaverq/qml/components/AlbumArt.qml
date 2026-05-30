@@ -11,10 +11,7 @@ Item {
     property var coverController
     property string iconText: "♪"
     property int iconSize: compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h2
-    readonly property int imageSize: Math.max(
-        1,
-        Math.round(Math.max(root.width, root.height, root.implicitWidth, root.implicitHeight))
-    )
+    property int imageSize: compact ? 96 : 512
     property int imageRevision: 0
     property int coverRadius: compact
         ? ThemeTokens.Spacing.radiusSm
@@ -37,7 +34,22 @@ Item {
             root.coverController.fetchCover(root.coverUrl)
     }
 
-    Component.onCompleted: root.requestCover()
+    function updateImageSize() {
+        const nextSize = Math.max(
+            1,
+            Math.round(Math.max(root.width, root.height, root.implicitWidth, root.implicitHeight))
+        )
+        if (root.imageSize !== nextSize)
+            root.imageSize = nextSize
+    }
+
+    Component.onCompleted: {
+        root.updateImageSize()
+        root.requestCover()
+    }
+
+    onWidthChanged: root.updateImageSize()
+    onHeightChanged: root.updateImageSize()
 
     onCoverUrlChanged: {
         root.imageRevision += 1

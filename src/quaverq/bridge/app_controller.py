@@ -43,6 +43,13 @@ class AppController(QObject):
 
         if self._service_controller is not None:
             self._service_controller.authStateChanged.connect(self._sync_auth_state)
+            credential_expired = getattr(
+                self._service_controller,
+                "credentialExpired",
+                None,
+            )
+            if credential_expired is not None:
+                credential_expired.connect(self._handle_credential_expired)
 
     @Property(bool, notify=authedChanged)
     def authed(self) -> bool:
@@ -106,9 +113,13 @@ class AppController(QObject):
             self._set_login_message("已登录")
             self._set_qrcode("", "")
         else:
+            had_terminal_state = self._login_state in {"error", "expired"}
             self._set_authed(False, "cancelled")
-            self._set_login_state("error")
-            self._set_login_message("登录未完成，请重试")
+            if not had_terminal_state:
+                self._set_login_state("error")
+                self._set_login_message("登录未完成，请重试")
+            elif not self._login_message:
+                self._set_login_message("登录未完成，请重试")
 
     async def refresh_auth_state_async(self) -> None:
         if self._service_controller is None:
@@ -161,12 +172,25 @@ class AppController(QObject):
         elif status == "done":
             self._set_login_state("authenticated")
             self._set_login_message("已登录")
+        elif status == "expired":
+            self._set_login_state("expired")
+            self._set_login_message("登录已过期，请重新扫码")
 
     @Slot()
     def _sync_auth_state(self) -> None:
         if self._service_controller is None:
             return
         self._set_authed(self._service_controller.authed, "cached")
+
+    @Slot(str)
+    def _handle_credential_expired(self, message: str) -> None:
+        text = message or "登录已过期，请重新扫码"
+        self._set_authed(False, "expired")
+        self._set_logging_in(False)
+        self._set_qrcode("", "")
+        self._set_login_state("expired")
+        self._set_login_message(text)
+        self.credExpired.emit()
 
     def _set_authed(self, value: bool, reason: str) -> None:
         if self._authed == value:

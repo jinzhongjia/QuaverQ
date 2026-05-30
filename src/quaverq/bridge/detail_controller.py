@@ -129,28 +129,31 @@ class DetailController(QObject):
 
         self._set_loading(True)
         try:
-            await self._service_controller._ensure_started()  # noqa: SLF001
             if normalized_kind == "album":
-                album = await self._service_controller._service.get_album_detail(  # noqa: SLF001
-                    normalized_id,
+                album = await self._service_controller.call_service(
+                    lambda service: service.get_album_detail(normalized_id),
+                    operation_name="get album detail",
                 )
                 if generation == self._load_generation:
                     self._apply_album(album)
             elif normalized_kind == "artist":
-                artist = await self._service_controller._service.get_artist_detail(  # noqa: SLF001
-                    normalized_id,
+                artist = await self._service_controller.call_service(
+                    lambda service: service.get_artist_detail(normalized_id),
+                    operation_name="get artist detail",
                 )
                 if generation == self._load_generation:
                     self._apply_artist(artist)
             elif normalized_kind == "top":
-                playlist = await self._service_controller._service.get_top_detail(  # noqa: SLF001
-                    int(normalized_id),
+                playlist = await self._service_controller.call_service(
+                    lambda service: service.get_top_detail(int(normalized_id)),
+                    operation_name="get top detail",
                 )
                 if generation == self._load_generation:
                     self._apply_playlist(playlist, kind="top")
             else:
-                playlist = await self._service_controller._service.get_playlist_detail(  # noqa: SLF001
-                    normalized_id,
+                playlist = await self._service_controller.call_service(
+                    lambda service: service.get_playlist_detail(normalized_id),
+                    operation_name="get playlist detail",
                 )
                 if generation == self._load_generation:
                     self._apply_playlist(playlist, kind="playlist")

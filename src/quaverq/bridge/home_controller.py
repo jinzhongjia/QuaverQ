@@ -166,9 +166,9 @@ class HomeController(QObject):
         self._set_daily_requires_login(False)
 
         async def load() -> list[Song]:
-            await self._service_controller._ensure_started()  # noqa: SLF001
-            return await self._service_controller._service.get_daily_recommend_songs(  # noqa: SLF001
-                limit=30,
+            return await self._service_controller.call_service(
+                lambda service: service.get_daily_recommend_songs(limit=30),
+                operation_name="daily recommend songs",
             )
 
         current_task = asyncio.current_task()
@@ -192,9 +192,9 @@ class HomeController(QObject):
             return
 
         async def load() -> list[Playlist]:
-            await self._service_controller._ensure_started()  # noqa: SLF001
-            return await self._service_controller._service.get_recommend_playlists(  # noqa: SLF001
-                limit=8,
+            return await self._service_controller.call_service(
+                lambda service: service.get_recommend_playlists(limit=8),
+                operation_name="recommend playlists",
             )
 
         playlists = await self._load_section("playlists", load)
@@ -210,9 +210,9 @@ class HomeController(QObject):
             return
 
         async def load() -> list[Song]:
-            await self._service_controller._ensure_started()  # noqa: SLF001
-            return await self._service_controller._service.get_recommend_new_songs(  # noqa: SLF001
-                limit=12,
+            return await self._service_controller.call_service(
+                lambda service: service.get_recommend_new_songs(limit=12),
+                operation_name="recommend new songs",
             )
 
         songs = await self._load_section("newSongs", load)
@@ -228,9 +228,9 @@ class HomeController(QObject):
             return
 
         async def load() -> list[TopList]:
-            await self._service_controller._ensure_started()  # noqa: SLF001
-            tops = await self._service_controller._service.get_top_categories(  # noqa: SLF001
-                limit_per_group=3,
+            tops = await self._service_controller.call_service(
+                lambda service: service.get_top_categories(limit_per_group=3),
+                operation_name="top categories",
             )
             return tops[:9]
 

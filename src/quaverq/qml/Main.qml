@@ -272,6 +272,14 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: root.appController
+
+        function onCredExpired() {
+            loginDialog.open()
+        }
+    }
+
     Item {
         id: shortcutFocusSink
 

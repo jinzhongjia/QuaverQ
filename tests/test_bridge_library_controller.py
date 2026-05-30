@@ -7,6 +7,7 @@ import logging
 from quaverq.bridge.library_controller import LibraryController
 from quaverq.bridge.service_controller import ServiceController
 from quaverq.core.models import Album, Playlist, Singer, Song
+from quaverq.core.service import CredentialExpiredError
 
 
 class _FakeLibraryService:
@@ -35,6 +36,9 @@ class _FakeLibraryService:
             )
         ]
         self.singers = [Singer(mid="ar1", name="周杰伦")]
+
+    async def set_credential(self, credential) -> None:
+        self.is_authenticated = credential is not None
 
     async def connect(self) -> None:
         self.connected = True
@@ -112,6 +116,26 @@ async def test_refresh_liked_async_logs_network_failure_without_traceback(caplog
     assert controller.errorMessage == expected
     assert errors == [expected]
     assert all(record.exc_info is None for record in caplog.records)
+
+
+async def test_refresh_liked_async_expires_auth_state():
+    service = _FakeLibraryService()
+
+    async def fail_liked_songs(*, limit: int = 500) -> list[Song]:
+        raise CredentialExpiredError("credential expired")
+
+    service.get_liked_songs = fail_liked_songs  # type: ignore[method-assign]
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+    expired_messages: list[str] = []
+    service_controller.credentialExpired.connect(expired_messages.append)
+
+    await controller.refresh_liked_async()
+
+    assert service_controller.authed is False
+    assert controller.authed is False
+    assert controller.likedModel.count == 0
+    assert expired_messages == ["登录已过期，请重新扫码"]
 
 
 async def test_toggle_like_async_adds_song_and_emits_state():

@@ -12,6 +12,11 @@ from types import SimpleNamespace
 
 import pytest
 from qqmusic_api import Credential
+from qqmusic_api.core.exceptions import (
+    CredentialExpiredError as QQCredentialExpiredError,
+    CredentialInvalidError as QQCredentialInvalidError,
+    LoginError as QQLoginError,
+)
 
 from quaverq.core.models import (
     Album,
@@ -23,11 +28,13 @@ from quaverq.core.models import (
     TopList,
 )
 from quaverq.core.service import (
+    CredentialExpiredError,
     QuaverService,
     _clean_text,
     _cover_url,
     _credential_from_dict,
     _credential_to_dict,
+    is_credential_expired_error,
 )
 
 
@@ -65,6 +72,45 @@ def test_is_authenticated_requires_musickey():
     assert svc.is_authenticated is False
     svc.credential = Credential(musicid=123, musickey="key")
     assert svc.is_authenticated is True
+
+
+def test_is_credential_expired_error_recognizes_qqmusic_exceptions():
+    assert is_credential_expired_error(
+        QQCredentialExpiredError(code=1000, data={})
+    )
+    assert is_credential_expired_error(
+        QQCredentialInvalidError("接口需要有效登录凭证")
+    )
+    assert is_credential_expired_error(
+        QQLoginError("登录鉴权参数无效或已过期", code=104401, data={})
+    )
+    assert is_credential_expired_error(
+        CredentialExpiredError("登录已过期，请重新登录")
+    )
+    assert not is_credential_expired_error(RuntimeError("ordinary API failure"))
+
+
+def test_bypass_payload_detects_credential_expired_codes():
+    assert QuaverService._payload_indicates_credential_expired(
+        {"code": 0, "req_0": {"code": 104401, "data": {}}}
+    )
+    assert QuaverService._payload_indicates_credential_expired(
+        {"code": 1000, "req_0": {"code": 0, "data": {}}}
+    )
+    assert not QuaverService._payload_indicates_credential_expired(
+        {"code": 0, "req_0": {"code": 2001, "data": {}}}
+    )
+
+
+async def test_probe_login_expired_maps_qqmusic_expired_exception():
+    class _Login:
+        async def check_expired(self) -> bool:
+            raise QQCredentialExpiredError(code=1000, data={})
+
+    svc = QuaverService()
+    svc._client = SimpleNamespace(login=_Login(), credential=Credential())
+
+    assert await svc.probe_login_expired() is True
 
 
 # ============================================================== _to_song
@@ -927,6 +973,21 @@ async def test_get_my_playlists_no_credential_returns_empty():
     svc = QuaverService()
     svc.credential = None
     assert await svc.get_my_playlists() == []
+
+
+async def test_get_my_playlists_raises_credential_expired_from_qqmusic_error():
+    svc = QuaverService()
+    svc.credential = Credential(musicid=1, musickey="k", str_musicid="1")
+
+    async def fake_created(_uin, **_kw):
+        raise QQCredentialExpiredError(code=1000, data={})
+
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_created_songlist=fake_created),
+        credential=svc.credential,
+    )
+    with pytest.raises(CredentialExpiredError):
+        await svc.get_my_playlists()
 
 
 async def test_get_followed_singers_extracts_users():

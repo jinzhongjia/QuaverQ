@@ -78,8 +78,14 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: root.appController && root.appController.authed ? qsTr("已同步账号") : qsTr("登录后同步")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                text: root.appController && root.appController.authed
+                    ? qsTr("已同步账号")
+                    : root.appController && root.appController.loginState === "expired"
+                        ? qsTr("登录已过期")
+                        : qsTr("登录后同步")
+                color: root.appController && root.appController.loginState === "expired"
+                    ? ThemeTokens.Palette.error
+                    : ThemeTokens.Palette.onSurfaceVariant
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
             }

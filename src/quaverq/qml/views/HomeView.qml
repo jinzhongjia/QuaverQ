@@ -33,6 +33,16 @@ ScrollView {
 
     contentWidth: availableWidth
 
+    function currentSongMatches(song) {
+        if (!root.playerController || !song || song.mid === undefined)
+            return false
+        const current = root.playerController.currentSong
+        return current
+            && current.mid !== undefined
+            && String(current.mid).length > 0
+            && String(current.mid) === String(song.mid)
+    }
+
     ColumnLayout {
         width: root.availableWidth
         spacing: ThemeTokens.Spacing.s6
@@ -102,6 +112,8 @@ ScrollView {
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
             previewSong: root.homeController ? root.homeController.dailyPreviewSong : ({})
+            currentSong: root.playerController ? root.playerController.currentSong : ({})
+            playbackState: root.playerController ? root.playerController.playbackState : "stopped"
             coverController: root.coverController
             loading: root.dailyLoading
             requiresLogin: root.homeController ? root.homeController.dailyRequiresLogin : false
@@ -111,7 +123,11 @@ ScrollView {
                 if (root.homeController && root.homeController.dailyRequiresLogin) {
                     root.loginRequested()
                 } else if (root.playerController && root.homeController && root.homeController.dailyModel.count > 0) {
-                    root.playerController.playFromModel(root.homeController.dailyModel, 0)
+                    if (root.currentSongMatches(root.homeController.dailyPreviewSong)) {
+                        root.playerController.togglePlayPause()
+                    } else {
+                        root.playerController.playFromModel(root.homeController.dailyModel, 0)
+                    }
                 }
             }
         }
@@ -242,6 +258,8 @@ ScrollView {
         id: section
 
         property var previewSong: ({})
+        property var currentSong: ({})
+        property string playbackState: "stopped"
         property var coverController
         property bool loading: false
         property bool requiresLogin: false
@@ -254,6 +272,14 @@ ScrollView {
             && section.previewSong.singerNames !== undefined
             ? section.previewSong.singerNames.join(" / ")
             : ""
+        readonly property bool isCurrentPreview: section.hasPreview
+            && section.currentSong
+            && section.currentSong.mid !== undefined
+            && section.previewSong.mid !== undefined
+            && String(section.currentSong.mid).length > 0
+            && String(section.currentSong.mid) === String(section.previewSong.mid)
+        readonly property bool showsPause: section.isCurrentPreview
+            && section.playbackState === "playing"
         readonly property string statusText: section.requiresLogin
             ? qsTr("登录后获取你的猜你喜欢")
             : section.loading
@@ -336,8 +362,10 @@ ScrollView {
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56
                 enabled: section.requiresLogin || section.hasPreview
-                text: section.requiresLogin ? qsTr("登录") : "▶"
-                Accessible.name: section.requiresLogin ? qsTr("登录") : qsTr("播放猜你喜欢")
+                text: section.requiresLogin ? qsTr("登录") : section.showsPause ? "Ⅱ" : "▶"
+                Accessible.name: section.requiresLogin
+                    ? qsTr("登录")
+                    : section.showsPause ? qsTr("暂停猜你喜欢") : qsTr("播放猜你喜欢")
                 onClicked: section.playRequested()
 
                 contentItem: Label {

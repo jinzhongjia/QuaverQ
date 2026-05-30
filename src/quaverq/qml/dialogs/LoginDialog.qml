@@ -17,12 +17,14 @@ Dialog {
     y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
     padding: ThemeTokens.Spacing.s6
 
-    function startLogin() {
+    function startLogin(force) {
+        if (!force && root.appController && root.appController.loginState === "expired")
+            return
         if (root.appController && !root.appController.authed && !root.appController.loggingIn)
             root.appController.loginByQrCode()
     }
 
-    onOpened: startLogin()
+    onOpened: startLogin(false)
 
     Connections {
         target: root.appController
@@ -140,7 +142,9 @@ Dialog {
             text: root.appController && root.appController.loginMessage.length > 0
                 ? root.appController.loginMessage
                 : qsTr("准备登录")
-            color: root.appController && root.appController.loginState === "error"
+            color: root.appController
+                && (root.appController.loginState === "error"
+                    || root.appController.loginState === "expired")
                 ? ThemeTokens.Palette.error
                 : ThemeTokens.Palette.onSurfaceVariant
             horizontalAlignment: Text.AlignHCenter
@@ -160,7 +164,7 @@ Dialog {
                 text: root.appController && root.appController.loggingIn ? qsTr("等待确认") : qsTr("重新获取")
                 enabled: root.appController && !root.appController.loggingIn && !root.appController.authed
                 Accessible.name: text
-                onClicked: root.startLogin()
+                onClicked: root.startLogin(true)
 
                 contentItem: Label {
                     text: retryButton.text

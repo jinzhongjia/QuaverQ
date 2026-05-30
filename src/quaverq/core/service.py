@@ -24,6 +24,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 from qqmusic_api import Client, Credential
+from qqmusic_api.core.exceptions import (
+    CredentialExpiredError as QQCredentialExpiredError,
+    CredentialInvalidError as QQCredentialInvalidError,
+    LoginError as QQLoginError,
+)
 from qqmusic_api.models.login import QRCodeLoginEvents, QRLoginType
 from qqmusic_api.modules.search import SearchType
 from qqmusic_api.modules.singer import TabType
@@ -46,6 +51,68 @@ if TYPE_CHECKING:
     from collections.abc import Callable as _Cb  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+
+class CredentialExpiredError(RuntimeError):
+    """QQ Music credential is missing, expired, or rejected by a user API."""
+
+
+_CREDENTIAL_EXPIRED_TEXT_TOKENS = (
+    "credential expired",
+    "login expired",
+    "not login",
+    "need login",
+    "invalid credential",
+    "有效登录凭证",
+    "登录凭证已过期",
+    "登录鉴权参数无效或已过期",
+    "登录失效",
+    "登录过期",
+    "未登录",
+    "请登录",
+    "重新登录",
+)
+_CREDENTIAL_EXPIRED_CODES = (1000, 104400, 104401)
+
+
+def is_credential_expired_error(exc: BaseException) -> bool:
+    if isinstance(
+        exc,
+        (
+            CredentialExpiredError,
+            QQCredentialExpiredError,
+            QQCredentialInvalidError,
+        ),
+    ):
+        return True
+    if isinstance(exc, QQLoginError) and exc.code in _CREDENTIAL_EXPIRED_CODES:
+        return True
+    for item in _walk_exception_graph(exc):
+        code = getattr(item, "code", None)
+        if code in _CREDENTIAL_EXPIRED_CODES:
+            return True
+    text = " ".join(str(item) for item in _walk_exception_graph(exc)).lower()
+    return any(token in text for token in _CREDENTIAL_EXPIRED_TEXT_TOKENS)
+
+
+def _walk_exception_graph(exc: BaseException) -> list[BaseException]:
+    seen: set[int] = set()
+    out: list[BaseException] = []
+
+    def walk(item: BaseException) -> None:
+        if id(item) in seen:
+            return
+        seen.add(id(item))
+        out.append(item)
+        for nested in (item.__cause__, item.__context__):
+            if nested is not None:
+                walk(nested)
+        for arg in item.args:
+            if isinstance(arg, BaseException):
+                walk(arg)
+
+    walk(exc)
+    return out
 
 
 # ---------------------------------------------------------------- helpers
@@ -258,13 +325,20 @@ class QuaverService:
             await anyio.sleep(0.8 if event == QRCodeLoginEvents.CONF else 1.5)
 
     async def check_login_expired(self) -> bool:
+        expired = await self.probe_login_expired()
+        return expired is not False
+
+    async def probe_login_expired(self) -> bool | None:
         if self._client is None:
             return True
         try:
             return await self._client.login.check_expired()
         except Exception as exc:
+            if is_credential_expired_error(exc):
+                logger.warning("check_expired 返回登录失效: %s", exc)
+                return True
             logger.warning("check_expired 失败: %s", exc)
-            return True
+            return None
 
     # ------------------------------------------------------------------
     # 搜索 (0.6 SearchByTypeResponse 含 song/singer/album/songlist 等 list)
@@ -582,7 +656,26 @@ class QuaverService:
             logger.warning("bypass %s.%s 请求异常: %s", module, method, exc)
             return None
 
+        if require_login and self._payload_indicates_credential_expired(data):
+            raise CredentialExpiredError("登录已过期，请重新登录")
         return data.get("req_0", {}).get("data", {}) or {}
+
+    @staticmethod
+    def _payload_indicates_credential_expired(payload: dict[str, Any]) -> bool:
+        candidates = [payload, payload.get("req_0", {}) or {}]
+        for item in candidates:
+            code = item.get("code")
+            message = str(
+                item.get("message", "")
+                or item.get("msg", "")
+                or item.get("tips", "")
+                or ""
+            ).lower()
+            if code in _CREDENTIAL_EXPIRED_CODES:
+                return True
+            if any(token in message for token in _CREDENTIAL_EXPIRED_TEXT_TOKENS):
+                return True
+        return False
 
     async def _try_bypass_url(
         self,
@@ -656,6 +749,8 @@ class QuaverService:
             )
             return bool(ok)
         except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
             logger.warning("like_song API 失败: %s", exc)
             return False
 
@@ -967,6 +1062,8 @@ class QuaverService:
                 int(cred.musicid), credential=cred
             )
         except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
             logger.warning("get_created_songlist 失败: %s", exc)
             return []
         out: list[Playlist] = []
@@ -997,6 +1094,8 @@ class QuaverService:
                 cred.encrypt_uin, page=1, num=200, credential=cred
             )
         except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
             logger.warning("get_fav_album 失败 (lib 校验问题或无数据): %s", exc)
             return []
         out: list[Album] = []
@@ -1040,6 +1139,8 @@ class QuaverService:
                 cred.encrypt_uin, page=1, num=200, credential=cred
             )
         except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
             logger.warning("get_follow_singers 失败: %s", exc)
             return []
         out: list[Singer] = []
@@ -1063,6 +1164,8 @@ class QuaverService:
             )
             return bool(ok)
         except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
             logger.warning("unlike_song API 失败: %s", exc)
             return False
 

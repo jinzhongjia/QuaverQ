@@ -8,6 +8,7 @@ import pytest
 
 from quaverq.bridge.service_controller import ServiceController
 from quaverq.core.models import Singer, Song
+from quaverq.core.service import CredentialExpiredError
 
 
 class _FakeService:
@@ -63,6 +64,7 @@ class _FakeAuthService(_FakeService):
         self.saved = False
         self.login_result = True
         self.credential_path = ""
+        self.expired_probe: bool | None = False
 
     async def _get_cached_credential(self):
         return self.credential
@@ -70,6 +72,9 @@ class _FakeAuthService(_FakeService):
     async def set_credential(self, credential) -> None:
         self.credential = credential
         self.is_authenticated = credential is not None
+
+    async def probe_login_expired(self) -> bool | None:
+        return self.expired_probe
 
     async def get_song_url(self, song: Song, *, quality_preference: str):
         return None
@@ -194,6 +199,38 @@ async def test_start_loads_cached_credential_when_available():
     assert service.is_authenticated is True
 
 
+async def test_start_rejects_expired_cached_credential(tmp_path):
+    service = _FakeAuthService()
+    service.credential = object()
+    service.is_authenticated = True
+    service.expired_probe = True
+    credential_file = tmp_path / "credential.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    service.credential_path = str(credential_file)
+    controller = ServiceController(service=service)
+    expired_messages: list[str] = []
+    controller.credentialExpired.connect(expired_messages.append)
+
+    await controller.start()
+
+    assert service.connected is True
+    assert service.is_authenticated is False
+    assert not credential_file.exists()
+    assert expired_messages == ["登录已过期，请重新扫码"]
+
+
+async def test_start_keeps_cached_credential_when_probe_unavailable():
+    service = _FakeAuthService()
+    service.credential = object()
+    service.expired_probe = None
+    controller = ServiceController(service=service)
+
+    await controller.start()
+
+    assert service.connected is True
+    assert service.is_authenticated is True
+
+
 async def test_get_song_url_requires_authenticated_service():
     service = _FakeAuthService()
     controller = ServiceController(service=service)
@@ -203,6 +240,32 @@ async def test_get_song_url_requires_authenticated_service():
             Song(mid="m1", name="晴天"),
             quality_preference="balanced",
         )
+
+
+async def test_get_song_url_converts_expired_credential_to_signal(tmp_path):
+    class _ExpiredService(_FakeAuthService):
+        async def get_song_url(self, song: Song, *, quality_preference: str):
+            raise CredentialExpiredError("credential expired")
+
+    service = _ExpiredService()
+    service.credential = object()
+    service.is_authenticated = True
+    credential_file = tmp_path / "credential.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    service.credential_path = str(credential_file)
+    controller = ServiceController(service=service)
+    expired_messages: list[str] = []
+    controller.credentialExpired.connect(expired_messages.append)
+
+    with pytest.raises(CredentialExpiredError):
+        await controller.get_song_url(
+            Song(mid="m1", name="晴天"),
+            quality_preference="balanced",
+        )
+
+    assert service.is_authenticated is False
+    assert not credential_file.exists()
+    assert expired_messages == ["登录已过期，请重新扫码"]
 
 
 async def test_login_by_qrcode_forwards_qrcode_and_saves_credential():
