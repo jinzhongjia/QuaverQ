@@ -18,11 +18,11 @@
 | 详情页 | 专辑 / 歌手 / 歌单真实详情 | **已完成 Q8.6**：歌单 / 专辑 / 艺人 / 排行榜详情接真实元信息、曲目与封面，支持播放全部 |
 | 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面已接 CoverImageProvider |
 | 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 | **已完成**：PlayerController + 队列模式已验收 |
-| 登录 | 二维码登录、缓存凭据、过期重登 | **Q9 代码已完成，待验收**：缓存凭据启动探测、业务接口登录失效统一重登、二维码终态文案、退出登录日志已接入 |
-| 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC | **待 Q10**：core 支持 preference；设置 UI 和持久化未完成 |
+| 登录 | 二维码登录、缓存凭据、过期重登 | **已完成 Q9**：缓存凭据启动探测、业务接口登录失效统一重登、二维码终态文案、退出登录日志已验收 |
+| 音质 | 用户偏好 `standard` / `balanced` / `high`；实际输出显示 MP3_128 / OGG_192 / MP3_320 / FLAC | **已完成 Q10**：设置 UI、持久化和播放取链 preference 已验收 |
 | 桌面集成 | MPRIS2（媒体键 / GNOME / KDE 控件） | **已完成**：Q8 已验收 |
 | 会话恢复 | 启动恢复上次队列 / position / 模式 | **已完成**：Q4b 已验收 |
-| 设置 | 主题、减弱动效、音质、缓存管理、账号状态 | **待 Q10** |
+| 设置 | 主题、音质、缓存管理、账号状态 | **已完成 Q10**：跟随系统 / 浅色 / 深色、音质偏好、封面缓存清理已验收 |
 | 打包 | Linux AppImage + release workflow | **待 Q11** |
 
 ### 1.1.1 完成口径
@@ -129,7 +129,7 @@
 ```
 qml/Theme/
 ├── qmldir
-├── Theme.qml        总入口（dark / reducedMotion / 跟随系统开关）
+├── Theme.qml        总入口（dark / 跟随系统开关）
 ├── Palette.qml      色板（暗 / 亮两套等权）
 ├── TypeScale.qml    字号阶梯
 ├── Spacing.qml      间距 / 圆角 / elevation
@@ -144,7 +144,7 @@ import "Theme" as ThemeTokens
 
 组件内通过 `ThemeTokens.Palette.background` / `ThemeTokens.TypeScale.body` / `ThemeTokens.Spacing.s5` 访问 token。后续若改成正式 QML module URI，需要同步调整 import path 与打包配置。
 
-**模式选择**：`Theme.dark` 默认绑定 `Application.styleHints.colorScheme === Qt.Dark`（Qt 6.5+ 跟随系统），用户也可在设置里强制 `Light / Dark / System` 三档，写入 `QSettings`。切换时只动 token，**不重建组件**——所有组件用 `Palette.background` 这种 binding 自动重绘。
+**模式选择**：`Theme.dark` 默认绑定 `Application.styleHints.colorScheme === Qt.ColorScheme.Dark`（Qt 6.5+ 跟随系统），用户也可在设置里强制 `Light / Dark / System` 三档，写入 `QSettings`。切换时只动 token，**不重建组件**——所有组件用 `Palette.background` 这种 binding 自动重绘。
 
 ### 4.2 调色板（角色令牌）
 
@@ -154,16 +154,16 @@ import "Theme" as ThemeTokens
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `background` | `#0d0d10` | 页面底色（最暗层） |
-| `surface` | `#161618` | 卡片 / 侧栏 / 播放栏 |
-| `surfaceVariant` | `#1f2024` | 悬浮 / 选中行 / 输入框 |
-| `surfaceContainerHigh` | `#26272c` | 弹出面板 / 抽屉 |
-| `onSurface` | `#ececf1` | 主文本 |
-| `onSurfaceVariant` | `#a3a3ad` | 次文本 / 元数据 / 图标默认 |
-| `outline` | `#34353c` | 分割线 / 边框 |
-| `primary` | `#22c55e` | 强调色（CTA / 进度 / 喜欢激活） |
-| `onPrimary` | `#0a0f0c` | primary 上的文字 / 图标 |
-| `primaryContainer` | `#143524` | primary tint 背景（按钮 hover） |
+| `background` | `#101115` | 页面底色（最暗层） |
+| `surface` | `#17191f` | 卡片 / 侧栏 / 播放栏 |
+| `surfaceVariant` | `#242833` | 悬浮 / 选中行 / 输入框 |
+| `surfaceContainerHigh` | `#2b303b` | 弹出面板 / 抽屉 |
+| `surfaceText` | `#f1f3f6` | 主文本 |
+| `surfaceVariantText` | `#a9b0bd` | 次文本 / 元数据 / 图标默认 |
+| `outline` | `#303744` | 分割线 / 边框 |
+| `primary` | `#32d296` | 强调色（CTA / 进度 / 喜欢激活） |
+| `primaryText` | `#08130e` | primary 上的文字 / 图标 |
+| `primaryContainer` | `#163c31` | primary tint 背景（按钮 hover） |
 | `error` | `#ef4444` | 错误 / 不可用 |
 | `warning` | `#f59e0b` | 凭据过期 / 降级提示 |
 
@@ -171,20 +171,20 @@ import "Theme" as ThemeTokens
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `background` | `#ffffff` | 页面底色 |
-| `surface` | `#f7f7f9` | 卡片 / 侧栏 / 播放栏 |
-| `surfaceVariant` | `#ececf0` | 悬浮 / 选中行 / 输入框 |
-| `surfaceContainerHigh` | `#e2e2e7` | 弹出面板 / 抽屉 |
-| `onSurface` | `#1a1a1f` | 主文本 |
-| `onSurfaceVariant` | `#5e5e68` | 次文本 / 元数据 / 图标默认 |
-| `outline` | `#d4d4d8` | 分割线 / 边框 |
-| `primary` | `#15803d` | 强调色（CTA / 进度 / 喜欢激活） |
-| `onPrimary` | `#ffffff` | primary 上的文字 / 图标 |
-| `primaryContainer` | `#dcfce7` | primary tint 背景（按钮 hover） |
+| `background` | `#f5f7fb` | 页面底色 |
+| `surface` | `#fbfcff` | 卡片 / 侧栏 / 播放栏 |
+| `surfaceVariant` | `#eef2f7` | 悬浮 / 选中行 / 输入框 |
+| `surfaceContainerHigh` | `#e6ebf2` | 弹出面板 / 抽屉 |
+| `surfaceText` | `#171a22` | 主文本 |
+| `surfaceVariantText` | `#626b7a` | 次文本 / 元数据 / 图标默认 |
+| `outline` | `#dfe5ee` | 分割线 / 边框 |
+| `primary` | `#12805c` | 强调色（CTA / 进度 / 喜欢激活） |
+| `primaryText` | `#ffffff` | primary 上的文字 / 图标 |
+| `primaryContainer` | `#dff7ec` | primary tint 背景（按钮 hover） |
 | `error` | `#b91c1c` | 错误 / 不可用 |
 | `warning` | `#b45309` | 凭据过期 / 降级提示 |
 
-> **强调色策略**：暗色用 `#22c55e`、亮色用更深的 `#15803d`，都是开源调色板里常见的中性绿；都是项目自有 token，**不与任何流媒体应用的注册商标色相同**。两值由 `Palette.qml` 集中维护，换肤改一处即生效。
+> **强调色策略**：暗色用 `#32d296`、亮色用更深的 `#12805c`，都是开源调色板里常见的中性绿；都是项目自有 token，**不与任何流媒体应用的注册商标色相同**。两值由 `Palette.qml` 集中维护，换肤改一处即生效。
 >
 > **状态色（error / warning）也要分主题**：直接照搬暗色版本贴到亮色背景上对比度会跌破 3:1，亮色版用对应色相的更深一档。
 
@@ -258,7 +258,7 @@ base 16 px，给密集列表 + 清晰层级。每屏 ≤ 4 个层级。
 | `easeIn` | `Easing.InCubic` | 退场 |
 | `easeStd` | `Easing.InOutCubic` | 双向 |
 
-**任何动画 ≤ 400 ms**。`Theme.reducedMotion` 全局开关绑 `QSettings`，开启时所有 NumberAnimation `duration` 强制 0。
+**任何动画 ≤ 400 ms**。V1 不提供“减少动画”设置，动画保持短时、低扰动。
 
 ---
 
@@ -452,7 +452,7 @@ QML_IMPORT_MAJOR_VERSION = 1
 | **CoverController** | slot `fetchCover(url)`，把封面 URL 下载进 `CoverCache` 并触发 QML 刷新 | `coverReady(url)`, `coverFailed(url)` |
 | **PlayerController** | `currentSong`, `currentIndex`, `positionMs`, `durationMs`, `playbackState` (`stopped/playing/paused`), `volume`, `mode` (`sequence/repeat_all/repeat_one/shuffle`)<br>slot `pushAndPlay(songs)`, `next()`, `prev()`, `jumpTo(idx)`, `setMode(m)`, `clear()`, `seek(ms)`, `play()`, `pause()`, `setVolume(v)` | `nowPlayingChanged(song)`, `queueChanged()` |
 | **MprisController** | 监听 PlayerController 的曲目 / 状态 / 进度 / 音量 / 模式并推送到 `core/mpris.py` | D-Bus Play/Pause/Next/Previous/Seek 回调直接调用 PlayerController slot |
-| **SettingsController** | `themeMode: "system"|"light"|"dark"`, `reducedMotion: bool`, `qualityPreference: "standard"|"balanced"|"high"`, `coverCacheSizeText: str`<br>slot `setThemeMode(mode)`, `setReducedMotion(enabled)`, `setQualityPreference(value)`, `clearCoverCache()` | `settingsChanged()`, `cacheChanged()`, `errorRaised(str)` |
+| **SettingsController** | `themeMode: "system"|"light"|"dark"`, `qualityPreference: "standard"|"balanced"|"high"`, `coverCacheSizeText: str`<br>slot `setThemeMode(mode)`, `setQualityPreference(value)`, `clearCoverCache()` | `settingsChanged()`, `cacheChanged()`, `errorRaised(str)` |
 
 ### 8.3 列表模型（`QAbstractListModel`）
 
@@ -640,7 +640,6 @@ SettingsView 控件
 
 设置键：
 - `ui/themeMode`: `system` / `light` / `dark`
-- `ui/reducedMotion`: `true` / `false`
 - `playback/qualityPreference`: `standard` / `balanced` / `high`
 - `cache/coverMaxBytes`: v1 可先只读默认值；清理动作必须二次确认
 
@@ -673,8 +672,8 @@ Home 和 Library 的网络请求可以并发，但 model 更新必须回到 Qt �
 ### 10.1 WCAG 2.2
 
 - 文本对比度 ≥ 4.5:1（两套主题都过）：
-  - **暗**：`onSurface` (#ececf1) on `background` (#0d0d10) = **17.3:1** ✅；`onSurfaceVariant` (#a3a3ad) on `surface` (#161618) = **6.8:1** ✅；`primary` (#22c55e) on `background` = **8.4:1** ✅
-  - **亮**：`onSurface` (#1a1a1f) on `background` (#ffffff) = **17.1:1** ✅；`onSurfaceVariant` (#5e5e68) on `surface` (#f7f7f9) = **6.7:1** ✅；`primary` (#15803d) on `background` = **5.6:1** ✅
+  - **暗**：`surfaceText` (#f1f3f6) on `background` (#101115) = **17.0:1** ✅；`surfaceVariantText` (#a9b0bd) on `surface` (#17191f) = **8.1:1** ✅；`primary` (#32d296) on `background` = **9.7:1** ✅
+  - **亮**：`surfaceText` (#171a22) on `background` (#f5f7fb) = **16.2:1** ✅；`surfaceVariantText` (#626b7a) on `surface` (#fbfcff) = **5.2:1** ✅；`primary` (#12805c) on `background` = **4.6:1** ✅
 - 大文本（≥ 18 px / 14 px Bold）≥ 3:1
 - **颜色不是唯一指示**：喜欢 = 实心♥ + 颜色；播放中 = 跳动条 + 颜色
 - **焦点环**：所有交互件 `activeFocus` 时画 2 px `primary` 描边 + 2 px offset
@@ -700,12 +699,6 @@ Home 和 Library 的网络请求可以并发，但 model 更新必须回到 Qt �
   - 歌手列表：单行省略，完整内容放到可访问名称和 tooltip
   - 按钮文字：不固定宽度；最小宽度 + 内容驱动，必要时换行
 - 暂不支持 RTL（计划之外，但 `LayoutMirroring.enabled` 钩子留好）
-
-### 10.4 减弱动效
-
-`Settings → 减少动画` 开关写 `QSettings`，绑 `Motion.reducedMotion`。所有 `NumberAnimation` `duration: Motion.reducedMotion ? 0 : Motion.durMed`。
-
----
 
 ## 11. 等待 / 加载 / 失败
 
@@ -827,7 +820,7 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q8.6** | 详情页真实数据：歌单 / 专辑 / 艺人 / 排行榜详情 + 曲目播放 | `bridge/detail_controller.py`、`qml/views/DetailView.qml`、`qml/Main.qml` | 卡片进入详情后显示真实元信息和曲目；播放全部可用 |
 | **Q8.7** | 封面管线：歌曲 / 歌单 / 专辑 / 艺人封面缓存与显示 | `bridge/cover_provider.py`、`core/cover_cache.py`、`qml/components/AlbumArt.qml` | 搜索、队列、底栏、NowPlaying、Home、Library、详情页显示真实封面；失败回占位 |
 | **Q9** | 登录完善：凭据过期检测 + 失效重登 + 登录 UX polish | `bridge/app_controller.py`、`bridge/service_controller.py`、`qml/dialogs/LoginDialog.qml` | 凭据过期可提示并重新扫码 |
-| **Q10** | 设置页 + 减弱动效 / 音质 / 缓存清理 | `bridge/settings_controller.py`、`qml/views/SettingsView.qml`、`qml/Theme/*` | 设置生效；persistent |
+| **Q10** | 设置页 + 主题 / 音质 / 缓存清理 | `bridge/settings_controller.py`、`qml/views/SettingsView.qml`、`qml/Theme/*` | 设置生效；persistent |
 | **Q11** | 打包：Nuitka + AppImage + GH Actions | `build.py`、`.github/workflows/release.yml` | AppImage 双击能跑 |
 
 ### 14.1 工作模式（与既有约定一致）
@@ -864,7 +857,7 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from quaverq.__main__ import _qml_main_path, _qml_root_path
-from quaverq.bridge import AppController, CoverController, CoverImageProvider, DetailController, HomeController, LibraryController, LyricController, PlayerController, ServiceController
+from quaverq.bridge import AppController, CoverController, CoverImageProvider, DetailController, HomeController, LibraryController, LyricController, PlayerController, ServiceController, SettingsController
 from quaverq.core.cover_cache import CoverCache
 from quaverq.core.models import Singer, Song
 
@@ -874,12 +867,13 @@ QQuickStyle.setStyle("Basic")
 app = QApplication([])
 service_controller = ServiceController()
 cover_cache = CoverCache(Path("/tmp/quaverq-ui-covers"))
+settings_controller = SettingsController(cover_cache=cover_cache)
 cover_controller = CoverController(cover_cache)
 app_controller = AppController(service_controller)
 home_controller = HomeController(service_controller)
 library_controller = LibraryController(service_controller)
 detail_controller = DetailController(service_controller)
-player_controller = PlayerController(service_controller)
+player_controller = PlayerController(service_controller, settings_controller=settings_controller)
 lyric_controller = LyricController(service_controller, player_controller)
 service_controller.songResults.set_songs([
     Song(mid="m1", name="晴天", singers=[Singer(mid="s1", name="周杰伦")], album_name="叶惠美", duration=269),
@@ -901,6 +895,7 @@ engine.rootContext().setContextProperty("ServiceController", service_controller)
 engine.rootContext().setContextProperty("LibraryController", library_controller)
 engine.rootContext().setContextProperty("LyricController", lyric_controller)
 engine.rootContext().setContextProperty("PlayerController", player_controller)
+engine.rootContext().setContextProperty("SettingsController", settings_controller)
 engine.load(QUrl.fromLocalFile(str(_qml_main_path())))
 root = engine.rootObjects()[0]
 root.setProperty("queuePanelOpen", True)
@@ -976,7 +971,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - 二维码过期 / 手机取消后能重新获取。
 - 凭据失效后队列和当前页面不丢，重新登录后资料库可刷新。
 
-**Q10 设置页**
+**Q10 设置页（已完成）**
 
 目标：让用户可控的偏好真正生效并持久化。
 
@@ -984,14 +979,14 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - `SettingsController`：集中管理 QSettings，不继续把设置逻辑散落在 AppController / QML。
 - 音质偏好：标准 / 均衡 / 高品质，对应 `standard / balanced / high`，影响后续取链。
 - 外观：跟随系统 / 浅色 / 深色，切换只更新 token，不重建主界面。
-- 减弱动效：关闭非必要动画；歌词滚动保留功能但不做平滑动画。
 - 缓存：显示封面缓存大小；清理前二次确认；清理后刷新大小。
 - 测试覆盖：设置读写、非法值回退默认值、音质 preference 传入播放链路。
 
 验收：
-- 重启后设置保持。
-- 切换主题、音质、减弱动效后立即生效。
-- 清理缓存不会影响正在播放。
+- 重启后设置保持，已验收。
+- 切换主题、音质后立即生效，已验收。
+- 深色主题和跟随系统模式显示正常，已验收。
+- 清理缓存不会影响正在播放，已验收。
 
 **Q11 打包**
 
@@ -1040,8 +1035,8 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q8.5 信息架构补齐
 - [x] Q8.6 详情页真实数据
 - [x] Q8.7 封面管线
-- [ ] Q9 登录
-- [ ] Q10 设置
+- [x] Q9 登录
+- [x] Q10 设置
 - [ ] Q11 打包
 
 ---

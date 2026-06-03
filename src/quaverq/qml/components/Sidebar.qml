@@ -71,7 +71,7 @@ Rectangle {
 
             Label {
                 text: qsTr("我的歌单")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 font.weight: ThemeTokens.TypeScale.medium
             }
@@ -85,7 +85,7 @@ Rectangle {
                         : qsTr("登录后同步")
                 color: root.appController && root.appController.loginState === "expired"
                     ? ThemeTokens.Palette.error
-                    : ThemeTokens.Palette.onSurfaceVariant
+                    : ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
             }
@@ -109,7 +109,7 @@ Rectangle {
                     text: loginButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: loginButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                    color: loginButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight

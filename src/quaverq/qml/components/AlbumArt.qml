@@ -98,7 +98,7 @@ Item {
         anchors.centerIn: parent
         visible: !root.hasImage
         text: root.iconText
-        color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+        color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
         font.pixelSize: root.iconSize
         font.weight: ThemeTokens.TypeScale.medium
     }

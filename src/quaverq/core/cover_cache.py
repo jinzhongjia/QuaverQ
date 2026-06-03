@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import shutil
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,27 @@ class CoverCache:
     def to_file_uri(self, path: Path) -> str:
         """把本地 Path 转成 file:// URI (供 MPRIS artUrl 用)."""
         return f"file://{path.resolve()}"
+
+    def size_bytes(self) -> int:
+        """Return total cached cover bytes."""
+        if not self.dir.exists():
+            return 0
+        total = 0
+        for path in self.dir.rglob("*"):
+            if path.is_file():
+                total += path.stat().st_size
+        return total
+
+    def clear(self) -> int:
+        """Remove cached covers and return removed bytes."""
+        removed = self.size_bytes()
+        if self.dir.exists():
+            for path in self.dir.iterdir():
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink(missing_ok=True)
+        return removed
 
     # ------------------------------------------------------------------ 异步下载
 

@@ -90,7 +90,7 @@ ColumnLayout {
             anchors.leftMargin: ThemeTokens.Spacing.s5
             anchors.rightMargin: ThemeTokens.Spacing.s5
             text: root.errorMessage
-            color: ThemeTokens.Palette.onPrimary
+            color: ThemeTokens.Palette.primaryText
             elide: Text.ElideRight
             font.pixelSize: ThemeTokens.TypeScale.bodySm
         }
@@ -132,7 +132,7 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     text: root.displayTitle
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
                     font.weight: ThemeTokens.TypeScale.medium
                     wrapMode: Text.WordWrap
@@ -145,7 +145,7 @@ ColumnLayout {
                     text: root.displaySubtitle.length > 0
                         ? root.displaySubtitle
                         : qsTr("暂无简介")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
@@ -154,7 +154,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     visible: root.displayDescription.length > 0
                     text: root.displayDescription
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
@@ -182,7 +182,7 @@ ColumnLayout {
                             text: playAllButton.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            color: playAllButton.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
+                            color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
                             font.pixelSize: ThemeTokens.TypeScale.bodySm
                             font.weight: ThemeTokens.TypeScale.medium
                         }
@@ -208,7 +208,7 @@ ColumnLayout {
                             text: searchButton.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            color: ThemeTokens.Palette.onSurface
+                            color: ThemeTokens.Palette.surfaceText
                             font.pixelSize: ThemeTokens.TypeScale.bodySm
                             font.weight: ThemeTokens.TypeScale.medium
                         }
@@ -231,7 +231,7 @@ ColumnLayout {
 
             Label {
                 text: root.displayKind === "artist" ? qsTr("热门歌曲") : qsTr("曲目")
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
                 font.weight: ThemeTokens.TypeScale.medium
             }
@@ -242,7 +242,7 @@ ColumnLayout {
                     : root.hasSongs
                         ? qsTr("%1 首").arg(root.detailController.songModel.count)
                         : qsTr("暂无曲目")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
         }
@@ -287,7 +287,7 @@ ColumnLayout {
                     text: root.errorMessage.length > 0
                         ? qsTr("详情加载失败")
                         : qsTr("暂无曲目")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.body
                 }
 
@@ -306,7 +306,7 @@ ColumnLayout {
                         text: retryButton.text
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
-                        color: ThemeTokens.Palette.onSurface
+                        color: ThemeTokens.Palette.surfaceText
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         font.weight: ThemeTokens.TypeScale.medium
                     }
@@ -324,7 +324,7 @@ ColumnLayout {
                 anchors.centerIn: parent
                 visible: root.loading && !root.hasSongs
                 text: qsTr("正在加载详情")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body
             }
         }

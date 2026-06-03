@@ -55,7 +55,7 @@ Rectangle {
             Layout.preferredWidth: root.compact ? parent.width : ThemeTokens.Spacing.s5
             text: root.iconText || root.text.slice(0, 1)
             horizontalAlignment: Text.AlignHCenter
-            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
             font.pixelSize: ThemeTokens.TypeScale.body
             font.weight: ThemeTokens.TypeScale.medium
         }
@@ -64,7 +64,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: !root.compact
             text: root.text
-            color: root.selected ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+            color: root.selected ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
             font.pixelSize: ThemeTokens.TypeScale.bodySm
             font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
             elide: Text.ElideRight

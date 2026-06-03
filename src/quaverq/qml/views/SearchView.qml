@@ -40,7 +40,7 @@ ColumnLayout {
             anchors.leftMargin: ThemeTokens.Spacing.s5
             anchors.rightMargin: ThemeTokens.Spacing.s5
             text: root.serviceController ? root.serviceController.errorMessage : ""
-            color: ThemeTokens.Palette.onPrimary
+            color: ThemeTokens.Palette.primaryText
             elide: Text.ElideRight
             font.pixelSize: ThemeTokens.TypeScale.bodySm
         }
@@ -58,7 +58,7 @@ ColumnLayout {
 
             Label {
                 text: qsTr("搜索")
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h1
                 font.weight: ThemeTokens.TypeScale.medium
             }
@@ -70,7 +70,7 @@ ColumnLayout {
                         .arg(root.serviceController.songResults.count)
                     : root.hasSearched ? qsTr("没有结果")
                     : qsTr("输入关键词后按 Enter")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
         }
@@ -122,7 +122,7 @@ ColumnLayout {
                                 text: previousPageButton.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-                                color: previousPageButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                                color: previousPageButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                                 font.pixelSize: ThemeTokens.TypeScale.caption
                             }
 
@@ -139,7 +139,7 @@ ColumnLayout {
                                 ? qsTr("加载中...")
                                 : qsTr("第 %1 页").arg(root.serviceController ? root.serviceController.currentPage : 0)
                             horizontalAlignment: Text.AlignHCenter
-                            color: ThemeTokens.Palette.onSurface
+                            color: ThemeTokens.Palette.surfaceText
                             font.pixelSize: ThemeTokens.TypeScale.bodySm
                             font.weight: ThemeTokens.TypeScale.medium
                         }
@@ -161,7 +161,7 @@ ColumnLayout {
                                 text: nextPageButton.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-                                color: nextPageButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                                color: nextPageButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                                 font.pixelSize: ThemeTokens.TypeScale.caption
                             }
 
@@ -175,7 +175,7 @@ ColumnLayout {
                         Label {
                             Layout.preferredWidth: 84
                             text: qsTr("每页 %1 首").arg(root.serviceController ? root.serviceController.pageSize : 30)
-                            color: ThemeTokens.Palette.onSurfaceVariant
+                            color: ThemeTokens.Palette.surfaceVariantText
                             font.pixelSize: ThemeTokens.TypeScale.caption
                         }
                     }
@@ -198,7 +198,7 @@ ColumnLayout {
                     && root.serviceController.songResults.count === 0
                     && root.serviceController.errorMessage.length === 0
                 text: root.hasSearched ? qsTr("没有搜索结果") : qsTr("输入关键词开始搜索")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body
             }
         }

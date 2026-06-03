@@ -160,3 +160,27 @@ def test_to_file_uri_returns_file_scheme(cover_cache: CoverCache, tmp_path: Path
     uri = cover_cache.to_file_uri(p)
     assert uri.startswith("file://")
     assert str(p) in uri
+
+
+# ============================================================== size / clear
+
+def test_size_bytes_sums_cached_files(cover_cache: CoverCache):
+    cover_cache.dir.mkdir(parents=True)
+    (cover_cache.dir / "a.jpg").write_bytes(b"abc")
+    nested = cover_cache.dir / "nested"
+    nested.mkdir()
+    (nested / "b.jpg").write_bytes(b"de")
+
+    assert cover_cache.size_bytes() == 5
+
+
+def test_clear_removes_cached_files_and_returns_size(cover_cache: CoverCache):
+    cover_cache.dir.mkdir(parents=True)
+    (cover_cache.dir / "a.jpg").write_bytes(b"abc")
+    nested = cover_cache.dir / "nested"
+    nested.mkdir()
+    (nested / "b.jpg").write_bytes(b"de")
+
+    assert cover_cache.clear() == 5
+    assert cover_cache.size_bytes() == 0
+    assert list(cover_cache.dir.iterdir()) == []

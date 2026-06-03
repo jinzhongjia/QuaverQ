@@ -63,7 +63,7 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("资料库")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -74,7 +74,7 @@ ColumnLayout {
                     text: root.appController && root.appController.authed
                         ? qsTr("已同步账号")
                         : qsTr("登录后显示账号资料")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
@@ -99,7 +99,7 @@ ColumnLayout {
                     text: authButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: ThemeTokens.TypeScale.medium
                 }
@@ -131,7 +131,7 @@ ColumnLayout {
                     text: likedTab.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 0 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+                    color: root.currentTab === 0 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: root.currentTab === 0 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
                 }
@@ -152,7 +152,7 @@ ColumnLayout {
                     text: playlistTab.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 1 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+                    color: root.currentTab === 1 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: root.currentTab === 1 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
                 }
@@ -173,7 +173,7 @@ ColumnLayout {
                     text: albumTab.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 2 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+                    color: root.currentTab === 2 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: root.currentTab === 2 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
                 }
@@ -194,7 +194,7 @@ ColumnLayout {
                     text: artistTab.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 3 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+                    color: root.currentTab === 3 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: root.currentTab === 3 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
                 }
@@ -254,7 +254,7 @@ ColumnLayout {
                     text: root.libraryController && root.libraryController.authed
                         ? qsTr("暂无喜欢的歌曲")
                         : qsTr("登录后显示喜欢的歌曲")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.body
                 }
 
@@ -273,7 +273,7 @@ ColumnLayout {
                         text: likedLoginButton.text
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
-                        color: ThemeTokens.Palette.onSurface
+                        color: ThemeTokens.Palette.surfaceText
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         font.weight: ThemeTokens.TypeScale.medium
                     }
@@ -291,7 +291,7 @@ ColumnLayout {
                 anchors.centerIn: parent
                 visible: root.libraryController && root.libraryController.loading
                 text: qsTr("正在同步喜欢")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body
             }
         }
@@ -388,7 +388,7 @@ ColumnLayout {
                 text: root.libraryController && root.libraryController.authed
                     ? tab.emptyText
                     : tab.loggedOutText
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body
             }
 
@@ -407,7 +407,7 @@ ColumnLayout {
                     text: tabLoginButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     font.weight: ThemeTokens.TypeScale.medium
                 }
@@ -428,7 +428,7 @@ ColumnLayout {
                 && root.libraryController.loading
                 && !tab.hasCards
             text: qsTr("正在同步")
-            color: ThemeTokens.Palette.onSurfaceVariant
+            color: ThemeTokens.Palette.surfaceVariantText
             font.pixelSize: ThemeTokens.TypeScale.body
         }
     }
@@ -498,7 +498,7 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     text: tile.title
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.body
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -507,7 +507,7 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     text: tile.subtitle
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
                 }

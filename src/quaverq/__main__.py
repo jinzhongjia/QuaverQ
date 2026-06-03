@@ -24,6 +24,7 @@ from .bridge import (
     MprisController,
     PlayerController,
     ServiceController,
+    SettingsController,
 )
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config
 from .core.cover_cache import CoverCache
@@ -112,6 +113,7 @@ def main() -> None:
 
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
+    settings_controller = SettingsController(cover_cache=cover_cache)
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
     home_controller = HomeController(service_controller)
@@ -119,6 +121,7 @@ def main() -> None:
     library_controller = LibraryController(service_controller)
     player_controller = PlayerController(
         service_controller,
+        settings_controller=settings_controller,
         session_state=SessionState(CONFIG_DIR / "state.json"),
     )
     lyric_controller = LyricController(service_controller, player_controller)
@@ -135,6 +138,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("LibraryController", library_controller)
     engine.rootContext().setContextProperty("LyricController", lyric_controller)
     engine.rootContext().setContextProperty("PlayerController", player_controller)
+    engine.rootContext().setContextProperty("SettingsController", settings_controller)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():

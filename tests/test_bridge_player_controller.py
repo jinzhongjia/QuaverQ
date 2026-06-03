@@ -23,6 +23,10 @@ class _FakeServiceController:
         return SongUrl(mid=song.mid, url=f"https://audio.example.test/{song.mid}.mp3")
 
 
+class _FakeSettingsController:
+    qualityPreference = "high"
+
+
 def _song(mid: str, name: str) -> Song:
     return Song(
         mid=mid,
@@ -60,6 +64,26 @@ async def test_push_and_play_loads_source_and_emits_play_request():
     assert controller.errorMessage == ""
     assert controller.playbackState == "loading"
     assert play_requests == [True]
+
+
+async def test_push_and_play_uses_settings_quality_preference():
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FakeSettingsController(),  # type: ignore[arg-type]
+    )
+
+    await controller.push_and_play_async(
+        {
+            "mid": "m1",
+            "name": "晴天",
+            "singers": [{"mid": "s1", "name": "周杰伦"}],
+            "albumName": "叶惠美",
+            "duration": 269,
+        }
+    )
+
+    assert [(song.mid, quality) for song, quality in service.calls] == [("m1", "high")]
 
 
 async def test_push_and_play_rejects_incomplete_song_data():

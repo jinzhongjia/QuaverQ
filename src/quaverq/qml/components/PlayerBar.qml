@@ -180,7 +180,7 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: root.songTitle
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.body
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -189,7 +189,7 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: root.loading ? qsTr("正在准备播放链接") : root.songMeta
-                    color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.onSurfaceVariant
+                    color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
                 }
@@ -230,7 +230,7 @@ Rectangle {
                             text: prevButton.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            color: prevButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                            color: prevButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                             font.pixelSize: ThemeTokens.TypeScale.h2
                         }
 
@@ -255,7 +255,7 @@ Rectangle {
                             text: playButton.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            color: playButton.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
+                            color: playButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
                             font.pixelSize: ThemeTokens.TypeScale.body
                             font.weight: ThemeTokens.TypeScale.medium
                         }
@@ -282,7 +282,7 @@ Rectangle {
                             text: nextButton.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            color: nextButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                            color: nextButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                             font.pixelSize: ThemeTokens.TypeScale.h2
                         }
 
@@ -301,7 +301,7 @@ Rectangle {
                     Label {
                         Layout.preferredWidth: 40
                         text: root.formatMs(root.positionMs)
-                        color: ThemeTokens.Palette.onSurfaceVariant
+                        color: ThemeTokens.Palette.surfaceVariantText
                         horizontalAlignment: Text.AlignRight
                         font.pixelSize: ThemeTokens.TypeScale.caption
                     }
@@ -337,7 +337,7 @@ Rectangle {
                                 width: progressSlider.visualPosition * parent.width
                                 height: parent.height
                                 radius: parent.radius
-                                color: progressSlider.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+                                color: progressSlider.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
                             }
                         }
 
@@ -347,14 +347,14 @@ Rectangle {
                             width: 13
                             height: 13
                             radius: width / 2
-                            color: progressSlider.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+                            color: progressSlider.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
                         }
                     }
 
                     Label {
                         Layout.preferredWidth: 40
                         text: root.durationMs > 0 ? root.formatMs(root.durationMs) : "--:--"
-                        color: ThemeTokens.Palette.onSurfaceVariant
+                        color: ThemeTokens.Palette.surfaceVariantText
                         font.pixelSize: ThemeTokens.TypeScale.caption
                     }
                 }
@@ -374,7 +374,7 @@ Rectangle {
                 text: queueButton.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 font.weight: ThemeTokens.TypeScale.medium
                 elide: Text.ElideRight
@@ -410,7 +410,7 @@ Rectangle {
                     text: modeButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: modeButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                    color: modeButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -427,7 +427,7 @@ Rectangle {
 
             Label {
                 text: qsTr("音量")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
             }
 

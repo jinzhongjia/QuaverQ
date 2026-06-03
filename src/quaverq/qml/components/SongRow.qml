@@ -75,7 +75,7 @@ Rectangle {
         Label {
             Layout.preferredWidth: 28
             text: root.selected ? "♪" : (root.index >= 0 ? String(root.index + 1) : "")
-            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.onSurfaceVariant
+            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
             font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
@@ -96,7 +96,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: root.name
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.body
                 font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
                 elide: Text.ElideRight
@@ -105,7 +105,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: root.albumName ? qsTr("%1 · %2").arg(root.singers).arg(root.albumName) : root.singers
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
             }
@@ -121,7 +121,7 @@ Rectangle {
         Label {
             Layout.preferredWidth: 52
             text: root.durationText
-            color: ThemeTokens.Palette.onSurfaceVariant
+            color: ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
         }

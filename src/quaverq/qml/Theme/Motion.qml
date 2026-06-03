@@ -3,9 +3,9 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    readonly property int durFast: Theme.reducedMotion ? 0 : 120
-    readonly property int durMed: Theme.reducedMotion ? 0 : 220
-    readonly property int durSlow: Theme.reducedMotion ? 0 : 320
+    readonly property int durFast: 120
+    readonly property int durMed: 220
+    readonly property int durSlow: 320
 
     readonly property int easeOut: Easing.OutCubic
     readonly property int easeIn: Easing.InCubic

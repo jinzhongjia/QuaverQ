@@ -64,7 +64,7 @@ Item {
                 Label {
                     Layout.fillWidth: true
                     text: root.hasSong ? root.currentSong.name : qsTr("尚未播放")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -73,7 +73,7 @@ Item {
                 Label {
                     Layout.fillWidth: true
                     text: root.hasSong ? root.singerText(root.currentSong) : qsTr("选择一首歌曲后开始")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
@@ -101,7 +101,7 @@ Item {
                     text: queueButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight

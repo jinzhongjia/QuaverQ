@@ -42,7 +42,7 @@ FocusScope {
 
         Label {
             text: "⌕"
-            color: ThemeTokens.Palette.onSurfaceVariant
+            color: ThemeTokens.Palette.surfaceVariantText
             font.pixelSize: ThemeTokens.TypeScale.h2
         }
 
@@ -52,8 +52,8 @@ FocusScope {
             Layout.fillWidth: true
             selectByMouse: true
             font.pixelSize: ThemeTokens.TypeScale.body
-            color: ThemeTokens.Palette.onSurface
-            placeholderTextColor: ThemeTokens.Palette.onSurfaceVariant
+            color: ThemeTokens.Palette.surfaceText
+            placeholderTextColor: ThemeTokens.Palette.surfaceVariantText
             Accessible.name: qsTr("搜索")
             onAccepted: root.searchRequested(text)
             Keys.onEscapePressed: root.editingCancelled()
@@ -73,7 +73,7 @@ FocusScope {
 
             contentItem: Label {
                 text: searchButton.text
-                color: searchButton.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
+                color: searchButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 font.pixelSize: ThemeTokens.TypeScale.bodySm

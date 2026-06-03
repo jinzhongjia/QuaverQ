@@ -8,8 +8,10 @@ QtObject {
     readonly property string darkMode: "dark"
 
     property string mode: systemMode
-    property bool reducedMotion: false
+    property SystemPalette systemPalette: SystemPalette {}
 
-    readonly property bool systemDark: Application.styleHints.colorScheme === Qt.Dark
+    readonly property bool paletteDark: systemPalette.window.hslLightness < 0.5
+    readonly property bool systemDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
+        || (Application.styleHints.colorScheme === Qt.ColorScheme.Unknown && paletteDark)
     readonly property bool dark: mode === darkMode || (mode === systemMode && systemDark)
 }

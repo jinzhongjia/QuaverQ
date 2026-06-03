@@ -62,7 +62,7 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("待播列表")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.body
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -71,7 +71,7 @@ Rectangle {
                 Label {
                     Layout.fillWidth: true
                     text: root.queueCount > 0 ? qsTr("%1 首歌曲").arg(root.queueCount) : qsTr("没有待播歌曲")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
                 }
@@ -90,7 +90,7 @@ Rectangle {
                     text: closeButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.body
                 }
 
@@ -150,7 +150,7 @@ Rectangle {
                 anchors.centerIn: parent
                 visible: root.queueCount === 0
                 text: qsTr("暂无待播歌曲")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body
             }
         }

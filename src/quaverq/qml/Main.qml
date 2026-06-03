@@ -35,6 +35,7 @@ ApplicationWindow {
     readonly property var libraryController: LibraryController
     readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
+    readonly property var settingsController: SettingsController
     property bool queuePanelOpen: false
     property string currentRoute: "home"
     property string currentTopRoute: "home"
@@ -44,6 +45,12 @@ ApplicationWindow {
     property bool muteForPendingSeek: false
     readonly property int pendingSeekToleranceMs: 1000
     readonly property int pendingSeekMaxAttempts: 60
+
+    Binding {
+        target: ThemeTokens.Theme
+        property: "mode"
+        value: root.settingsController ? root.settingsController.themeMode : ThemeTokens.Theme.systemMode
+    }
 
     function routeTitle(route) {
         switch (route) {
@@ -400,7 +407,7 @@ ApplicationWindow {
                     text: backButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h2
                 }
 
@@ -414,7 +421,7 @@ ApplicationWindow {
 
             Label {
                 text: qsTr("QuaverQ")
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
                 font.weight: ThemeTokens.TypeScale.medium
             }
@@ -446,7 +453,7 @@ ApplicationWindow {
                         width: 11
                         height: 2
                         radius: 1
-                        color: ThemeTokens.Palette.onSurfaceVariant
+                        color: ThemeTokens.Palette.surfaceVariantText
                     }
                 }
 
@@ -475,7 +482,7 @@ ApplicationWindow {
                         height: 10
                         radius: 1
                         color: "transparent"
-                        border.color: ThemeTokens.Palette.onSurfaceVariant
+                        border.color: ThemeTokens.Palette.surfaceVariantText
                         border.width: 2
                     }
 
@@ -488,7 +495,7 @@ ApplicationWindow {
                         height: 10
                         radius: 1
                         color: "transparent"
-                        border.color: ThemeTokens.Palette.onSurfaceVariant
+                        border.color: ThemeTokens.Palette.surfaceVariantText
                         border.width: 2
                     }
                 }
@@ -510,7 +517,7 @@ ApplicationWindow {
                 onClicked: root.close()
 
                 contentItem: Item {
-                    readonly property color iconColor: closeButton.hovered ? ThemeTokens.Palette.error : ThemeTokens.Palette.onSurfaceVariant
+                    readonly property color iconColor: closeButton.hovered ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceVariantText
 
                     Rectangle {
                         anchors.centerIn: parent
@@ -700,6 +707,7 @@ ApplicationWindow {
 
         Views.SettingsView {
             appController: root.appController
+            settingsController: root.settingsController
             onLoginRequested: loginDialog.open()
         }
     }

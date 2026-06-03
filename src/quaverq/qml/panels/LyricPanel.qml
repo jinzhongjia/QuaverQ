@@ -126,7 +126,7 @@ Rectangle {
             Label {
                 Layout.fillWidth: true
                 text: qsTr("歌词")
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: root.compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h2
                 font.weight: ThemeTokens.TypeScale.medium
                 elide: Text.ElideRight
@@ -196,7 +196,7 @@ Rectangle {
                             text: lyricDelegate.lineText
                             color: lyricDelegate.creditLine
                                 ? (lyricDelegate.activeLine ? root.creditActiveColor : root.creditLineColor)
-                                : (lyricDelegate.activeLine ? ThemeTokens.Palette.onSurface : root.mutedLineColor)
+                                : (lyricDelegate.activeLine ? ThemeTokens.Palette.surfaceText : root.mutedLineColor)
                             horizontalAlignment: root.compact ? Text.AlignLeft : Text.AlignHCenter
                             font.pixelSize: lyricDelegate.activeLine
                                 ? (lyricDelegate.creditLine
@@ -237,7 +237,7 @@ Rectangle {
                     : root.loading
                         ? qsTr("正在同步歌词")
                         : root.hasSong ? qsTr("暂无歌词") : qsTr("播放后显示歌词")
-                color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.onSurfaceVariant
+                color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceVariantText
                 horizontalAlignment: Text.AlignHCenter
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
                 wrapMode: Text.WordWrap

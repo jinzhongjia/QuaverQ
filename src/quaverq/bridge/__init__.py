@@ -19,6 +19,7 @@ from .models import (
 from .mpris_controller import MprisController
 from .player_controller import PlayerController
 from .service_controller import ServiceController
+from .settings_controller import SettingsController
 
 __all__ = [
     "AppController",
@@ -31,6 +32,7 @@ __all__ = [
     "MprisController",
     "PlayerController",
     "ServiceController",
+    "SettingsController",
     "CardListModel",
     "LyricLineListModel",
     "SongListModel",

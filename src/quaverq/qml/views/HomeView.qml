@@ -61,7 +61,7 @@ ScrollView {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("发现")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -72,7 +72,7 @@ ScrollView {
                     text: root.hasSong
                         ? qsTr("继续听 %1").arg(root.playerController.currentSong.name)
                         : qsTr("每日推荐、新歌和排行榜")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
@@ -92,7 +92,7 @@ ScrollView {
                     text: nowPlayingButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: nowPlayingButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                    color: nowPlayingButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: ThemeTokens.TypeScale.medium
                 }
@@ -209,7 +209,7 @@ ScrollView {
             Label {
                 Layout.fillWidth: true
                 text: header.title
-                color: ThemeTokens.Palette.onSurface
+                color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
                 font.weight: ThemeTokens.TypeScale.medium
                 elide: Text.ElideRight
@@ -218,7 +218,7 @@ ScrollView {
             Label {
                 Layout.fillWidth: true
                 text: header.subtitle
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight
             }
@@ -239,7 +239,7 @@ ScrollView {
                 text: actionButton.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: actionButton.enabled ? ThemeTokens.Palette.onSurface : ThemeTokens.Palette.onSurfaceVariant
+                color: actionButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 font.weight: ThemeTokens.TypeScale.medium
             }
@@ -311,7 +311,7 @@ ScrollView {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("猜你喜欢")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h2
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -320,7 +320,7 @@ ScrollView {
                 Label {
                     Layout.fillWidth: true
                     text: section.hasPreview ? section.previewSong.name : qsTr("每日推荐")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -331,7 +331,7 @@ ScrollView {
                     text: section.statusText
                     color: section.errorMessage.length > 0
                         ? ThemeTokens.Palette.error
-                        : ThemeTokens.Palette.onSurfaceVariant
+                        : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
@@ -340,7 +340,7 @@ ScrollView {
                     Layout.fillWidth: true
                     visible: section.hasPreview && section.queueCount > 1
                     text: qsTr("今日队列 · %1 首").arg(section.queueCount)
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
                 }
@@ -373,8 +373,8 @@ ScrollView {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     color: dailyPlayButton.enabled
-                        ? ThemeTokens.Palette.onPrimary
-                        : ThemeTokens.Palette.onSurfaceVariant
+                        ? ThemeTokens.Palette.primaryText
+                        : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: section.requiresLogin
                         ? ThemeTokens.TypeScale.bodySm
                         : ThemeTokens.TypeScale.h2
@@ -437,7 +437,7 @@ ScrollView {
                 Layout.fillWidth: true
                 visible: section.loading
                 text: qsTr("正在加载...")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
 
@@ -454,7 +454,7 @@ ScrollView {
                 Layout.fillWidth: true
                 visible: !section.loading && section.errorMessage.length === 0 && !section.hasRows
                 text: section.emptyText
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -513,7 +513,7 @@ ScrollView {
                 Layout.fillWidth: true
                 visible: section.loading
                 text: qsTr("正在加载...")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
 
@@ -530,7 +530,7 @@ ScrollView {
                 Layout.fillWidth: true
                 visible: !section.loading && section.errorMessage.length === 0 && !section.hasCards
                 text: section.emptyText
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -617,7 +617,7 @@ ScrollView {
                 Label {
                     Layout.fillWidth: true
                     text: tile.title
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.body
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -626,7 +626,7 @@ ScrollView {
                 Label {
                     Layout.fillWidth: true
                     text: tile.subtitle
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
                 }
@@ -635,7 +635,7 @@ ScrollView {
             Label {
                 Layout.preferredWidth: 48
                 text: tile.meta
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 horizontalAlignment: Text.AlignRight
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 elide: Text.ElideRight

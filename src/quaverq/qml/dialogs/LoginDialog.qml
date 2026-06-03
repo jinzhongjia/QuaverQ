@@ -55,7 +55,7 @@ Dialog {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("登录 QQ 音乐")
-                    color: ThemeTokens.Palette.onSurface
+                    color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h2
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -64,7 +64,7 @@ Dialog {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("扫码后会保存登录态用于播放和资料库同步")
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     wrapMode: Text.WordWrap
                 }
@@ -83,7 +83,7 @@ Dialog {
                     text: closeButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.onSurfaceVariant
+                    color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.h2
                 }
 
@@ -130,7 +130,7 @@ Dialog {
                     || (!root.appController.loggingIn
                         && root.appController.qrcodeDataUrl.length === 0)
                 text: qsTr("点击重试获取二维码")
-                color: ThemeTokens.Palette.onSurfaceVariant
+                color: ThemeTokens.Palette.surfaceVariantText
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
@@ -146,7 +146,7 @@ Dialog {
                 && (root.appController.loginState === "error"
                     || root.appController.loginState === "expired")
                 ? ThemeTokens.Palette.error
-                : ThemeTokens.Palette.onSurfaceVariant
+                : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             font.pixelSize: ThemeTokens.TypeScale.bodySm
@@ -170,7 +170,7 @@ Dialog {
                     text: retryButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: retryButton.enabled ? ThemeTokens.Palette.onPrimary : ThemeTokens.Palette.onSurfaceVariant
+                    color: retryButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: ThemeTokens.TypeScale.medium
                 }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from qasync import asyncSlot
@@ -19,6 +19,9 @@ from .models import SongListModel, song_from_map, song_to_map
 from .service_controller import ServiceController
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .settings_controller import SettingsController
 
 
 _MODE_TO_NAME = {
@@ -54,11 +57,13 @@ class PlayerController(QObject):
     def __init__(
         self,
         service_controller: ServiceController,
+        settings_controller: SettingsController | None = None,
         session_state: SessionState | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
+        self._settings_controller = settings_controller
         self._session_state = session_state
         self._queue = PlayQueue()
         self._queue_model = SongListModel(self)
@@ -305,7 +310,7 @@ class PlayerController(QObject):
         try:
             song_url = await self._service_controller.get_song_url(
                 song,
-                quality_preference="balanced",
+                quality_preference=self._quality_preference(),
             )
         except Exception as exc:
             raw_message = str(exc) or exc.__class__.__name__
@@ -359,6 +364,10 @@ class PlayerController(QObject):
             self.updateDuration(song.duration * 1000)
         self._emit_current_changed()
         self.modeChanged.emit()
+
+    def _quality_preference(self) -> str:
+        value = getattr(self._settings_controller, "qualityPreference", "balanced")
+        return value if value in {"standard", "balanced", "high"} else "balanced"
 
     def _songs_from_model(self, model: QObject) -> list[Song]:
         if isinstance(model, SongListModel):
