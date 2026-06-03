@@ -63,6 +63,55 @@ def test_credential_from_dict_ignores_unknown_fields():
     assert cred.musickey == "abc"
 
 
+# ============================================================== 二维码登录状态映射
+
+async def test_login_by_qrcode_status_sequence(monkeypatch):
+    """QR 事件 → UI 状态字符串：SCAN=等待扫描→waiting，CONF=已扫待确认→scanned，DONE→done。"""
+    import anyio
+    from qqmusic_api.models.login import QRCodeLoginEvents
+
+    async def _no_sleep(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(anyio, "sleep", _no_sleep)
+
+    qr = SimpleNamespace(
+        data=b"qr",
+        mimetype="image/png",
+        qr_type=SimpleNamespace(value="qq", name="QQ"),
+    )
+    events = iter(
+        [
+            SimpleNamespace(event=QRCodeLoginEvents.SCAN, credential=None),
+            SimpleNamespace(event=QRCodeLoginEvents.CONF, credential=None),
+            SimpleNamespace(
+                event=QRCodeLoginEvents.DONE,
+                credential=Credential(musicid=1, musickey="k", str_musicid="1"),
+            ),
+        ]
+    )
+
+    async def _get_qrcode(login_type):
+        return qr
+
+    async def _check_qrcode(_qr):
+        return next(events)
+
+    svc = QuaverService()
+    svc._client = SimpleNamespace(
+        login=SimpleNamespace(get_qrcode=_get_qrcode, check_qrcode=_check_qrcode)
+    )
+    monkeypatch.setattr(svc, "_assign_credential", lambda cred: None)
+
+    statuses: list[str] = []
+    svc.on_login_status = statuses.append
+
+    ok = await svc.login_by_qrcode()
+
+    assert ok is True
+    assert statuses == ["qrcode", "waiting", "scanned", "done"]
+
+
 # ============================================================== is_authenticated
 
 def test_is_authenticated_requires_musickey():
@@ -402,7 +451,7 @@ async def test_try_bypass_url_uses_media_mid_for_filename():
         media_mid="mediamid",
     )
 
-    assert url == "https://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
+    assert url == "http://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
     assert captured["songmid"] == ["songmid"]
     assert captured["filename"] == ["M500mediamidmediamid.mp3"]
 

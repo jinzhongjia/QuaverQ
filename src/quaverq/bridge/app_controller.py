@@ -154,10 +154,10 @@ class AppController(QObject):
         self._set_login_message("请使用 QQ 音乐扫描二维码并确认登录")
 
     def _handle_login_status(self, status: str) -> None:
-        if status == "qrcode":
+        if status in ("qrcode", "waiting"):
             self._set_login_state("waiting")
             self._set_login_message("请使用 QQ 音乐扫描二维码并确认登录")
-        elif status == "scan":
+        elif status == "scanned":
             self._set_login_state("scanned")
             self._set_login_message("已扫码，请在手机上确认登录")
         elif status == "confirm":

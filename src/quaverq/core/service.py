@@ -316,12 +316,12 @@ class QuaverService:
                 return False
             if event == QRCodeLoginEvents.SCAN:
                 if self.on_login_status:
-                    self.on_login_status("scan")
-                logger.info("已扫码, 等待确认...")
+                    self.on_login_status("waiting")
+                logger.info("等待扫码...")
             elif event == QRCodeLoginEvents.CONF:
                 if self.on_login_status:
-                    self.on_login_status("confirm")
-                logger.info("确认中...")
+                    self.on_login_status("scanned")
+                logger.info("已扫码, 等待确认...")
             await anyio.sleep(0.8 if event == QRCodeLoginEvents.CONF else 1.5)
 
     async def check_login_expired(self) -> bool:
@@ -713,7 +713,10 @@ class QuaverService:
         purl = midurlinfo[0].get("purl", "") or ""
         if not purl:
             return None
-        return f"https://isure.stream.qqmusic.qq.com/{purl}"
+        # 明文 http：QQ CDN 对 FFmpeg(QtMultimedia) 的 HTTPS/TLS 指纹做了风控，
+        # 同一 vkey URL 走 https 会被 401/403 拒绝，走 http 则正常 206 可播。
+        # vkey 本身是短时效临时凭据，明文拉流是 QQ 音乐客户端的常规姿势。
+        return f"http://isure.stream.qqmusic.qq.com/{purl}"
 
     # ------------------------------------------------------------------
     # 用户库 (我喜欢 + 我创建的歌单)

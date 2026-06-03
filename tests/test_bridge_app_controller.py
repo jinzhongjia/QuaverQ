@@ -77,13 +77,13 @@ async def test_login_by_qrcode_failure_keeps_user_logged_out():
     assert controller.loginMessage == "登录未完成，请重试"
 
 
-async def test_login_by_qrcode_updates_scan_and_confirm_messages():
+async def test_login_by_qrcode_updates_waiting_and_scanned_messages():
     class _SlowFakeService(_FakeServiceController):
         async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
             on_qrcode(b"qr-bytes", "qq", "image/png")
             if on_status is not None:
-                on_status("scan")
-                on_status("confirm")
+                on_status("waiting")
+                on_status("scanned")
             self.authed = False
             return False
 
@@ -93,8 +93,24 @@ async def test_login_by_qrcode_updates_scan_and_confirm_messages():
 
     await controller.login_by_qrcode_async()
 
+    assert "请使用 QQ 音乐扫描二维码并确认登录" in messages
     assert "已扫码，请在手机上确认登录" in messages
-    assert "已确认，正在等待 QQ 音乐返回登录凭据" in messages
+
+
+def test_handle_login_status_maps_qq_events_to_ui_states():
+    """回归：SCAN=等待扫描→waiting；CONF=已扫待确认→scanned。不得一出二维码就 scanned。"""
+    controller = AppController(_FakeServiceController())  # type: ignore[arg-type]
+
+    controller._handle_login_status("waiting")
+    assert controller.loginState == "waiting"
+    assert controller.loginMessage == "请使用 QQ 音乐扫描二维码并确认登录"
+
+    controller._handle_login_status("scanned")
+    assert controller.loginState == "scanned"
+    assert controller.loginMessage == "已扫码，请在手机上确认登录"
+
+    controller._handle_login_status("done")
+    assert controller.loginState == "authenticated"
 
 
 async def test_login_by_qrcode_timeout_sets_retryable_state():

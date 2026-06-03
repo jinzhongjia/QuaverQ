@@ -83,7 +83,7 @@ class _FakeAuthService(_FakeService):
         if self.on_qrcode is not None:
             self.on_qrcode(b"qr", "qq", "image/png")
         if self.on_login_status is not None:
-            self.on_login_status("scan")
+            self.on_login_status("waiting")
         if self.login_result:
             await self.set_credential(object())
             if self.on_login_status is not None:
@@ -281,7 +281,7 @@ async def test_login_by_qrcode_forwards_qrcode_and_saves_credential():
 
     assert success is True
     assert qrcodes == [(b"qr", "qq", "image/png")]
-    assert statuses == ["scan", "done"]
+    assert statuses == ["waiting", "done"]
     assert service.saved is True
     assert controller.authed is True
     assert service.on_login_status is None
