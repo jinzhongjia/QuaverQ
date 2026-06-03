@@ -821,7 +821,10 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 | **Q8.7** | 封面管线：歌曲 / 歌单 / 专辑 / 艺人封面缓存与显示 | `bridge/cover_provider.py`、`core/cover_cache.py`、`qml/components/AlbumArt.qml` | 搜索、队列、底栏、NowPlaying、Home、Library、详情页显示真实封面；失败回占位 |
 | **Q9** | 登录完善：凭据过期检测 + 失效重登 + 登录 UX polish | `bridge/app_controller.py`、`bridge/service_controller.py`、`qml/dialogs/LoginDialog.qml` | 凭据过期可提示并重新扫码 |
 | **Q10** | 设置页 + 主题 / 音质 / 缓存清理 | `bridge/settings_controller.py`、`qml/views/SettingsView.qml`、`qml/Theme/*` | 设置生效；persistent |
-| **Q11** | 打包：Nuitka + AppImage + GH Actions | `build.py`、`.github/workflows/release.yml` | AppImage 双击能跑 |
+| **Q11** | 打包：Nuitka + AppImage + GH Actions | `build.py`、`.github/workflows/release.yml`、`assets/*` | AppImage 双击能跑 |
+| **Q12** | 多类型搜索（P1）：歌手 / 专辑 / 歌单分栏 + 结果跳详情 | `bridge/service_controller.py`、`bridge/models.py`、`qml/views/SearchView.qml` | 四类型 segmented；歌手 / 专辑 / 歌单结果可跳对应详情 |
+| **Q13** | 统一反馈与控件（P2）：`Snackbar` / `Banner` / `IconButton` 抽象 | `qml/components/Snackbar.qml`、`Banner.qml`、`IconButton.qml` | 散落错误提示收敛到统一组件；工具按钮无障碍名 / 焦点环 / hover 统一 |
+| **Q14** | 缓存策略（P2）：封面缓存上限 + LRU + 音频缓存预留 | `core/cover_cache.py`、`bridge/settings_controller.py` | 缓存可设上限并 LRU 淘汰；设置页可见 |
 
 ### 14.1 工作模式（与既有约定一致）
 
@@ -1004,14 +1007,16 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - `QT_DEBUG_PLUGINS=1` 不出现缺失 Qt platform plugin 的阻断错误。
 - 没有本地源码目录时 QML 仍能加载。
 
-### 14.5 产品完整度 Backlog（不阻塞 Q9-Q11，但阻塞 1.0 完整体验）
+### 14.5 产品完整度 Backlog → 已排期为 Q12–Q14
 
-| 优先级 | 项目 | 完成口径 |
-|---|---|---|
-| P1 | 多类型搜索 | 歌曲 / 歌手 / 专辑 / 歌单分栏或 segmented control；结果能跳详情 |
-| P2 | 统一反馈组件 | `Snackbar` / `Banner` 替代散落错误文案 |
-| P2 | 统一 IconButton | 工具按钮无障碍、焦点环、hover/pressed 状态统一 |
-| P2 | 离线和缓存策略 | 封面缓存大小上限、LRU、后续音频缓存预留 |
+下列项不阻塞 Q11 发布，但阻塞 1.0 完整体验，现已纳入正式里程碑（见 §14 分期表与 §15 看板）。core 层多类型搜索接口（`search_singers / search_albums / search_playlists`）已就绪，Q12 主要补 bridge + QML。
+
+| 优先级 | 里程碑 | 项目 | 完成口径 |
+|---|---|---|---|
+| P1 | Q12 | 多类型搜索 | 歌曲 / 歌手 / 专辑 / 歌单分栏或 segmented control；结果能跳详情 |
+| P2 | Q13 | 统一反馈组件 | `Snackbar` / `Banner` 替代散落错误文案 |
+| P2 | Q13 | 统一 IconButton | 工具按钮无障碍、焦点环、hover/pressed 状态统一 |
+| P2 | Q14 | 离线和缓存策略 | 封面缓存大小上限、LRU、后续音频缓存预留 |
 
 ---
 
@@ -1038,6 +1043,9 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q9 登录
 - [x] Q10 设置
 - [ ] Q11 打包
+- [ ] Q12 多类型搜索（P1）
+- [ ] Q13 统一反馈与控件（P2）
+- [ ] Q14 缓存策略（P2）
 
 ---
 

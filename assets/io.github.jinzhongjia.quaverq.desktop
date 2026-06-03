@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=QuaverQ
+GenericName=Music Player
+GenericName[zh_CN]=音乐播放器
+Comment=A QQ Music desktop client built with PySide6 + Qt Quick
+Comment[zh_CN]=基于 PySide6 + Qt Quick 的 QQ 音乐桌面客户端
+Exec=quaverq
+Icon=io.github.jinzhongjia.quaverq
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;player;qqmusic;audio;lyrics;
+Keywords[zh_CN]=音乐;播放器;歌词;
+StartupNotify=true
+StartupWMClass=QuaverQ

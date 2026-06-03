@@ -9,6 +9,7 @@ from pathlib import Path
 
 import qasync
 from PySide6.QtCore import QtMsgType, QUrl, qInstallMessageHandler
+from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
@@ -26,6 +27,7 @@ from .bridge import (
     ServiceController,
     SettingsController,
 )
+from . import diagnostics, resources
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config
 from .core.cover_cache import CoverCache
 from .core.state import SessionState
@@ -101,12 +103,20 @@ def main() -> None:
     )
     _install_qt_message_filter()
     load_config()
+    for diag in diagnostics.run_diagnostics():
+        level = {
+            diagnostics.CRITICAL: logging.ERROR,
+            diagnostics.WARNING: logging.WARNING,
+        }.get(diag.severity, logging.INFO)
+        logger.log(level, "启动自检 [%s]: %s", diag.name, diag.detail)
 
     QQuickStyle.setStyle("Basic")
 
     app = QApplication(sys.argv)
     app.setApplicationName("QuaverQ")
     app.setOrganizationName("QuaverQ")
+    app.setDesktopFileName(resources.APP_ID)
+    app.setWindowIcon(QIcon(str(resources.icon_file())))
 
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)

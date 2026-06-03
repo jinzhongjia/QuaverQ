@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="QuaverQ">
+  <rect width="512" height="512" rx="112" fill="#17191f"/>
+  <g fill="#32d296">
+    <!-- 符干 -->
+    <rect x="296" y="128" width="26" height="232" rx="13"/>
+    <!-- 符旗（双旗，八分音符意象，对应名称 Quaver） -->
+    <path d="M322 128 c 52 18 88 44 88 96 c 0 26 -12 46 -32 60 c 14 -16 18 -34 10 -54 c -10 -26 -38 -42 -66 -54 z"/>
+    <path d="M322 198 c 44 16 74 38 74 80 c 0 20 -9 36 -25 48 c 11 -13 14 -28 8 -44 c -9 -22 -32 -36 -57 -46 z"/>
+    <!-- 符头 -->
+    <ellipse cx="252" cy="356" rx="62" ry="48" transform="rotate(-22 252 356)"/>
+  </g>
+</svg>
