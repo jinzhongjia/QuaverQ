@@ -1,0 +1,179 @@
+"""打包：Nuitka standalone 构建 + AppImage 封装。
+
+命令组装与 AppDir 布局是纯函数，便于测试；真正的编译 / linuxdeploy 调用在
+:func:`build` / :func:`build_appimage` 内执行（依赖 nuitka、linuxdeploy，通常在 CI 跑）。
+
+要点：
+- ``--enable-plugin=pyside6`` 让 Nuitka 正确带 Qt/QML 运行时。
+- ``--include-package-data=quaverq`` 把包内 ``qml/`` ``Theme/`` 等数据文件带进 bundle。
+- **curl_cffi 必须显式 include**：它在 service/stream_proxy 里是函数内动态 import，
+  且带 native ``_wrapper.abi3.so``（libcurl-impersonate）；漏掉会导致取链 / 回环代理失效。
+- ``assets/`` 经 ``--include-data-dir`` 进 bundle，供 AppImage 的 .desktop / 图标 / metainfo。
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+from . import resources
+
+APP_ID = resources.APP_ID
+
+# 这些包有大量运行时动态 import（niquests/urllib3-future 的 DNS resolver、
+# HTTP/2/3 后端 jh2/qh3、wassima CA、curl_cffi native、qqmusic_api 动态模块），
+# nuitka 静态分析会漏，必须整包显式包含。
+_FORCE_INCLUDE_PACKAGES = (
+    "quaverq",
+    "curl_cffi",
+    "niquests",
+    "urllib3",
+    "urllib3_future",
+    "charset_normalizer",
+    "wassima",
+    "jh2",
+    "qh3",
+    "qqmusic_api",
+    "dbus_next",
+)
+
+
+def project_version() -> str:
+    data = tomllib.loads(
+        (resources.project_root() / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    return str(data["project"]["version"])
+
+
+def nuitka_command(
+    mode: str = "standalone",
+    *,
+    version: str | None = None,
+    output_dir: str = "dist",
+    python: str | None = None,
+) -> list[str]:
+    """组装 Nuitka 编译命令（不执行）。"""
+    root = resources.project_root()
+    version = version or project_version()
+    python = python or sys.executable
+    return [
+        python,
+        "-m",
+        "nuitka",
+        f"--{mode}",
+        "--assume-yes-for-downloads",
+        f"--output-dir={output_dir}",
+        "--enable-plugin=pyside6",
+        "--include-qt-plugins=sensible,qml",  # QtQuick / QtMultimedia / Layouts 运行时
+        "--include-package-data=quaverq",  # qml / Theme / qmldir
+        "--include-package-data=curl_cffi",  # native _wrapper.so + libcurl
+        f"--include-data-dir={root / 'assets'}=assets",
+        *(f"--include-package={pkg}" for pkg in _FORCE_INCLUDE_PACKAGES),
+        "--product-name=QuaverQ",
+        f"--product-version={version}",
+        f"--file-version={version}",
+        # 可执行名不能等于包名 quaverq，否则与包数据目录 quaverq/(qml) 冲突
+        "--output-filename=QuaverQ",
+        "--noinclude-pytest-mode=nofollow",
+        "--noinclude-unittest-mode=nofollow",
+        "--lto=yes",
+        f"--jobs={os.cpu_count() or 4}",
+        # 以包目录为入口 + -m：让 __main__ 有 quaverq 包上下文，relative import 才有效
+        "--python-flag=-m",
+        str(root / "src" / "quaverq"),
+    ]
+
+
+def appimage_appdir_layout(appdir: str | Path) -> dict[Path, Path]:
+    """AppDir 内桌面集成文件的 目标路径 → 源文件 映射。"""
+    base = Path(appdir)
+    return {
+        base / "usr/share/applications" / f"{APP_ID}.desktop": resources.desktop_file(),
+        base / "usr/share/icons/hicolor/scalable/apps" / f"{APP_ID}.svg": resources.icon_file(),
+        base / "usr/share/metainfo" / f"{APP_ID}.metainfo.xml": resources.metainfo_file(),
+    }
+
+
+def linuxdeploy_command(
+    appdir: str | Path,
+    *,
+    linuxdeploy: str = "linuxdeploy",
+) -> list[str]:
+    """组装 linuxdeploy 命令（不执行）。"""
+    base = Path(appdir)
+    return [
+        linuxdeploy,
+        "--appdir",
+        str(base),
+        "--plugin",
+        "qt",
+        f"--desktop-file={base / 'usr/share/applications' / (APP_ID + '.desktop')}",
+        f"--icon-file={resources.icon_file()}",
+        "--output",
+        "appimage",
+    ]
+
+
+def clean_stray_qt_objects() -> int:
+    """删除 PySide6 wheel 误带的 .o 构建中间产物。
+
+    PySide6 的 ``Qt/qml/**/objects-*/`` 里有 ``.cpp.o`` 文件（不该分发），nuitka 复制后
+    会对其调用 patchelf 设置 rpath，但 .o 是可重定位目标文件，patchelf 报 'wrong ELF type'
+    导致打包中断。运行时用不到这些 .o，编译前删掉即可。
+    """
+    import PySide6
+
+    qml = Path(PySide6.__file__).resolve().parent / "Qt" / "qml"
+    removed = 0
+    if qml.is_dir():
+        for obj in qml.rglob("*.o"):
+            obj.unlink()
+            removed += 1
+    return removed
+
+
+def build(mode: str = "standalone") -> int:
+    clean_stray_qt_objects()
+    cmd = nuitka_command(mode)
+    print("[build]", " ".join(shlex.quote(c) for c in cmd))
+    return subprocess.run(cmd, cwd=resources.project_root()).returncode
+
+
+def build_appimage(output_dir: str = "dist") -> int:
+    """standalone 编译 → 组装 AppDir → linuxdeploy 产出 AppImage。"""
+    root = resources.project_root()
+    rc = build("standalone")
+    if rc != 0:
+        return rc
+    dist = root / output_dir / "__main__.dist"
+    appdir = root / output_dir / "AppDir"
+    bindir = appdir / "usr/bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(dist, bindir, dirs_exist_ok=True)
+    for target, src in appimage_appdir_layout(appdir).items():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+    cmd = linuxdeploy_command(appdir)
+    print("[appimage]", " ".join(shlex.quote(c) for c in cmd))
+    return subprocess.run(cmd, cwd=root / output_dir).returncode
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="QuaverQ 打包")
+    parser.add_argument("--onefile", action="store_true", help="编译为单文件")
+    parser.add_argument("--appimage", action="store_true", help="standalone + AppImage")
+    args = parser.parse_args()
+
+    if args.appimage:
+        sys.exit(build_appimage())
+    sys.exit(build("onefile" if args.onefile else "standalone"))
+
+
+if __name__ == "__main__":
+    main()

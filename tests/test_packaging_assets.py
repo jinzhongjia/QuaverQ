@@ -26,7 +26,7 @@ def test_desktop_file_present_and_valid() -> None:
     for key in (
         "Type=Application",
         "Name=QuaverQ",
-        "Exec=quaverq",
+        "Exec=QuaverQ",
         f"Icon={APP_ID}",
         "Categories=",
     ):
