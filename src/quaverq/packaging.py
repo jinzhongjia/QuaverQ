@@ -164,12 +164,47 @@ def build_appimage(output_dir: str = "dist") -> int:
     return subprocess.run(cmd, cwd=root / output_dir).returncode
 
 
+_SMOKE_OK_MARKER = "QuaverQ started with QML"
+_SMOKE_FAIL_MARKERS = ("QML load failed", "is not installed", "Traceback", "FATAL:")
+
+
+def smoke_output_ok(output: str) -> bool:
+    """判定产物启动输出：QML 加载 + 窗口创建，且无致命错误。"""
+    return _SMOKE_OK_MARKER in output and not any(
+        marker in output for marker in _SMOKE_FAIL_MARKERS
+    )
+
+
+def smoke_test(binary: str | Path, *, timeout: float = 20.0) -> bool:
+    """offscreen 启动产物，确认能加载 QML 并创建窗口（不依赖登录 / 网络成功）。"""
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
+    try:
+        proc = subprocess.run(
+            [str(binary)], env=env, timeout=timeout, capture_output=True, text=True
+        )
+        output = (proc.stdout or "") + (proc.stderr or "")
+    except subprocess.TimeoutExpired as exc:
+        # app 是常驻事件循环，超时被 kill 是预期；用已捕获输出判定
+        def _text(value: object) -> str:
+            if isinstance(value, bytes):
+                return value.decode("utf-8", "replace")
+            return value or ""
+
+        output = _text(exc.stdout) + _text(exc.stderr)
+    return smoke_output_ok(output)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="QuaverQ 打包")
     parser.add_argument("--onefile", action="store_true", help="编译为单文件")
     parser.add_argument("--appimage", action="store_true", help="standalone + AppImage")
+    parser.add_argument("--smoke", metavar="BINARY", help="对产物跑 smoke 启动自检")
     args = parser.parse_args()
 
+    if args.smoke:
+        ok = smoke_test(args.smoke)
+        print("SMOKE", "PASS" if ok else "FAIL")
+        sys.exit(0 if ok else 1)
     if args.appimage:
         sys.exit(build_appimage())
     sys.exit(build("onefile" if args.onefile else "standalone"))

@@ -1042,7 +1042,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q8.7 封面管线
 - [x] Q9 登录
 - [x] Q10 设置
-- [ ] Q11 打包
+- [x] Q11 打包（standalone + smoke 本地已验证；AppImage + CI 由首次 tag 触发确认）
 - [ ] Q12 多类型搜索（P1）
 - [ ] Q13 统一反馈与控件（P2）
 - [ ] Q14 缓存策略（P2）
