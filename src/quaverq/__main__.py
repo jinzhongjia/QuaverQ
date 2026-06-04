@@ -29,6 +29,7 @@ from .bridge import (
 )
 from . import diagnostics, resources
 from .bridge.stream_proxy import StreamProxy
+from .bridge.system_theme import SystemThemeWatcher
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config
 from .core.cover_cache import CoverCache
 from .core.state import SessionState
@@ -125,6 +126,7 @@ def main() -> None:
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
     settings_controller = SettingsController(cover_cache=cover_cache)
+    system_theme_watcher = SystemThemeWatcher()
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
     home_controller = HomeController(service_controller)
@@ -154,6 +156,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("LyricController", lyric_controller)
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     engine.rootContext().setContextProperty("SettingsController", settings_controller)
+    engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
@@ -169,6 +172,7 @@ def main() -> None:
 
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
+        loop.create_task(system_theme_watcher.start())
         loop.create_task(
             _load_initial_state(
                 app_controller,

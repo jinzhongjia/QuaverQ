@@ -36,6 +36,7 @@ ApplicationWindow {
     readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
     readonly property var settingsController: SettingsController
+    readonly property var systemTheme: SystemTheme
     property bool queuePanelOpen: false
     property string currentRoute: "home"
     property string currentTopRoute: "home"
@@ -50,6 +51,13 @@ ApplicationWindow {
         target: ThemeTokens.Theme
         property: "mode"
         value: root.settingsController ? root.settingsController.themeMode : ThemeTokens.Theme.systemMode
+    }
+
+    Binding {
+        target: ThemeTokens.Theme
+        property: "systemDark"
+        value: root.systemTheme.dark
+        when: root.systemTheme !== null
     }
 
     function routeTitle(route) {
