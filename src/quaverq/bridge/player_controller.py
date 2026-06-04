@@ -59,12 +59,14 @@ class PlayerController(QObject):
         service_controller: ServiceController,
         settings_controller: SettingsController | None = None,
         session_state: SessionState | None = None,
+        stream_proxy: Any = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
         self._settings_controller = settings_controller
         self._session_state = session_state
+        self._stream_proxy = stream_proxy
         self._queue = PlayQueue()
         self._queue_model = SongListModel(self)
         self._source_url = ""
@@ -343,7 +345,11 @@ class PlayerController(QObject):
             self.errorRaised.emit(message)
             return
 
-        self._set_source_url(song_url.url)
+        playback_url = song_url.url
+        if self._stream_proxy is not None:
+            # 反风控 U2: 经本机回环代理拉流（出网走 curl_cffi 官方指纹 https）
+            playback_url = self._stream_proxy.local_url(playback_url)
+        self._set_source_url(playback_url)
         if resume_position_ms > 0:
             self.seekRequested.emit(resume_position_ms)
         if play_when_ready:

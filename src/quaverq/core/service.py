@@ -173,6 +173,8 @@ class QuaverService:
     _client: Client | None = field(default=None, init=False, repr=False)
     # bypass 路径用的 ct 值, 实例生命周期内固定 (见 _SAFE_CT_VALUES)
     _ct_value: int = field(default=0, init=False, repr=False)
+    # 反风控 G1: 持久设备 guid (connect 时从 config 填充), 取链复用同一值
+    _device_guid: str = field(default="", init=False, repr=False)
     # 实例级内存 cache: 短期 ad-hoc 数据 (recommend 等) 不适合 SQLite TTL 表
     # key → (timestamp, value); 重启失效
     _memo: dict[str, tuple[float, Any]] = field(
@@ -213,6 +215,8 @@ class QuaverService:
     }
     _DEFAULT_QUALITY = "balanced"
     _VKEY_REQUEST_TIMEOUT_SEC = 4
+    # 反风控 U1/G2: curl_cffi 用官方浏览器 TLS 指纹 (JA3) + UA 发 musicu.fcg
+    _IMPERSONATE = "chrome"
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -230,6 +234,9 @@ class QuaverService:
         self._client = Client(credential=self.credential)
         # 反风控: 每次启动从合法池中随机, 但实例生命周期内固定一个
         self._ct_value = random.choice(self._SAFE_CT_VALUES)
+        if not self._device_guid:
+            from ..config import device_guid
+            self._device_guid = device_guid()
         logger.info(
             "QQMusic 服务初始化 (qqmusic-api 0.6.1, vkey bypass ct=%d)",
             self._ct_value,
@@ -641,14 +648,15 @@ class QuaverService:
         }
 
         def _do() -> dict[str, Any]:
-            import niquests
-            with niquests.Session() as s:
-                r = s.post(
-                    "https://u.y.qq.com/cgi-bin/musicu.fcg",
-                    json=body,
-                    timeout=timeout,
-                )
-                return r.json()
+            # 反风控 U1: curl_cffi 用官方浏览器 TLS 指纹 (JA3) + UA 发请求
+            from curl_cffi import requests as creq
+            r = creq.post(
+                "https://u.y.qq.com/cgi-bin/musicu.fcg",
+                json=body,
+                impersonate=self._IMPERSONATE,
+                timeout=timeout,
+            )
+            return r.json()
 
         try:
             data = await asyncio.to_thread(_do)
@@ -697,7 +705,7 @@ class QuaverService:
             "UrlGetVkey",
             {
                 "filename": [filename],
-                "guid": uuid.uuid4().hex,
+                "guid": self._device_guid or uuid.uuid4().hex,
                 "songmid": [mid],
                 "songtype": [0],
             },
@@ -713,10 +721,10 @@ class QuaverService:
         purl = midurlinfo[0].get("purl", "") or ""
         if not purl:
             return None
-        # 明文 http：QQ CDN 对 FFmpeg(QtMultimedia) 的 HTTPS/TLS 指纹做了风控，
-        # 同一 vkey URL 走 https 会被 401/403 拒绝，走 http 则正常 206 可播。
-        # vkey 本身是短时效临时凭据，明文拉流是 QQ 音乐客户端的常规姿势。
-        return f"http://isure.stream.qqmusic.qq.com/{purl}"
+        # 返回真实 CDN https url：由 bridge 的 StreamProxy 用 curl_cffi 官方 TLS
+        # 指纹 (impersonate) 拉流，经本机回环 http 喂给 FFmpeg。FFmpeg 自身的 TLS
+        # 指纹会被 CDN 风控 (https→401/403)，故不让它直连；明文只在本机回环。
+        return f"https://isure.stream.qqmusic.qq.com/{purl}"
 
     # ------------------------------------------------------------------
     # 用户库 (我喜欢 + 我创建的歌单)

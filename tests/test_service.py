@@ -451,9 +451,25 @@ async def test_try_bypass_url_uses_media_mid_for_filename():
         media_mid="mediamid",
     )
 
-    assert url == "http://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
+    assert url == "https://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
     assert captured["songmid"] == ["songmid"]
     assert captured["filename"] == ["M500mediamidmediamid.mp3"]
+
+
+async def test_try_bypass_url_uses_persistent_device_guid():
+    """反风控 G1：guid 用持久设备 id，而非每次随机（同账号多设备 = 盗刷特征）。"""
+    svc = QuaverService()
+    svc._device_guid = "deviceguid0000000000000000000000"
+    captured: dict[str, object] = {}
+
+    async def fake_post(_module, _method, param, **_kwargs):
+        captured.update(param)
+        return {"midurlinfo": [{"purl": "M800m.mp3?vkey=k"}]}
+
+    svc._bypass_post = fake_post
+    await svc._try_bypass_url("m", "MP3_320")
+
+    assert captured["guid"] == "deviceguid0000000000000000000000"
 
 
 async def test_try_bypass_url_uses_short_vkey_timeout():
@@ -519,19 +535,13 @@ def _stub_lyric_response(lyric_text: str, trans_text: str = ""):
 
 async def test_get_lyric_parses_lrc_bypass(monkeypatch):
     """bypass 路径: POST musicu.fcg 拿 base64 LRC, 解码 + 解析."""
-    import niquests
+    from curl_cffi import requests as creq
     svc = QuaverService()
     svc._ct_value = 5
     svc.credential = Credential(musicid=1, musickey="key")
 
     fake_resp = _stub_lyric_response("[00:10.00]第一行\n[00:20.00]第二行")
-
-    class _FakeSession:
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def post(self, *args, **kw): return fake_resp
-
-    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+    monkeypatch.setattr(creq, "post", lambda *a, **k: fake_resp)
 
     ly = await svc.get_lyric("x")
     assert isinstance(ly, Lyric)
@@ -540,7 +550,7 @@ async def test_get_lyric_parses_lrc_bypass(monkeypatch):
 
 
 async def test_get_lyric_merges_translation_bypass(monkeypatch):
-    import niquests
+    from curl_cffi import requests as creq
     svc = QuaverService()
     svc._ct_value = 5
     svc.credential = Credential(musicid=1, musickey="key")
@@ -548,13 +558,7 @@ async def test_get_lyric_merges_translation_bypass(monkeypatch):
     fake_resp = _stub_lyric_response(
         "[00:10.00]Hello", "[00:10.00]你好"
     )
-
-    class _FakeSession:
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def post(self, *args, **kw): return fake_resp
-
-    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+    monkeypatch.setattr(creq, "post", lambda *a, **k: fake_resp)
 
     ly = await svc.get_lyric("x")
     assert ly.has_translation is True

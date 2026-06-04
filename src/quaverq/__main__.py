@@ -28,6 +28,7 @@ from .bridge import (
     SettingsController,
 )
 from . import diagnostics, resources
+from .bridge.stream_proxy import StreamProxy
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config
 from .core.cover_cache import CoverCache
 from .core.state import SessionState
@@ -129,13 +130,17 @@ def main() -> None:
     home_controller = HomeController(service_controller)
     detail_controller = DetailController(service_controller)
     library_controller = LibraryController(service_controller)
+    stream_proxy = StreamProxy()
+    stream_proxy.start()
     player_controller = PlayerController(
         service_controller,
         settings_controller=settings_controller,
         session_state=SessionState(CONFIG_DIR / "state.json"),
+        stream_proxy=stream_proxy,
     )
     lyric_controller = LyricController(service_controller, player_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
+    app.aboutToQuit.connect(stream_proxy.stop)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))

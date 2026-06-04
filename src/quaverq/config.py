@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,28 @@ def _cache_dir() -> Path:
 
 
 CACHE_DIR = _cache_dir()
+
+
+def _device_id_file() -> Path:
+    return _config_dir() / "device_id"
+
+
+def device_guid(path: Path | None = None) -> str:
+    """持久设备 guid（反风控 G1）：首次生成 uuid4 落盘，之后复用。
+
+    模拟真实设备——同一账号始终用同一 guid 取链，避免"多设备"异常被风控。
+    """
+    target = path or _device_id_file()
+    try:
+        existing = target.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        existing = ""
+    if existing:
+        return existing
+    guid = uuid.uuid4().hex
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(guid, encoding="utf-8")
+    return guid
 
 
 # 默认配置

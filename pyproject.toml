@@ -29,6 +29,7 @@ dependencies = [
     "dbus-next>=0.2.3",     # MPRIS2 D-Bus 集成 (媒体键 / GNOME Now Playing)
     "PySide6>=6.6",          # Qt for Python (QML + QtMultimedia)
     "qasync>=0.27",          # asyncio ↔ Qt event loop 桥 (见 design §8.4)
+    "curl-cffi>=0.15.0",
 ]
 
 [dependency-groups]

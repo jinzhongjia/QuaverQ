@@ -66,6 +66,30 @@ async def test_push_and_play_loads_source_and_emits_play_request():
     assert play_requests == [True]
 
 
+async def test_source_url_routed_through_stream_proxy():
+    """反风控 U2：有代理时 sourceUrl 指向本机回环，真实 CDN url 交给代理拉。"""
+
+    class _FakeProxy:
+        def local_url(self, real: str) -> str:
+            return f"http://127.0.0.1:9000/tok?u={real}"
+
+    service = _FakeServiceController()
+    controller = PlayerController(service, stream_proxy=_FakeProxy())  # type: ignore[arg-type]
+    await controller.push_and_play_async(
+        {
+            "mid": "m1",
+            "name": "晴天",
+            "singers": [{"mid": "s1", "name": "周杰伦"}],
+            "albumName": "叶惠美",
+            "duration": 269,
+        }
+    )
+    assert (
+        controller.sourceUrl
+        == "http://127.0.0.1:9000/tok?u=https://audio.example.test/m1.mp3"
+    )
+
+
 async def test_push_and_play_uses_settings_quality_preference():
     service = _FakeServiceController()
     controller = PlayerController(
