@@ -82,7 +82,8 @@ def nuitka_command(
         "--output-filename=QuaverQ",
         "--noinclude-pytest-mode=nofollow",
         "--noinclude-unittest-mode=nofollow",
-        "--lto=yes",
+        # 不用 LTO：LTO 让 nuitka 编译 PySide6 慢数倍，在 CI 2 核 runner 上不实际
+        # （实测 >35min 未完）；no-LTO 产物功能一致、体积略大，本地已验证可启动。
         f"--jobs={os.cpu_count() or 4}",
         # 以包目录为入口 + -m：让 __main__ 有 quaverq 包上下文，relative import 才有效
         "--python-flag=-m",
