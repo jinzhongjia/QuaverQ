@@ -4,9 +4,10 @@
 文件名: sha1(url) + 原 URL 的扩展名 (.jpg / .png; 未知默认 .jpg)
 
 设计:
-- get_path(url): 同步, 秒级查询, UI 渲染前调
-- fetch(url):    异步, 内部用 asyncio.to_thread + niquests 同步下载
-- 没做 LRU 淘汰 (P2.4 离线音频缓存时一起做)
+- get_path(url): 同步, 秒级查询, UI 渲染前调; 命中时按节流刷新 mtime 充当 LRU 访问时间
+- fetch(url):    异步, 内部用 asyncio.to_thread + niquests 同步下载; 新下载后触发上限淘汰
+- LRU 上限:      max_bytes > 0 时, 超限按 mtime 最旧优先淘汰, 永不淘汰最新一条
+                 (单个封面大于上限时保留而不是反复重下); max_bytes <= 0 表示不限
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import shutil
+import time
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,13 +26,18 @@ logger = logging.getLogger(__name__)
 
 _VALID_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
+# 命中渲染路径很热; 只有 mtime 比这个间隔更旧才回写一次, 避免每帧落盘.
+_ACCESS_BUMP_INTERVAL = 300.0
+
 
 @dataclass
 class CoverCache:
     dir: Path
+    max_bytes: int = 0
 
-    def __init__(self, dir_: str | Path):
+    def __init__(self, dir_: str | Path, max_bytes: int = 0):
         self.dir = Path(dir_)
+        self.max_bytes = max(0, int(max_bytes))
 
     # ------------------------------------------------------------------ 同步查询
 
@@ -38,7 +46,10 @@ class CoverCache:
         if not url:
             return None
         path = self.dir / self._filename_for(url)
-        return path if path.exists() else None
+        if not path.exists():
+            return None
+        self._bump_access(path)
+        return path
 
     def to_file_uri(self, path: Path) -> str:
         """把本地 Path 转成 file:// URI (供 MPRIS artUrl 用)."""
@@ -65,6 +76,51 @@ class CoverCache:
                     path.unlink(missing_ok=True)
         return removed
 
+    # ------------------------------------------------------------------ 上限 / LRU
+
+    def set_max_bytes(self, max_bytes: int) -> int:
+        """更新缓存上限并立即执行一次淘汰; 返回被淘汰的字节数."""
+        self.max_bytes = max(0, int(max_bytes))
+        return self.enforce_limit()
+
+    def enforce_limit(self) -> int:
+        """超过 max_bytes 时按最久未使用 (mtime 最旧) 优先淘汰, 返回淘汰字节数.
+
+        max_bytes <= 0 时不限, 直接返回 0. 永不淘汰最新一条, 因此单个封面大于
+        上限时会被保留而不是每次访问后又被自己挤掉重下.
+        """
+        if self.max_bytes <= 0 or not self.dir.exists():
+            return 0
+
+        entries: list[tuple[float, int, Path]] = []
+        total = 0
+        for path in self.dir.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            entries.append((stat.st_mtime, stat.st_size, path))
+            total += stat.st_size
+
+        if total <= self.max_bytes:
+            return 0
+
+        entries.sort(key=lambda item: item[0])  # 最旧优先
+        removed = 0
+        for _mtime, size, path in entries[:-1]:  # 保留最新一条
+            if total <= self.max_bytes:
+                break
+            try:
+                path.unlink()
+            except OSError as exc:
+                logger.warning("封面缓存淘汰失败 (%s): %s", path.name, exc)
+                continue
+            total -= size
+            removed += size
+        return removed
+
     # ------------------------------------------------------------------ 异步下载
 
     async def fetch(self, url: str | None) -> Path | None:
@@ -73,6 +129,7 @@ class CoverCache:
             return None
         path = self.dir / self._filename_for(url)
         if path.exists():
+            self._bump_access(path)
             return path
 
         # 同步下载放到 to_thread (niquests 同步 client; 避免阻塞 event loop)
@@ -81,9 +138,28 @@ class CoverCache:
         except Exception as exc:
             logger.warning("封面下载异常 (%s): %s", url[:60], exc)
             return None
-        return path if ok else None
+        if not ok:
+            return None
+        if self.max_bytes > 0:
+            try:
+                await asyncio.to_thread(self.enforce_limit)
+            except Exception as exc:
+                logger.warning("封面缓存淘汰异常: %s", exc)
+        return path
 
     # ------------------------------------------------------------------ 内部
+
+    def _bump_access(self, path: Path) -> None:
+        """命中时刷新 mtime, 让 LRU 反映"最近显示"而不仅是下载时间.
+
+        节流: 仅当现有 mtime 比 _ACCESS_BUMP_INTERVAL 更旧才回写, 渲染热路径基本无写入.
+        """
+        try:
+            now = time.time()
+            if now - path.stat().st_mtime > _ACCESS_BUMP_INTERVAL:
+                os.utime(path, (now, now))
+        except OSError:
+            pass
 
     def _filename_for(self, url: str) -> str:
         digest = hashlib.sha1(url.encode("utf-8")).hexdigest()

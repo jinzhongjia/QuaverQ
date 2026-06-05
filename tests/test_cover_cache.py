@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -184,3 +186,144 @@ def test_clear_removes_cached_files_and_returns_size(cover_cache: CoverCache):
     assert cover_cache.clear() == 5
     assert cover_cache.size_bytes() == 0
     assert list(cover_cache.dir.iterdir()) == []
+
+
+# ============================================================== max_bytes / LRU
+
+def _seed(cover_cache: CoverCache, name: str, data: bytes, mtime: float) -> Path:
+    """Write a file directly into the cache dir with a controlled mtime."""
+    cover_cache.dir.mkdir(parents=True, exist_ok=True)
+    path = cover_cache.dir / name
+    path.write_bytes(data)
+    os.utime(path, (mtime, mtime))
+    return path
+
+
+def test_max_bytes_unlimited_by_default(cover_cache: CoverCache):
+    assert cover_cache.max_bytes == 0
+
+
+def test_set_max_bytes_updates_value(cover_cache: CoverCache):
+    cover_cache.set_max_bytes(123)
+    assert cover_cache.max_bytes == 123
+
+
+def test_set_max_bytes_clamps_negative_to_zero(cover_cache: CoverCache):
+    cover_cache.set_max_bytes(-5)
+    assert cover_cache.max_bytes == 0
+
+
+def test_enforce_limit_noop_when_unlimited(cover_cache: CoverCache):
+    _seed(cover_cache, "a.jpg", b"aaaa", mtime=1000)
+    _seed(cover_cache, "b.jpg", b"bbbb", mtime=2000)
+    assert cover_cache.enforce_limit() == 0
+    assert cover_cache.size_bytes() == 8
+
+
+def test_enforce_limit_noop_when_under_limit(cover_cache: CoverCache):
+    cover_cache.max_bytes = 100
+    _seed(cover_cache, "a.jpg", b"aaaa", mtime=1000)
+    assert cover_cache.enforce_limit() == 0
+    assert cover_cache.size_bytes() == 4
+
+
+def test_enforce_limit_evicts_oldest_first(cover_cache: CoverCache):
+    cover_cache.max_bytes = 6
+    a = _seed(cover_cache, "a.jpg", b"aaaa", mtime=1000)  # oldest
+    b = _seed(cover_cache, "b.jpg", b"bbbb", mtime=2000)
+    c = _seed(cover_cache, "c.jpg", b"cccc", mtime=3000)  # newest
+
+    removed = cover_cache.enforce_limit()
+
+    assert removed == 8  # evicted a + b until under 6
+    assert not a.exists()
+    assert not b.exists()
+    assert c.exists()  # newest kept
+    assert cover_cache.size_bytes() == 4
+
+
+def test_enforce_limit_keeps_newest_even_if_it_exceeds_limit(cover_cache: CoverCache):
+    cover_cache.max_bytes = 2
+    big = _seed(cover_cache, "big.jpg", b"abcdef", mtime=1000)  # 6 bytes, only file
+    assert cover_cache.enforce_limit() == 0
+    assert big.exists()  # never delete the sole/newest entry
+
+
+def test_set_max_bytes_triggers_immediate_eviction(cover_cache: CoverCache):
+    a = _seed(cover_cache, "a.jpg", b"aaaa", mtime=1000)
+    b = _seed(cover_cache, "b.jpg", b"bbbb", mtime=2000)
+
+    removed = cover_cache.set_max_bytes(4)
+
+    assert removed == 4
+    assert not a.exists()
+    assert b.exists()
+
+
+def test_get_path_bumps_stale_access_time(cover_cache: CoverCache):
+    """A cache hit on a stale file refreshes its recency (real LRU on display)."""
+    url = "https://x/a.jpg"
+    cover_cache.dir.mkdir(parents=True, exist_ok=True)
+    path = cover_cache.dir / cover_cache._filename_for(url)
+    path.write_bytes(b"x")
+    stale = time.time() - 10_000
+    os.utime(path, (stale, stale))
+
+    assert cover_cache.get_path(url) == path
+    assert path.stat().st_mtime > stale + 1  # bumped toward now
+
+
+def test_get_path_does_not_bump_fresh_access_time(cover_cache: CoverCache):
+    """Hot render path stays write-free within the throttle window."""
+    url = "https://x/b.jpg"
+    cover_cache.dir.mkdir(parents=True, exist_ok=True)
+    path = cover_cache.dir / cover_cache._filename_for(url)
+    path.write_bytes(b"x")
+    fresh = time.time()
+    os.utime(path, (fresh, fresh))
+
+    cover_cache.get_path(url)
+
+    assert abs(path.stat().st_mtime - fresh) < 5  # unchanged (tolerate fs rounding)
+
+
+async def test_fetch_runs_eviction_after_download(cover_cache: CoverCache, monkeypatch):
+    import niquests
+
+    class _FakeResp:
+        status_code = 200
+        content = b"imgbytes"
+
+    class _FakeSession:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def get(self, *args, **kwargs): return _FakeResp()
+
+    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+    cover_cache.max_bytes = 100
+    calls: list[bool] = []
+    monkeypatch.setattr(cover_cache, "enforce_limit", lambda: calls.append(True) or 0)
+
+    await cover_cache.fetch("https://x/a.jpg")
+    assert calls  # eviction ran after a successful download
+
+
+async def test_fetch_skips_eviction_when_unlimited(cover_cache: CoverCache, monkeypatch):
+    import niquests
+
+    class _FakeResp:
+        status_code = 200
+        content = b"imgbytes"
+
+    class _FakeSession:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def get(self, *args, **kwargs): return _FakeResp()
+
+    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+    # max_bytes stays 0 (unlimited) -> no eviction work on the common path
+    calls: list[bool] = []
+    monkeypatch.setattr(cover_cache, "enforce_limit", lambda: calls.append(True) or 0)
+
+    await cover_cache.fetch("https://x/a.jpg")
+    assert not calls
