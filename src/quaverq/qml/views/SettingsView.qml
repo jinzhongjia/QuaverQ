@@ -43,6 +43,15 @@ ScrollView {
         }
     }
 
+    function cacheCapLabel(bytes) {
+        if (!bytes || bytes <= 0)
+            return qsTr("无限制")
+        var mb = bytes / (1024 * 1024)
+        if (mb >= 1024)
+            return (Math.round(mb / 1024 * 10) / 10) + " GB"
+        return Math.round(mb) + " MB"
+    }
+
     ColumnLayout {
         width: root.availableWidth
         spacing: ThemeTokens.Spacing.s5
@@ -141,6 +150,21 @@ ScrollView {
             Layout.rightMargin: ThemeTokens.Spacing.s6
             Layout.bottomMargin: ThemeTokens.Spacing.s6
             title: qsTr("缓存")
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("封面缓存上限")
+                value: root.settingsController
+                    ? root.cacheCapLabel(root.settingsController.coverCacheMaxBytes)
+                    : root.cacheCapLabel(256 * 1024 * 1024)
+                model: [qsTr("128 MB"), qsTr("256 MB"), qsTr("512 MB"), qsTr("1 GB"), qsTr("2 GB"), qsTr("无限制")]
+                values: ["134217728", "268435456", "536870912", "1073741824", "2147483648", "0"]
+                currentValue: root.settingsController ? String(root.settingsController.coverCacheMaxBytes) : "268435456"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setCoverCacheMaxBytes(parseInt(value))
+                }
+            }
 
             SettingsRow {
                 Layout.fillWidth: true

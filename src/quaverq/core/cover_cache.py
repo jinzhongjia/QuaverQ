@@ -8,6 +8,9 @@
 - fetch(url):    异步, 内部用 asyncio.to_thread + niquests 同步下载; 新下载后触发上限淘汰
 - LRU 上限:      max_bytes > 0 时, 超限按 mtime 最旧优先淘汰, 永不淘汰最新一条
                  (单个封面大于上限时保留而不是反复重下); max_bytes <= 0 表示不限
+
+音频缓存(后续)预留: v1 不实装. 届时复用本模块的 max_bytes + enforce_limit LRU 模式,
+设置键命名空间预留 cache/audioMaxBytes, 缓存目录 ~/.cache/quaverq/audio/.
 """
 
 from __future__ import annotations

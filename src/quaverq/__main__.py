@@ -30,7 +30,7 @@ from .bridge import (
 from . import diagnostics, resources
 from .bridge.stream_proxy import StreamProxy
 from .bridge.system_theme import SystemThemeWatcher
-from .config import CACHE_DIR, CONFIG_DIR, load as load_config
+from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
 from .core.cover_cache import CoverCache
 from .core.state import SessionState
 
@@ -105,6 +105,12 @@ def main() -> None:
     )
     _install_qt_message_filter()
     load_config()
+    orphan_caches = purge_orphan_caches()
+    if orphan_caches:
+        logger.info(
+            "清理旧架构遗留缓存: %s",
+            ", ".join(str(path) for path in orphan_caches),
+        )
     for diag in diagnostics.run_diagnostics():
         level = {
             diagnostics.CRITICAL: logging.ERROR,
@@ -125,7 +131,10 @@ def main() -> None:
 
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
-    settings_controller = SettingsController(cover_cache=cover_cache)
+    settings_controller = SettingsController(
+        cover_cache=cover_cache,
+        orphan_cleanup=purge_orphan_caches,
+    )
     system_theme_watcher = SystemThemeWatcher()
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)

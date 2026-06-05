@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -35,6 +36,46 @@ def _cache_dir() -> Path:
 
 
 CACHE_DIR = _cache_dir()
+
+
+# 旧架构 (pywebview/WebKit + 从未接线的 SQLite 元数据缓存) 遗留的孤儿缓存:
+# 当前 PySide6/QML app 不再写入它们, 启动时清理一次避免无主磁盘占用.
+_ORPHAN_CONFIG_FILES = ("cache.db", "cache.db-wal", "cache.db-shm")
+_ORPHAN_CACHE_DIRS = ("CacheStorage", "WebKitCache")
+
+
+def purge_orphan_caches(
+    config_dir: Path | None = None,
+    cache_dir: Path | None = None,
+) -> list[Path]:
+    """删除旧架构遗留的孤儿缓存, 返回实际删除的路径 (幂等, 失败静默跳过).
+
+    只删白名单内的已知孤儿; 现役文件 (credential.json / state.json / device_id /
+    covers/) 一律不动.
+    """
+    config_dir = Path(config_dir) if config_dir is not None else CONFIG_DIR
+    cache_dir = Path(cache_dir) if cache_dir is not None else CACHE_DIR
+    removed: list[Path] = []
+
+    for name in _ORPHAN_CONFIG_FILES:
+        path = config_dir / name
+        try:
+            if path.is_file():
+                path.unlink()
+                removed.append(path)
+        except OSError:
+            pass
+
+    for name in _ORPHAN_CACHE_DIRS:
+        path = cache_dir / name
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+                removed.append(path)
+        except OSError:
+            pass
+
+    return removed
 
 
 def _device_id_file() -> Path:

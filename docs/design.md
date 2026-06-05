@@ -13,8 +13,8 @@
 | 能力 | V1 目标 | 当前状态 |
 |---|---|---|
 | 首页发现 | 默认启动页；每日 30 首推荐 + 今日推荐歌单 + 新歌速递 + 排行榜入口 | **已完成 Q8.5**：默认进 Home；四个 section 接真实数据，具备 loading / empty / error / content |
-| 完整搜索 | 综合 + 按类型（歌曲 / 歌手 / 专辑 / 歌单） | **部分完成**：歌曲搜索 + 明确分页已完成；多类型搜索和详情跳转待补 |
-| 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 | **部分完成**：我喜欢同步已完成；歌单 / 收藏专辑 / 关注艺人 Tab 已接真实列表，点击可进入真实详情 |
+| 完整搜索 | 综合 + 按类型（歌曲 / 歌手 / 专辑 / 歌单） | **已完成 Q12**：歌曲分页 + 歌手 / 专辑 / 歌单 segmented 搜索，结果可跳对应详情 |
+| 个人库 | 我喜欢 / 我的歌单 / 收藏专辑 / 关注艺人 | **已完成**：我喜欢同步；歌单 / 收藏专辑 / 关注艺人 Tab 接真实列表，点击进入真实详情 |
 | 详情页 | 专辑 / 歌手 / 歌单真实详情 | **已完成 Q8.6**：歌单 / 专辑 / 艺人 / 排行榜详情接真实元信息、曲目与封面，支持播放全部 |
 | 现在播放 | 小封面歌曲信息 + 大面积同步歌词 + 队列按需打开 | **已完成**：Q7 已验收；封面已接 CoverImageProvider |
 | 播放策略 | 顺序 / 单曲循环 / 列表循环 / 随机 | **已完成**：PlayerController + 队列模式已验收 |
@@ -23,7 +23,7 @@
 | 桌面集成 | MPRIS2（媒体键 / GNOME / KDE 控件） | **已完成**：Q8 已验收 |
 | 会话恢复 | 启动恢复上次队列 / position / 模式 | **已完成**：Q4b 已验收 |
 | 设置 | 主题、音质、缓存管理、账号状态 | **已完成 Q10**：跟随系统 / 浅色 / 深色、音质偏好、封面缓存清理已验收 |
-| 打包 | Linux AppImage + release workflow | **待 Q11** |
+| 打包 | Linux AppImage + release workflow | **已完成 Q11**：standalone + smoke 本地已验证；AppImage + CI 由首次 tag 触发确认 |
 
 ### 1.1.1 完成口径
 
@@ -1007,6 +1007,21 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - `QT_DEBUG_PLUGINS=1` 不出现缺失 Qt platform plugin 的阻断错误。
 - 没有本地源码目录时 QML 仍能加载。
 
+**Q14 缓存策略（已完成）**
+
+目标：让磁盘缓存有界、可控，并清理旧架构遗留。
+
+已交付：
+- 封面缓存上限：`CoverCache.max_bytes` + `enforce_limit()` 按 mtime 最旧优先 LRU 淘汰，永不淘汰最新一条（单个封面大于上限时保留而非反复重下）；`get_path()` 命中按节流刷新访问时间（真 LRU 而非按下载时间），新下载后触发淘汰。`max_bytes <= 0` 表示不限，向后兼容。
+- 设置页可设上限：`SettingsController.coverCacheMaxBytes` / `setCoverCacheMaxBytes()` 持久化 `cache/coverMaxBytes`，默认 256 MB，预设 128MB–2GB / 无限制；启动构造时应用上限并淘汰一次（修剪旧的不限版本遗留）。
+- 孤儿缓存清理：`config.purge_orphan_caches()` 删除旧架构遗留的 `cache.db`(+`-wal`/`-shm`) 与 `CacheStorage/`、`WebKitCache/`，幂等且只动白名单；启动时清一次，设置页"清理"按钮一并清。**注**：SQLite 元数据缓存（`core/cache.py`）与核心 `Library` 当前从未接线（`service.cache` 恒 None、无 `.open()`），是早期架构遗留，故按孤儿清理而非为死代码建管理 UI。
+- 音频缓存预留：v1 不实装。后续音频缓存复用 `CoverCache` 的 `max_bytes` + `enforce_limit` LRU 模式，设置键命名空间预留 `cache/audioMaxBytes`，缓存目录 `~/.cache/quaverq/audio/`。
+
+验收：
+- 设置页可见"封面缓存上限"，切换档位即时生效并持久化。
+- 选小于当前缓存的上限会立即按 LRU 淘汰到上限内。
+- 启动后旧架构遗留的 `cache.db` / `CacheStorage` / `WebKitCache` 被清除。
+
 ### 14.5 产品完整度 Backlog → 已排期为 Q12–Q14
 
 下列项不阻塞 Q11 发布，但阻塞 1.0 完整体验，现已纳入正式里程碑（见 §14 分期表与 §15 看板）。core 层多类型搜索接口（`search_singers / search_albums / search_playlists`）已就绪，Q12 主要补 bridge + QML。
@@ -1045,7 +1060,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q11 打包（standalone + smoke 本地已验证；AppImage + CI 由首次 tag 触发确认）
 - [x] Q12 多类型搜索（P1）
 - [x] Q13 统一反馈与控件（P2）
-- [ ] Q14 缓存策略（P2）
+- [x] Q14 缓存策略（P2）封面缓存上限 + LRU + 孤儿缓存清理；音频缓存预留
 
 ---
 
