@@ -56,7 +56,7 @@ ApplicationWindow {
     Binding {
         target: ThemeTokens.Theme
         property: "systemDark"
-        value: root.systemTheme.dark
+        value: root.systemTheme ? root.systemTheme.dark : false
         when: root.systemTheme !== null
     }
 
@@ -291,7 +291,16 @@ ApplicationWindow {
         target: root.appController
 
         function onCredExpired() {
-            loginDialog.open()
+            globalBanner.kind = "warning"
+            globalBanner.actionText = qsTr("重新登录")
+            globalBanner.message = qsTr("登录已过期，请重新登录")
+        }
+        function onAuthChanged(authed, reason) {
+            if (authed)
+                globalBanner.dismiss()
+        }
+        function onErrorRaised(message) {
+            globalSnackbar.show(message, "error")
         }
     }
 
@@ -401,30 +410,17 @@ ApplicationWindow {
             anchors.rightMargin: ThemeTokens.Spacing.s6
             spacing: ThemeTokens.Spacing.s4
 
-            Button {
+            Components.IconButton {
                 id: backButton
 
                 Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
                 visible: contentStack.depth > 1
-                text: "‹"
-                Accessible.name: qsTr("返回")
+                text: qsTr("返回")
+                iconText: "‹"
+                iconColor: ThemeTokens.Palette.surfaceText
+                cornerRadius: width / 2
                 onClicked: root.goBack()
-
-                contentItem: Label {
-                    text: backButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.h2
-                }
-
-                background: Rectangle {
-                    radius: width / 2
-                    color: backButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : backButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                }
             }
 
             Label {
@@ -447,12 +443,12 @@ ApplicationWindow {
                 onEditingCancelled: root.releaseTextFocus()
             }
 
-            Button {
+            Components.IconButton {
                 id: minimizeButton
 
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-                Accessible.name: qsTr("最小化")
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
+                text: qsTr("最小化")
                 onClicked: root.showMinimized()
 
                 contentItem: Item {
@@ -464,21 +460,14 @@ ApplicationWindow {
                         color: ThemeTokens.Palette.surfaceVariantText
                     }
                 }
-
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: minimizeButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : minimizeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                }
             }
 
-            Button {
+            Components.IconButton {
                 id: maximizeButton
 
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-                Accessible.name: root.maximizedWindow ? qsTr("还原窗口") : qsTr("最大化")
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
+                text: root.maximizedWindow ? qsTr("还原窗口") : qsTr("最大化")
                 onClicked: root.toggleMaximized()
 
                 contentItem: Item {
@@ -507,21 +496,14 @@ ApplicationWindow {
                         border.width: 2
                     }
                 }
-
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: maximizeButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : maximizeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                }
             }
 
-            Button {
+            Components.IconButton {
                 id: closeButton
 
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-                Accessible.name: qsTr("关闭")
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
+                text: qsTr("关闭")
                 onClicked: root.close()
 
                 contentItem: Item {
@@ -544,13 +526,6 @@ ApplicationWindow {
                         rotation: -45
                         color: parent.iconColor
                     }
-                }
-
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: closeButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : closeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                 }
             }
         }
@@ -755,6 +730,53 @@ ApplicationWindow {
         id: loginDialog
 
         appController: root.appController
+    }
+
+    Components.Banner {
+        id: globalBanner
+
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.topMargin: root.windowShadowMargin + ThemeTokens.Spacing.headerHeight
+        anchors.leftMargin: root.windowShadowMargin
+        anchors.rightMargin: root.windowShadowMargin
+        z: 970
+        onActionTriggered: loginDialog.open()
+    }
+
+    Components.Snackbar {
+        id: globalSnackbar
+
+        anchors.top: globalBanner.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: ThemeTokens.Spacing.s4
+        z: 980
+    }
+
+    Connections {
+        target: root.serviceController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
+        target: root.homeController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
+        target: root.libraryController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
+        target: root.detailController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
+        target: root.settingsController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
+        target: root.playerController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
     }
 
     Item {
