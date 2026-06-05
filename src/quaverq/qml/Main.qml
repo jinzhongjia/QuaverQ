@@ -665,6 +665,9 @@ ApplicationWindow {
             playerController: root.playerController
             libraryController: root.libraryController
             coverController: root.coverController
+            onDetailRequested: function(kind, detailId, title, subtitle) {
+                root.pushDetail(kind, detailId, title, subtitle)
+            }
         }
     }
 

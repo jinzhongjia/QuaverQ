@@ -18,11 +18,25 @@ from quaverq.core.service import (
 )
 
 from .error_utils import log_bridge_error
-from .models import SongListModel, song_from_map
+from .models import (
+    CardListModel,
+    SongListModel,
+    album_to_card,
+    playlist_to_card,
+    singer_to_card,
+    song_from_map,
+)
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+_SEARCH_TYPES = ("songs", "singers", "albums", "playlists")
+_CARD_CONVERTERS = {
+    "singers": singer_to_card,
+    "albums": album_to_card,
+    "playlists": playlist_to_card,
+}
 
 
 class ServiceController(QObject):
@@ -36,6 +50,7 @@ class ServiceController(QObject):
     errorRaised = Signal(str)
     authStateChanged = Signal()
     credentialExpired = Signal(str)
+    searchTypeChanged = Signal()
 
     def __init__(
         self,
@@ -45,6 +60,8 @@ class ServiceController(QObject):
         super().__init__(parent)
         self._service = service or QuaverService()
         self._song_results = SongListModel(self)
+        self._card_results = CardListModel(self)
+        self._search_type = "songs"
         self._loading = False
         self._has_next_page = False
         self._search_keyword = ""
@@ -56,6 +73,14 @@ class ServiceController(QObject):
     @Property(QObject, notify=songResultsChanged)
     def songResults(self) -> SongListModel:
         return self._song_results
+
+    @Property(QObject, constant=True)
+    def cardResults(self) -> CardListModel:
+        return self._card_results
+
+    @Property(str, notify=searchTypeChanged)
+    def searchType(self) -> str:
+        return self._search_type
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
@@ -148,9 +173,59 @@ class ServiceController(QObject):
         if not kw:
             self._reset_search_state()
             self._song_results.clear()
+            self._card_results.clear()
             return
+        if self._search_type == "songs":
+            await self._load_search_page(kw, 1)
+        else:
+            await self._load_card_search(kw)
 
-        await self._load_search_page(kw, 1)
+    @asyncSlot(str)
+    async def setSearchType(self, search_type: str) -> None:
+        await self.set_search_type_async(search_type)
+
+    async def set_search_type_async(self, search_type: str) -> None:
+        value = search_type if search_type in _SEARCH_TYPES else "songs"
+        if self._search_type == value:
+            return
+        self._search_type = value
+        self.searchTypeChanged.emit()
+        keyword = self._search_keyword
+        self._song_results.clear()
+        self._card_results.clear()
+        if keyword:
+            await self.search_async(keyword)
+        else:
+            self._reset_search_state()
+
+    async def _load_card_search(self, keyword: str) -> None:
+        self._set_loading(True)
+        self._set_error_message("")
+        try:
+            to_card = _CARD_CONVERTERS[self._search_type]
+            items = await self.call_service(
+                lambda service: self._fetch_cards(service, keyword),
+                operation_name=f"search {self._search_type} {keyword}",
+            )
+            self._search_keyword = keyword
+            self._card_results.set_cards([to_card(item) for item in items])
+            self._set_current_page(1 if items else 0)
+            self._set_has_next_page(False)
+        except Exception as exc:
+            message = log_bridge_error(
+                logger, f"search {self._search_type} failed: {keyword}", exc
+            )
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+        finally:
+            self._set_loading(False)
+
+    def _fetch_cards(self, service: Any, keyword: str) -> Any:
+        if self._search_type == "singers":
+            return service.search_singers(keyword, limit=self._page_size)
+        if self._search_type == "albums":
+            return service.search_albums(keyword, limit=self._page_size)
+        return service.search_playlists(keyword, limit=self._page_size)
 
     @asyncSlot()
     async def nextPage(self) -> None:
@@ -205,6 +280,7 @@ class ServiceController(QObject):
         self._set_error_message("")
         self._reset_search_state()
         self._song_results.clear()
+        self._card_results.clear()
 
     async def get_song_url(
         self,

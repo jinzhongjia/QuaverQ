@@ -7,7 +7,7 @@ import logging
 import pytest
 
 from quaverq.bridge.service_controller import ServiceController
-from quaverq.core.models import Singer, Song
+from quaverq.core.models import Album, Playlist, Singer, Song
 from quaverq.core.service import CredentialExpiredError
 
 
@@ -52,6 +52,28 @@ class _FakeService:
     ) -> list[Song]:
         self.search_calls.append((keyword, page, limit))
         return self.search_pages.get(page, [])
+
+    async def search_singers(
+        self, keyword: str, *, page: int = 1, limit: int = 30
+    ) -> list[Singer]:
+        return [Singer(mid="ar1", name="周杰伦", avatar_url="http://a.jpg")]
+
+    async def search_albums(
+        self, keyword: str, *, page: int = 1, limit: int = 30
+    ) -> list[Album]:
+        return [
+            Album(
+                mid="al1",
+                name="叶惠美",
+                singers=[Singer(mid="s1", name="周杰伦")],
+                song_count=10,
+            )
+        ]
+
+    async def search_playlists(
+        self, keyword: str, *, page: int = 1, limit: int = 30
+    ) -> list[Playlist]:
+        return [Playlist(pid="pl1", name="华语精选", creator="DJ", song_count=50)]
 
 
 class _FakeAuthService(_FakeService):
@@ -285,6 +307,63 @@ async def test_login_by_qrcode_forwards_qrcode_and_saves_credential():
     assert service.saved is True
     assert controller.authed is True
     assert service.on_login_status is None
+
+
+async def test_default_search_type_is_songs():
+    controller = ServiceController(service=_FakeAuthService())
+    assert controller.searchType == "songs"
+
+
+async def test_search_singers_fills_card_results_as_artist():
+    controller = ServiceController(service=_FakeAuthService())
+    await controller.set_search_type_async("singers")
+    await controller.search_async("周杰伦")
+    assert controller.searchType == "singers"
+    cards = controller.cardResults.cards()
+    assert len(cards) == 1
+    assert cards[0]["kind"] == "artist"
+    assert cards[0]["title"] == "周杰伦"
+    assert controller.songResults.count == 0
+
+
+async def test_search_albums_fills_card_results():
+    controller = ServiceController(service=_FakeAuthService())
+    await controller.set_search_type_async("albums")
+    await controller.search_async("叶惠美")
+    cards = controller.cardResults.cards()
+    assert cards[0]["kind"] == "album"
+    assert cards[0]["title"] == "叶惠美"
+
+
+async def test_search_playlists_fills_card_results():
+    controller = ServiceController(service=_FakeAuthService())
+    await controller.set_search_type_async("playlists")
+    await controller.search_async("华语")
+    cards = controller.cardResults.cards()
+    assert cards[0]["kind"] == "playlist"
+    assert cards[0]["title"] == "华语精选"
+
+
+async def test_songs_search_still_fills_song_results():
+    controller = ServiceController(service=_FakeAuthService())
+    await controller.search_async("x")
+    assert controller.songResults.count == 30
+    assert controller.cardResults.count == 0
+
+
+async def test_set_search_type_reruns_with_current_keyword():
+    controller = ServiceController(service=_FakeAuthService())
+    await controller.search_async("周杰伦")
+    assert controller.songResults.count == 30
+    await controller.set_search_type_async("singers")
+    assert controller.cardResults.count == 1
+    assert controller.songResults.count == 0
+
+
+async def test_invalid_search_type_falls_back_to_songs():
+    controller = ServiceController(service=_FakeAuthService())
+    await controller.set_search_type_async("bogus")
+    assert controller.searchType == "songs"
 
 
 async def test_logout_async_clears_credential_cache(tmp_path, caplog):
