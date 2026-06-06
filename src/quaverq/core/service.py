@@ -1174,7 +1174,8 @@ class QuaverService:
     # 凭据持久化
     # ------------------------------------------------------------------
 
-    async def _get_cached_credential(self) -> Credential | None:
+    def load_cached_credential_sync(self) -> Credential | None:
+        """同步读盘加载缓存凭据 (供启动期首帧前置 authed; 不联网, 不需事件循环)."""
         path = self._credential_cache_path
         if not os.path.exists(path):
             return None
@@ -1184,6 +1185,9 @@ class QuaverService:
         except Exception as exc:
             logger.warning("读取缓存凭据失败: %s", exc)
             return None
+
+    async def _get_cached_credential(self) -> Credential | None:
+        return self.load_cached_credential_sync()
 
     async def save_credential(self, path: str | None = None) -> None:
         cred = self._effective_credential()

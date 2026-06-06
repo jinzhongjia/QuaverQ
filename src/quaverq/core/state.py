@@ -13,47 +13,18 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from .models import Singer, Song
+from .models import Song
 from .queue import PlayMode, PlayQueue
+from .serde import song_from_dict as _song_from_dict
+from .serde import song_to_dict as _song_to_dict
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------- 序列化
-
-
-def _song_to_dict(s: Song) -> dict:
-    d = asdict(s)
-    # file_qualities 是 set, asdict 不友好; 转 list
-    d["file_qualities"] = list(s.file_qualities)
-    return d
-
-
-def _song_from_dict(d: dict) -> Song:
-    singers = [
-        Singer(
-            mid=s.get("mid", "") or "",
-            name=s.get("name", "") or "",
-            avatar_url=s.get("avatar_url", "") or "",
-        )
-        for s in (d.get("singers") or [])
-    ]
-    return Song(
-        mid=d.get("mid", "") or "",
-        name=d.get("name", "") or "",
-        singers=singers,
-        album_mid=d.get("album_mid", "") or "",
-        album_name=d.get("album_name", "") or "",
-        cover_url=d.get("cover_url", "") or "",
-        duration=int(d.get("duration", 0) or 0),
-        pay_play=int(d.get("pay_play", 0) or 0),
-        file_qualities=set(d.get("file_qualities") or []),
-        media_mid=d.get("media_mid", "") or "",
-        id=int(d.get("id", 0) or 0),
-    )
+# 序列化: Song <-> dict 复用 core/serde (与 home.json 共享, 防字段漂移)。
 
 
 # ---------------------------------------------------------------- 快照

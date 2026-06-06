@@ -95,6 +95,13 @@ class _FakeAuthService(_FakeService):
         self.credential = credential
         self.is_authenticated = credential is not None
 
+    def set_credential_sync(self, credential) -> None:
+        self.credential = credential
+        self.is_authenticated = credential is not None
+
+    def load_cached_credential_sync(self):
+        return self.credential
+
     async def probe_login_expired(self) -> bool | None:
         return self.expired_probe
 
@@ -251,6 +258,27 @@ async def test_start_keeps_cached_credential_when_probe_unavailable():
 
     assert service.connected is True
     assert service.is_authenticated is True
+
+
+def test_prime_credential_sync_loads_without_network():
+    # 乐观登录: 同步读盘加载凭据, authed 立即生效, 不 connect / 不联网
+    service = _FakeAuthService()
+    service.credential = object()
+    controller = ServiceController(service=service)
+
+    loaded = controller.prime_credential_sync()
+
+    assert loaded is True
+    assert controller.authed is True
+    assert service.connected is False  # 没 connect, 没联网
+
+
+def test_prime_credential_sync_without_credential_returns_false():
+    service = _FakeAuthService()  # credential 为 None
+    controller = ServiceController(service=service)
+
+    assert controller.prime_credential_sync() is False
+    assert controller.authed is False
 
 
 async def test_get_song_url_requires_authenticated_service():

@@ -32,6 +32,7 @@ from .bridge.stream_proxy import StreamProxy
 from .bridge.system_theme import SystemThemeWatcher
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
 from .core.cover_cache import CoverCache
+from .core.home_cache import HomeCache
 from .core.state import SessionState
 
 logger = logging.getLogger("quaverq")
@@ -87,11 +88,13 @@ def _raise_main_window(engine: QQmlApplicationEngine) -> None:
 
 
 async def _load_initial_state(
-    app_controller: AppController,
     home_controller: HomeController,
+    service_controller: ServiceController,
     lyric_controller: LyricController,
 ) -> None:
-    await app_controller.refresh_auth_state_async()
+    # 凭据已在启动时同步预载 (乐观登录); 这里做真正的 connect + 网络有效性校验 (过期则降级),
+    # 再走网络刷新覆盖 stale 缓存 —— SWR 的 revalidate 半边.
+    await service_controller.start()
     await asyncio.gather(
         home_controller.refresh_home_async(),
         lyric_controller.refresh_current_lyric_async(),
@@ -131,6 +134,7 @@ def main() -> None:
 
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
+    home_cache = HomeCache(CACHE_DIR / "home.json")
     settings_controller = SettingsController(
         cover_cache=cover_cache,
         orphan_cleanup=purge_orphan_caches,
@@ -138,9 +142,9 @@ def main() -> None:
     system_theme_watcher = SystemThemeWatcher()
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
-    home_controller = HomeController(service_controller)
+    home_controller = HomeController(service_controller, home_cache=home_cache)
     detail_controller = DetailController(service_controller)
-    library_controller = LibraryController(service_controller)
+    library_controller = LibraryController(service_controller, home_cache=home_cache)
     stream_proxy = StreamProxy()
     stream_proxy.start()
     player_controller = PlayerController(
@@ -166,6 +170,14 @@ def main() -> None:
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     engine.rootContext().setContextProperty("SettingsController", settings_controller)
     engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
+    # 启动同步读盘加载凭据 -> 首帧即登录态 (本地, 不联网, 不需事件循环);
+    # connect + 网络有效性校验由后台 start() 完成. 让私有区块也能在 QML 绑定前用缓存填好.
+    service_controller.prime_credential_sync()
+    account_key = service_controller.account_key()
+    # SWR 首帧: 公共 + 私有区块都用上次缓存同步填好, QML 绑定时即有完整内容
+    home_controller.prime_public_from_cache()
+    home_controller.prime_private_from_cache(account_key)
+    library_controller.prime_from_cache(account_key)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
@@ -184,8 +196,8 @@ def main() -> None:
         loop.create_task(system_theme_watcher.start())
         loop.create_task(
             _load_initial_state(
-                app_controller,
                 home_controller,
+                service_controller,
                 lyric_controller,
             )
         )

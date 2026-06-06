@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 from PySide6.QtCore import QObject, Property, Signal
 from qasync import asyncSlot
 
+from quaverq.core.home_cache import HomeCache
 from quaverq.core.models import Playlist, Song, TopList
 
 from .error_utils import log_bridge_error
@@ -44,10 +45,12 @@ class HomeController(QObject):
     def __init__(
         self,
         service_controller: ServiceController,
+        home_cache: HomeCache | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
+        self._home_cache = home_cache
         self._daily_model = SongListModel(self)
         self._playlist_model = CardListModel(self)
         self._new_song_model = SongListModel(self)
@@ -58,6 +61,37 @@ class HomeController(QObject):
         self._daily_requires_login = False
         self._error_message = ""
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
+
+    # ---------------------------------------------------------------- SWR 缓存
+    def prime_public_from_cache(self) -> None:
+        """启动首帧: 同步用上次缓存填充公共区块 (今日推荐 / 新歌速递 / 排行榜).
+
+        仅在对应 model 还空时填充, 不覆盖已到达的网络数据 (SWR: 缓存只补空窗).
+        在 engine.load 前调用, 让第一帧就有内容.
+        """
+        if self._home_cache is None:
+            return
+        snapshot = self._home_cache.load("")
+        if snapshot.playlists and self._playlist_model.count == 0:
+            self._playlist_model.set_cards(snapshot.playlists)
+        if snapshot.new_songs and self._new_song_model.count == 0:
+            self._new_song_model.set_songs(snapshot.new_songs)
+        if snapshot.tops and self._top_model.count == 0:
+            self._top_model.set_cards(snapshot.tops)
+
+    def prime_private_from_cache(self, account_key: str) -> None:
+        """凭据就绪后: 按账号填充私有区块 (猜你喜欢); 仅当 model 空且账号匹配."""
+        if self._home_cache is None or not account_key:
+            return
+        snapshot = self._home_cache.load(account_key)
+        if snapshot.daily and self._daily_model.count == 0:
+            self._set_daily_requires_login(False)
+            self._daily_model.set_songs(snapshot.daily)
+            self.dailyModelChanged.emit()
+
+    def _persist(self, **sections: object) -> None:
+        if self._home_cache is not None:
+            self._home_cache.update(**sections)  # type: ignore[arg-type]
 
     @Property(QObject, notify=dailyModelChanged)
     def dailyModel(self) -> SongListModel:
@@ -179,6 +213,9 @@ class HomeController(QObject):
             if songs is not None:
                 self._daily_model.set_songs(songs)
                 self.dailyModelChanged.emit()
+                self._persist(
+                    daily=songs, account_key=self._service_controller.account_key()
+                )
         finally:
             if self._daily_refresh_task is current_task:
                 self._daily_refresh_task = None
@@ -200,6 +237,7 @@ class HomeController(QObject):
         playlists = await self._load_section("playlists", load)
         if playlists is not None:
             self._playlist_model.set_cards([playlist_to_card(item) for item in playlists])
+            self._persist(playlists=self._playlist_model.cards())
 
     @asyncSlot()
     async def refreshNewSongs(self) -> None:
@@ -218,6 +256,7 @@ class HomeController(QObject):
         songs = await self._load_section("newSongs", load)
         if songs is not None:
             self._new_song_model.set_songs(songs)
+            self._persist(new_songs=songs)
 
     @asyncSlot()
     async def refreshTopLists(self) -> None:
@@ -237,6 +276,7 @@ class HomeController(QObject):
         tops = await self._load_section("tops", load)
         if tops is not None:
             self._top_model.set_cards([top_to_card(item) for item in tops])
+            self._persist(tops=self._top_model.cards())
 
     async def _load_section(
         self,
@@ -271,6 +311,8 @@ class HomeController(QObject):
         self._set_daily_requires_login(True)
         self._daily_model.clear()
         self.dailyModelChanged.emit()
+        if self._home_cache is not None:
+            self._home_cache.clear_private()
 
     def _set_section_loading(self, section: str, value: bool) -> None:
         old_loading = bool(self._loading_sections)

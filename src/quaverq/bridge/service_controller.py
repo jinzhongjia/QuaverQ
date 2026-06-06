@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from collections.abc import Mapping
@@ -105,6 +106,37 @@ class ServiceController(QObject):
     @Property(bool, notify=authStateChanged)
     def authed(self) -> bool:
         return bool(getattr(self._service, "is_authenticated", False))
+
+    def account_key(self) -> str:
+        """当前登录账号的稳定指纹 hash(musicid); 未登录或拿不到返 ''.
+
+        供 HomeCache 隔离账号私有缓存 (猜你喜欢 / 我的歌单), 不外泄原始 musicid.
+        """
+        if not self.authed:
+            return ""
+        get_cred = getattr(self._service, "_effective_credential", None)
+        cred = get_cred() if callable(get_cred) else None
+        musicid = getattr(cred, "musicid", "") if cred is not None else ""
+        if not musicid:
+            return ""
+        return hashlib.sha1(str(musicid).encode("utf-8")).hexdigest()[:16]
+
+    def prime_credential_sync(self) -> bool:
+        """启动期同步读盘加载缓存凭据 -> authed 首帧即生效 (本地, 不联网, 不需事件循环).
+
+        只设内存 credential 并广播 authState (乐观登录, 消除首帧登录态抖动); 真正的
+        connect() + 网络有效性校验仍由随后的 start() 完成 (幂等). 返回是否加载到凭据.
+        """
+        read_sync = getattr(self._service, "load_cached_credential_sync", None)
+        set_sync = getattr(self._service, "set_credential_sync", None)
+        if not (callable(read_sync) and callable(set_sync)):
+            return False
+        cred = read_sync()
+        if cred is None:
+            return False
+        set_sync(cred)
+        self.authStateChanged.emit()
+        return True
 
     async def start(self) -> None:
         if self._started:

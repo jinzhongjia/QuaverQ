@@ -282,12 +282,12 @@ ScrollView {
             && section.playbackState === "playing"
         readonly property string statusText: section.requiresLogin
             ? qsTr("登录后获取你的猜你喜欢")
-            : section.loading
-                ? qsTr("正在加载...")
-                : section.errorMessage.length > 0
-                    ? section.errorMessage
-                    : section.hasPreview
-                        ? section.singerText
+            : section.hasPreview
+                ? section.singerText
+                : section.loading
+                    ? qsTr("正在加载...")
+                    : section.errorMessage.length > 0
+                        ? section.errorMessage
                         : qsTr("暂无推荐")
 
         signal playRequested()
@@ -435,7 +435,7 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                visible: section.loading
+                visible: section.loading && !section.hasRows
                 text: qsTr("正在加载...")
                 color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
@@ -511,7 +511,7 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                visible: section.loading
+                visible: section.loading && !section.hasRows
                 text: qsTr("正在加载...")
                 color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm

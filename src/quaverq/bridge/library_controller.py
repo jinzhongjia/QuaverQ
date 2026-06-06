@@ -10,6 +10,7 @@ from typing import Any
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from qasync import asyncSlot
 
+from quaverq.core.home_cache import HomeCache
 from quaverq.core.models import Song
 
 from .error_utils import log_bridge_error
@@ -44,10 +45,12 @@ class LibraryController(QObject):
     def __init__(
         self,
         service_controller: ServiceController,
+        home_cache: HomeCache | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
+        self._home_cache = home_cache
         self._liked_model = SongListModel(self)
         self._playlist_model = CardListModel(self)
         self._album_model = CardListModel(self)
@@ -57,6 +60,14 @@ class LibraryController(QObject):
         self._error_message = ""
         self._liked_revision = 0
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
+
+    def prime_from_cache(self, account_key: str) -> None:
+        """凭据就绪后: 按账号填充我的歌单; 仅当 model 空且账号匹配 (SWR 补空窗)."""
+        if self._home_cache is None or not account_key:
+            return
+        snapshot = self._home_cache.load(account_key)
+        if snapshot.my_playlists and self._playlist_model.count == 0:
+            self._playlist_model.set_cards(snapshot.my_playlists)
 
     @Property(QObject, notify=likedModelChanged)
     def likedModel(self) -> SongListModel:
@@ -145,6 +156,11 @@ class LibraryController(QObject):
             self._set_loading(False)
 
         self._playlist_model.set_cards([playlist_to_card(item) for item in playlists])
+        if self._home_cache is not None:
+            self._home_cache.update(
+                my_playlists=self._playlist_model.cards(),
+                account_key=self._service_controller.account_key(),
+            )
 
     @asyncSlot()
     async def refreshFavAlbums(self) -> None:
@@ -254,6 +270,8 @@ class LibraryController(QObject):
             self._playlist_model.clear()
             self._album_model.clear()
             self._artist_model.clear()
+            if self._home_cache is not None:
+                self._home_cache.clear_private()
             return
         try:
             loop = asyncio.get_running_loop()
