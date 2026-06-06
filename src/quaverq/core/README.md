@@ -1,0 +1,34 @@
+# src/quaverq/core
+
+**业务核心层**。纯 Python + asyncio，不依赖 Qt / GUI，可以在 headless 环境下被 pytest 完整覆盖。[`bridge/`](../bridge/README.md) 的控制器持有这层的对象并把状态翻译给 QML，本目录从不反向感知 QML。
+
+## 数据与序列化
+
+| 文件 | 作用 |
+| --- | --- |
+| `models.py` | 所有领域 dataclass：`Singer` / `Song` / `Album` / `Playlist` / `Singer` / `ArtistDetail` / `TopList` / `Lyric` / `LyricLine` / `LyricWord`。轻量、可序列化、`bridge` 适配器和 `serde` 共用。 |
+| `serde.py` | `Song <-> dict` 序列化。`state.json`（会话快照）和 `home.json`（首屏 SWR 缓存）共用这一套，避免随 `Song` 字段演进而漂移（尤其 `file_qualities` 是 `set`，对 JSON 不友好）。 |
+
+## 业务逻辑
+
+| 文件 | 作用 |
+| --- | --- |
+| `service.py` | **QQ 音乐服务层**（基于 `qqmusic-api-python` 0.6.1）。封装搜索、详情、首页、推荐、歌词、链接获取。`get_song_url` 走 bypass 路径自拼 `musicu.fcg`，避开默认 `ct=11` 触发的版本风控；`ct` 在启动时从白名单 `random.choice`，实例生命周期固定。识别凭据过期 (`CredentialExpiredError`)。 |
+| `queue.py` | **播放队列 + 4 种播放模式**（`SEQUENCE` / `REPEAT_ALL` / `REPEAT_ONE` / `SHUFFLE`）。区分 `on_song_end()`（EOS 回调，遵守模式）和 `next()` / `prev()`（用户主动）；SHUFFLE 维护独立的索引置换列表。 |
+| `lyric.py` | **LRC / QRC 解析 + 同步定位**。LRC 行级、QRC 逐字（`[起始ms,时长ms](文字起始,时长)...`）。给定播放进度返回当前行 + 字内进度，驱动 karaoke 高亮；无逐字数据时回退逐行。 |
+| `mpris.py` | **MPRIS2 D-Bus 集成**（`org.mpris.MediaPlayer2.quaverq`）。dbus-next pure-python async，挂在 qasync / Qt 主事件循环。方法调用回调由 `bridge.MprisController` 注入，状态/元数据变化由 controller 主动推。 |
+
+## 缓存与持久化
+
+| 文件 | 作用 |
+| --- | --- |
+| `cover_cache.py` | **封面磁盘缓存**（`~/.cache/quaverq/covers/`）。文件名 `sha1(url) + 扩展名`；`get_path` 同步秒级查询给 UI 渲染前用，命中时按节流刷新 mtime 充当 LRU 访问时间；`fetch` 异步用 `niquests` 同步下载放进 `to_thread`，新下载后触发上限淘汰。`max_bytes <= 0` = 不限。 |
+| `home_cache.py` | **首屏发现页快照**（`~/.cache/quaverq/home.json`）。SWR：先显示上次缓存，再后台刷新。公共区块无条件恢复（今日推荐 / 新歌 / 排行榜），私有区块按 `account_key`（`hash(musicid)`）匹配才恢复。`update(**sections)`：`None` 表示该区块本次不更新（保留旧值），`[]` 表示明确清空。 |
+| `state.py` | **会话快照**（`~/.config/quaverq/state.json`）。退出存 / 启动恢复 `queue + current_index + position + mode`。`play_mode` 用 `enum.name` 持久化，未知值回退 `SEQUENCE`。不自动恢复播放——UI 显示历史 queue 但停在 paused 状态。 |
+
+## 模块边界
+
+- **无 Qt 引入**：`from PySide6 ...` 在本目录禁止；要 GUI 状态请去 `bridge/`。
+- **路径由 controller 注入**：`CoverCache(path)` / `HomeCache(path)` / `SessionState(path)`，本目录不写 `~/.cache/...` 这种隐式常量，方便测试覆盖。
+- **错误容忍**：缓存类的 `load()` 一律对损坏/缺失返回空快照，绝不抛；服务层把网络异常显式分类（`CredentialExpiredError` / `is_credential_expired_error`）。
+- **异步**：服务层、MPRIS、封面下载都是 `async`，由上层 `qasync` 事件循环驱动；纯计算（`lyric`, `queue`, `serde`）保持同步。
