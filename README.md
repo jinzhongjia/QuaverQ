@@ -1,43 +1,66 @@
 # QuaverQ
 
-QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先（Windows / macOS 后续支持，见 [design §1.3](docs/design.md)）**。
+QQ 音乐桌面客户端 — **PySide6 + Qt Quick (QML)**，**Linux 优先**（Windows / macOS 后续）。
 
-后端基于 [qqmusic-api-python](https://github.com/luren-dc/qqmusic-api-python) 0.6 系列封装，前端用 Qt Quick 写，**明暗双主题（默认跟随系统）**，整体风格参考主流流媒体音乐应用的三栏布局。
+后端封装 [qqmusic-api-python](https://github.com/luren-dc/qqmusic-api-python) 0.6 系列，前端 Qt Quick 自绘，**视觉对齐 QQ 音乐 PC**（三栏：侧栏导航 + 主内容 + 底部播放栏，品牌绿 `#31C27C`），**明暗双主题，默认跟随系统**。
 
-## 状态
+## 功能
 
-- **后端核心已完成**：搜索 / 详情 / 推荐 / 排行榜 / 喜欢同步 / 歌词 / 播放队列 / MPRIS / 会话快照 / 封面磁盘缓存 / SQLite TTL cache（`uv run pytest` 全绿）
-- **UI 重建进行中**：旧实现已清理；Q0 最小 PySide6 + Qt Quick shell、Q1 Theme tokens、Q2 搜索 bridge、Q2.5 基础视觉组件、Q3 播放器、二维码登录、Q4 队列 / 续播 / 会话恢复、Q5 导航 / 全视图骨架、Q5.5 视觉基线重构已接入，后续 Q6–Q11 见 [`docs/design.md`](docs/design.md) §14
-- 目前 `uv run quaverq` 会打开 QML 搜索 + 播放器 + 二维码登录 + 队列面板 + Home / Library / Detail / NowPlaying / Settings 工作台，并恢复上次队列 / 位置 / 模式 / 音量
+- **首页发现** — 猜你喜欢（每日推荐）+ 今日推荐歌单 + 新歌速递 + 排行榜；**SWR 首屏缓存**：冷启动先显示上次内容（封面秒出），网络在后台静默刷新。
+- **搜索** — 歌曲（分页）+ 歌手 / 专辑 / 歌单分栏，结果可跳对应详情。
+- **资料库** — 我喜欢、我的歌单、收藏专辑、关注艺人。
+- **详情页** — 歌单 / 专辑 / 艺人 / 排行榜真实详情，曲目列表 + 播放全部。
+- **播放** — QtMultimedia（Qt6 FFmpeg 后端）；队列 + 顺序 / 单曲循环 / 列表循环 / 随机；进度、音量；取链偶发 401 自动重取新 vkey 重试。
+- **现在播放页** — 封面 + 大面积**同步歌词**，支持**卡拉OK 逐字高亮**（QRC，按字着色）；无逐字的歌自动回退逐行。
+- **登录** — 二维码扫码；凭据缓存 + 启动乐观登录（首帧即登录态）+ 过期自动重登。
+- **音质** — `standard` / `balanced` / `high` 偏好，实际输出 MP3_128 / OGG_192 / MP3_320 / FLAC。
+- **桌面集成** — MPRIS2 媒体键 + GNOME / KDE 媒体控件；**系统托盘 + 关闭到托盘**（点关闭仅隐藏，托盘「退出」才真正退出）。
+- **会话恢复** — 重启恢复上次队列 / 进度 / 播放模式 / 音量。
+- **设置** — 跟随系统 / 浅色 / 深色、音质偏好、封面缓存上限（LRU，默认 256 MB）与清理。
 
-## 环境
+后端核心（搜索 / 详情 / 推荐 / 排行榜 / 喜欢同步 / 歌词 / 队列 / MPRIS / 会话快照 / 封面缓存）均有单元测试覆盖，`uv run pytest` 全绿。
 
-- Linux（Arch / Fedora / Ubuntu 22.04+ 均测）
-- Python ≥ 3.10
-- Qt 6.6+、PySide6 6.6+
-- 系统包：Qt Quick / QtMultimedia / GStreamer codecs（QtMultimedia 在 Linux 走 GStreamer 后端）
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| UI | Qt Quick / QML（Controls **Basic** + 自定义 Theme token） |
+| Python 绑定 | PySide6 ≥ 6.6 |
+| 音频 | `QtMultimedia.MediaPlayer`（Qt6 Linux 默认 FFmpeg 后端） |
+| 异步 | `qasync`（asyncio ↔ Qt 事件循环） |
+| API | qqmusic-api 0.6.1 + 自实现 vkey 取链、**随机 safe `ct` 反风控**、QRC 逐字解密 |
+| 拉流 | 本机回环代理（curl_cffi 官方 TLS 指纹出网，规避 CDN 风控） |
+| 媒体键 | `dbus-next` MPRIS2，挂在 Qt 主事件循环 |
+
+## 运行
 
 ```bash
-uv sync
-uv run pytest        # core + bridge 层测试
-uv run quaverq       # 当前为 Q5.5 导航 + 搜索 + 播放器 + 登录 + 队列工作台
+uv sync --dev
+uv run pytest        # core + bridge 测试
+uv run quaverq       # 启动应用
 ```
 
-## 配置
+环境要求：Linux、Python ≥ 3.10、Qt 6.6+（PySide6 wheel 自带 Qt 与 QtMultimedia）。系统需有桌面基础库（libEGL / libGL / libxkbcommon / libxcb-\* / dbus）；播放取链需先扫码登录 QQ 音乐。
 
-`~/.config/quaverq/config.toml`
+## 打包（AppImage）
+
+```bash
+uv run python build.py --appimage          # Nuitka standalone + linuxdeploy -> dist/QuaverQ-x86_64.AppImage
+uv run python -m quaverq.packaging --smoke dist/quaverq.dist/QuaverQ   # 产物自检
+```
+
+打 `v*` tag 触发 GitHub Actions 构建并发布 AppImage（见 `.github/workflows/release.yml`）。
+
+## 配置与数据
+
+- `~/.config/quaverq/`：`config.toml`（音质等）、`credential.json`（登录凭据）、`state.json`（会话快照）、`device_id`。
+- `~/.cache/quaverq/`：`covers/`（封面磁盘缓存，LRU）、`home.json`（首屏 SWR 快照）。
 
 ```toml
+# ~/.config/quaverq/config.toml
 [player]
 quality = "balanced"   # high | balanced | standard
 ```
-
-凭据 / 会话快照 / SQLite cache 也都放在 `~/.config/quaverq/`，封面缓存在 `~/.cache/quaverq/covers/`。
-当前 Q3 播放取链需要 QQ 音乐登录态；侧栏可扫码登录并保存 `~/.config/quaverq/credential.json`，启动时会自动加载该凭据。
-
-## 设计与路线
-
-见 [`docs/design.md`](docs/design.md)。
 
 ## 许可证
 

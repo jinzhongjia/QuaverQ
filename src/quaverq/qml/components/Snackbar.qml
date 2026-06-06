@@ -3,7 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../Theme" as ThemeTokens
 
-// 轻量状态提示：调用 show() 显示，autoHideMs 后自动收起（见 design §11）。
+// 轻量状态提示：调用 show() 显示，autoHideMs 后自动收起。
 Rectangle {
     id: root
 

@@ -7,7 +7,7 @@
 - ct 在 service 启动时从合法白名单 random.choice 选一个, 实例生命周期固定,
   既避免高风险值 (1/3/4/11/18/23/27/46), 也防止固定值被未来收紧.
 
-ct 风控背景见 findings.md 第三节; 整体落地节奏见 docs/design.md §14.
+ct 风控背景见 findings.md 第三节.
 """
 
 from __future__ import annotations

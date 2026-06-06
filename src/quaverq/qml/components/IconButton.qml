@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import "../Theme" as ThemeTokens
 
-// 统一工具按钮：≥44px 命中区、焦点环、Enter/Space 触发、无障碍名（见 design §7/§10）。
+// 统一工具按钮：≥44px 命中区、焦点环、Enter/Space 触发、无障碍名。
 // text 作为无障碍名，iconText 作为显示字形（图标按钮 tooltip 不能替代 Accessible.name）。
 AbstractButton {
     id: control

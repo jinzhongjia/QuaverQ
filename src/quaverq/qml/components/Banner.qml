@@ -3,7 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../Theme" as ThemeTokens
 
-// 持久提示：带恢复动作、不自动关闭（见 design §11）。message 非空即显示。
+// 持久提示：带恢复动作、不自动关闭。message 非空即显示。
 Rectangle {
     id: root
 
