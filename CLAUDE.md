@@ -35,11 +35,26 @@ LLM 约定：
 
 ## 开发必须做的事
 
-<AGNET-TODO>
+- **TDD 驱动**: 先写 `tests/test_*.py` 覆盖契约 → 跑红 → 写实现 → 跑绿. 任何代码改动 (含 bug 修复) 都要配套回归或契约测试. 测试框架 pytest + pytest-asyncio (`asyncio_mode=auto`), QQ API 用 `types.SimpleNamespace` mock. 提交前 `uv run pytest` 必须全绿.
+- **分阶段实施**: 多文件 / 多模块改造拆成 ≤ 300 行 / 步, 单步完成后给"如何手动验证"清单 (具体命令 / 点哪个按钮 / 看哪个日志), 等用户"过了"再继续.
+- **提交前过 lint**: `uv run python scripts/lint.py` 必须绿 (ruff + pyside6-qmllint). 能 `--fix` 修的先修, 改不掉的要么用 inline `# noqa: <code>` / `// qmllint disable <rule>` 精确抑制并写明原因, 要么在 `pyproject.toml` / `.qmllint.ini` 加 per-file-ignore 并注释解释.
+- **持有 QObject 引用**: PySide6 controller / `QSystemTrayIcon` / `QMenu` 等通过 signal 订阅或 `setProperty` 注入的 QObject, 必须有 Python 端引用 (变量名以 `_` 开头表"持有但不读"即可), 否则 GC 立即回收 → signal slot 断开 / 菜单消失 / 测试随机失败.
+- **ContextProperty 收拢到 root**: Python 通过 `engine.rootContext().setContextProperty()` 注入的 controller, 必须在 `Main.qml` 顶层声明 `readonly property var <name>: <PascalName>` 别名 (块内 `// qmllint disable unqualified`); 子组件统一走 `root.<name>` qualified 访问.
+- **asyncio 经 qasync 跑**: 所有异步代码挂在 `qasync.QEventLoop` 上, QML 槽用 `@asyncSlot` 暴露; 网络 / 磁盘等耗时操作放 `asyncio.to_thread`. 启动同步预载 (`prime_*`) + 后台 `start()` 真正 connect 的 SWR 模式不可破坏.
+- **更新 src/ 子目录的 README**: 任何 `src/quaverq/<dir>/` 下代码改动后, 检查并同步对应 README.md (目录介绍 / 结构 / 业务逻辑 / 对外接口 / 依赖关系).
+- **commit 中文 Conventional**: `type(scope): 简短描述` + 空行 + `-` bullet, 不带任何 LLM `Co-Authored-By`.
 
 ## 开发禁止做的事
 
-<AGNET-TODO>
+- **禁止跳过 / 弱化测试**: 不允许只改实现不补测试; 不允许加 `@pytest.mark.skip` / `xfail` 绕过坏测试; 不允许把失败断言改弱 (`assert x == []` → `assert x or not x`).
+- **禁止跳过 / 放水 lint**: 不允许整条规则全局 disable; 不允许 `--no-verify` 跳过 pre-commit; 不允许 `git commit --amend` 改已发布的 commit. lint 失败先找根因, 不直接加 `# noqa` 压掉.
+- **禁止动 MPRIS D-Bus 注解形式**: `src/quaverq/core/mpris.py` 中的 `-> "b"` / `-> "s"` / `-> "a{sv}"` 是 dbus-next 通过 `__annotations__` 读的 D-Bus 签名, 不是 Python 类型注解, 不要"修正"成 `bool` / `str` / `dict`, 也不要去引号.
+- **禁止破坏 SWR 首帧契约**: 不要把 `__main__.py` 启动顺序里的 `prime_credential_sync()` / `prime_public_from_cache()` / `prime_private_from_cache(account_key)` 挪到 `engine.load()` 之后, 也不要改成异步; 否则首帧登录态 / 公共区 / 私有区会闪一下空再填.
+- **禁止重复 `start()`**: `ServiceController.start()` 已用 `_start_lock` 串行化, 不要绕开锁; 也不要在多处并发显式 `await sc.start()` —— 用 `call_service()` / `_ensure_started()` 走统一入口, 否则会泄漏第二个 curl_cffi 客户端线程 → 退出卡死.
+- **禁止 `tray._menu = menu` 这类引用绑定改成局部变量**: 见上"持有 QObject 引用"; 任何"看起来没用的赋值"删除前先确认它不是为防 GC.
+- **禁止跨平台假设**: v1 仅 Linux, 不要为 Windows / macOS 加分支代码或抽象 (除非用户明确说要做跨平台). 不要引入需要 X11/Wayland 专属之外的桌面集成.
+- **禁止往 `dist/` / `.venv/` / `~/.config/quaverq/` / `~/.cache/quaverq/` 写测试夹具**: 测试只用 `tmp_path` fixture, 不污染用户真实配置 / 缓存目录.
+- **禁止 commit 带 LLM Co-Authored-By**: 与 commit 规范重复强调, 严格执行.
 
 ## Readme 维护
 
