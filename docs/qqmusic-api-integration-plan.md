@@ -75,8 +75,8 @@
 
 ## 当前进度
 
-- [ ] 1.1 `login.refresh_credential` — **进行中**
-- [ ] 1.2 `user.get_fav_songlist`
+- [x] 1.1 `login.refresh_credential`
+- [x] 1.2 `user.get_fav_songlist`
 - [ ] 2.1 `song.get_similar_song` + `get_related_songlist`
 - [ ] 2.2 `singer.get_similar` + 列表
 - [ ] 2.3 `songlist.create` / `delete`

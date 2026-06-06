@@ -29,8 +29,10 @@ ColumnLayout {
         } else if (root.currentTab === 1) {
             root.libraryController.refreshMyPlaylists()
         } else if (root.currentTab === 2) {
-            root.libraryController.refreshFavAlbums()
+            root.libraryController.refreshFavSonglists()
         } else if (root.currentTab === 3) {
+            root.libraryController.refreshFavAlbums()
+        } else if (root.currentTab === 4) {
             root.libraryController.refreshFollowedSingers()
         }
     }
@@ -121,7 +123,7 @@ ColumnLayout {
             spacing: ThemeTokens.Spacing.s6
 
             Repeater {
-                model: [qsTr("我喜欢"), qsTr("歌单"), qsTr("专辑"), qsTr("艺人")]
+                model: [qsTr("我喜欢"), qsTr("我的歌单"), qsTr("收藏歌单"), qsTr("专辑"), qsTr("艺人")]
 
                 delegate: Item {
                     id: libTab
@@ -282,6 +284,19 @@ ColumnLayout {
             iconText: "♬"
             emptyText: qsTr("暂无歌单")
             loggedOutText: qsTr("登录后显示我的歌单")
+            onLoginRequested: root.loginRequested()
+            onCardRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
+            }
+        }
+
+        CardListTab {
+            model: root.libraryController ? root.libraryController.favPlaylistModel : null
+            coverController: root.coverController
+            kindFallback: "playlist"
+            iconText: "❤"
+            emptyText: qsTr("暂无收藏歌单")
+            loggedOutText: qsTr("登录后显示收藏歌单")
             onLoginRequested: root.loginRequested()
             onCardRequested: function(kind, detailId, title, subtitle) {
                 root.detailRequested(kind, detailId, title, subtitle)

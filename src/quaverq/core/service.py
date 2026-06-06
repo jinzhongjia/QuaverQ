@@ -1218,6 +1218,57 @@ class QuaverService:
             )
         return out
 
+    async def get_fav_songlist(self) -> list[Playlist]:
+        """收藏的外部歌单 (区别于 ``get_my_playlists`` 的自建歌单).
+
+        和 ``get_fav_albums`` 同样的 0.6.1 坑: ``UserFavSonglistResponse`` 用 jsonpath
+        ``$.v_list`` 取列表, 用户只有 0/1 个收藏时 ``v_list`` 是 dict 而非 list, pydantic
+        v2 校验直接挂. 走 ``_bypass_post`` 拿原始 data 手动 parse 容错.
+        """
+        cred = self._effective_credential()
+        if cred is None or not cred.encrypt_uin:
+            return []
+        data = await self._bypass_post(
+            "music.musicasset.PlaylistFavRead",
+            "CgiGetPlaylistFavInfo",
+            {"uin": cred.encrypt_uin, "offset": 0, "size": 200},
+            require_login=True,
+        )
+        return self._parse_fav_songlists(data)
+
+    @staticmethod
+    def _parse_fav_songlists(data: dict[str, Any] | None) -> list[Playlist]:
+        raw = (data or {}).get("v_list")
+        if isinstance(raw, dict):
+            items = (
+                [raw]
+                if ("id" in raw or "dissid" in raw or "title" in raw)
+                else [v for v in raw.values() if isinstance(v, dict)]
+            )
+        elif isinstance(raw, list):
+            items = raw
+        else:
+            items = []
+        out: list[Playlist] = []
+        for p in items:
+            if not isinstance(p, dict):
+                continue
+            pid = str(p.get("id", "") or p.get("dissid", "") or "")
+            if not pid or pid == "0":
+                continue
+            out.append(
+                Playlist(
+                    pid=pid,
+                    name=str(p.get("title", "") or p.get("dissname", "") or ""),
+                    cover_url=str(p.get("picurl", "") or p.get("logo", "") or ""),
+                    description=str(p.get("desc", "") or ""),
+                    creator=str(p.get("nickname", "") or ""),
+                    song_count=int(p.get("songnum", 0) or 0),
+                    play_count=int(p.get("listennum", 0) or 0),
+                )
+            )
+        return out
+
     async def get_followed_singers(self) -> list[Singer]:
         """关注的歌手."""
         cred = self._effective_credential()

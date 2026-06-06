@@ -11,7 +11,7 @@
 | `app_controller.py` | `AppController` | 应用级状态：登录态、二维码扫码登录流、凭据过期通知、深色模式切换。 |
 | `service_controller.py` | `ServiceController` | QQ 音乐服务层（`core.service.QuaverService`）的 QML 包装：搜索、详情、首页 API。账号 key、凭据预热、网络有效性校验都在这里。 |
 | `home_controller.py` | `HomeController` | 首页发现：每日推荐 / 今日歌单 / 新歌速递 / 排行榜。SWR：先用 `home_cache` 同步喂首帧，再后台 `refresh_*_async`。 |
-| `library_controller.py` | `LibraryController` | 资料库：我喜欢、我的歌单、收藏专辑、关注艺人，登录后从 `home_cache` 私有区块同步首帧再刷新。 |
+| `library_controller.py` | `LibraryController` | 资料库：我喜欢、我的歌单、收藏歌单、收藏专辑、关注艺人，登录后从 `home_cache` 私有区块同步首帧再刷新。 |
 | `detail_controller.py` | `DetailController` | 歌单 / 专辑 / 艺人 / 排行榜详情页状态：标题、封面、曲目列表、loading / error。 |
 | `player_controller.py` | `PlayerController` | 播放器：包装 `QMediaPlayer` + `core.queue.PlayQueue`。控制四种播放模式、音质偏好、进度/音量、退出快照保存（`session_state`）。 |
 | `lyric_controller.py` | `LyricController` | 同步歌词：跟随 `player_controller` 的进度更新 `activeIndex`，逐字 karaoke 高亮的进度也在这里算。 |
