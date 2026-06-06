@@ -138,3 +138,36 @@ def test_card_list_model_roles_and_helpers():
     assert model.cardAt(2)["kind"] == "artist"
     assert model.cardAt(3)["id"] == "4"
     assert model.cardAt(99) == {}
+
+
+def test_lyric_line_to_map_includes_words():
+    from quaverq.bridge.models import lyric_line_to_map
+    from quaverq.core.models import LyricLine, LyricWord
+
+    line = LyricLine(
+        timestamp_ms=1000,
+        text="你好",
+        words=[LyricWord("你", 1000, 250), LyricWord("好", 1250, 250)],
+    )
+    data = lyric_line_to_map(line)
+    assert data["lineText"] == "你好"
+    assert data["words"] == [
+        {"text": "你", "startMs": 1000, "durationMs": 250},
+        {"text": "好", "startMs": 1250, "durationMs": 250},
+    ]
+
+
+def test_lyric_model_exposes_words_role():
+    from quaverq.bridge.models import LyricLineListModel
+    from quaverq.core.models import LyricLine, LyricWord
+
+    model = LyricLineListModel()
+    model.set_lines([LyricLine(timestamp_ms=0, text="hi", words=[LyricWord("hi", 0, 500)])])
+    roles = {bytes(v).decode(): k for k, v in model.roleNames().items()}
+    assert "words" in roles
+    assert model.data(model.index(0, 0), roles["words"]) == [
+        {"text": "hi", "startMs": 0, "durationMs": 500}
+    ]
+    # 纯逐行 (无 words) -> 空列表
+    model.set_lines([LyricLine(timestamp_ms=0, text="plain")])
+    assert model.data(model.index(0, 0), roles["words"]) == []

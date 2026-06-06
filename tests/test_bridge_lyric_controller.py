@@ -122,3 +122,17 @@ async def test_refresh_without_current_song_clears_state():
     assert service.lyric_calls == []
     assert controller.currentMid == ""
     assert controller.lineCount == 0
+
+
+async def test_position_ms_proxies_player_and_notifies():
+    service = _FakeLyricService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    player_controller = PlayerController(service_controller)
+    controller = LyricController(service_controller, player_controller)
+    seen: list[int] = []
+    controller.positionMsChanged.connect(lambda: seen.append(controller.positionMs))
+
+    player_controller.updatePosition(1234)
+
+    assert controller.positionMs == 1234
+    assert seen and seen[-1] == 1234

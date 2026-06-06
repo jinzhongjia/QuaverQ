@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from quaverq.core.models import Lyric, LyricLine
-from quaverq.core.lyric import LyricSync, parse_lrc
+from quaverq.core.lyric import LyricSync, parse_lrc, parse_qrc
 
 
 # ============================================================== parse_lrc
@@ -80,6 +80,65 @@ def test_parse_lrc_malformed_lines_ignored():
     lines = parse_lrc(raw)
     assert len(lines) == 1
     assert lines[0].text == "ok"
+
+
+# ============================================================== parse_qrc
+
+def test_parse_qrc_basic_word_timings():
+    raw = "[1185,2339]雨(1185,289)过(1474,221)后(1695,202)"
+    lines = parse_qrc(raw)
+    assert len(lines) == 1
+    line = lines[0]
+    assert line.timestamp_ms == 1185
+    assert line.text == "雨过后"
+    assert [(w.text, w.start_ms, w.duration_ms) for w in line.words] == [
+        ("雨", 1185, 289),
+        ("过", 1474, 221),
+        ("后", 1695, 202),
+    ]
+
+
+def test_parse_qrc_text_with_parens_split_by_timing():
+    # 字文本本身含括号; 以 (数字,数字) 时间标记为界切分
+    raw = "[0,500]Dizzo ((2764,212)蔡(2976,190))(3524,0)"
+    words = parse_qrc(raw)[0].words
+    assert [w.text for w in words] == ["Dizzo (", "蔡", ")"]
+    assert words[0].start_ms == 2764
+
+
+def test_parse_qrc_skips_xml_and_metadata_lines():
+    raw = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<QrcInfos>\n"
+        '<Lyric_1 LyricType="1" LyricContent="[ti:歌名]\n'
+        "[ar:歌手]\n"
+        "[offset:0]\n"
+        "[1000,500]你(1000,250)好(1250,250)\n"
+        '"></Lyric_1>\n'
+        "</QrcInfos>"
+    )
+    lines = parse_qrc(raw)
+    assert len(lines) == 1
+    assert lines[0].text == "你好"
+    assert lines[0].timestamp_ms == 1000
+
+
+def test_parse_qrc_trailing_xml_after_last_word_ignored():
+    lines = parse_qrc('[1000,500]景(1000,112)">')
+    assert len(lines[0].words) == 1
+    assert lines[0].text == "景"
+
+
+def test_parse_qrc_sorts_by_line_start():
+    raw = "[3000,500]丙(3000,100)\n[1000,500]甲(1000,100)\n[2000,500]乙(2000,100)"
+    lines = parse_qrc(raw)
+    assert [ln.timestamp_ms for ln in lines] == [1000, 2000, 3000]
+    assert [ln.text for ln in lines] == ["甲", "乙", "丙"]
+
+
+def test_parse_qrc_empty_input():
+    assert parse_qrc("") == []
+    assert parse_qrc("<QrcInfos></QrcInfos>") == []
 
 
 # ============================================================== LyricSync.line_at

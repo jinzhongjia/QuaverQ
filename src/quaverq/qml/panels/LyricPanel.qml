@@ -19,6 +19,24 @@ Rectangle {
     readonly property color creditLineColor: ThemeTokens.Theme.dark ? "#5b6472" : "#b4bcc8"
     readonly property color creditActiveColor: ThemeTokens.Theme.dark ? "#87909f" : "#7d8794"
     property int lastRevealedIndex: -1
+    // 逐字高亮: 当前播放位置 + 已唱/未唱字色 (hex, 供 RichText <font>)
+    readonly property int positionMs: root.lyricController ? root.lyricController.positionMs : 0
+    readonly property string sungHex: String(ThemeTokens.Palette.primary)
+    readonly property string mutedHex: String(root.mutedLineColor)
+
+    function escapeHtml(value) {
+        return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
+    // words[0..sungCount-1] 用已唱色, 其余未唱色; sungCount 只在跨字时变 -> 不每帧重排
+    function karaokeHtml(words, sungCount) {
+        let html = ""
+        for (let i = 0; i < words.length; ++i) {
+            const color = i < sungCount ? root.sungHex : root.mutedHex
+            html += '<font color="' + color + '">' + root.escapeHtml(words[i].text) + '</font>'
+        }
+        return html
+    }
 
     radius: root.compact ? ThemeTokens.Spacing.radiusMd : 0
     color: root.compact ? ThemeTokens.Palette.surfaceElevated : "transparent"
@@ -162,10 +180,27 @@ Rectangle {
                     required property int index
                     required property string lineText
                     required property string translation
+                    required property var words
 
                     readonly property bool activeLine: lyricDelegate.index === root.activeIndex
                     readonly property bool creditLine: root.isCreditLine(lyricDelegate.lineText)
                     readonly property bool strongActive: lyricDelegate.activeLine && !lyricDelegate.creditLine
+                    // 逐字仅在 full 播放页的当前行 (有逐字数据、非 credit 行) 启用
+                    readonly property bool karaoke: !root.compact
+                        && lyricDelegate.activeLine
+                        && lyricDelegate.words.length > 0
+                        && !lyricDelegate.creditLine
+                    readonly property int sungCount: {
+                        if (!lyricDelegate.karaoke)
+                            return 0
+                        let count = 0
+                        const pos = root.positionMs
+                        for (let i = 0; i < lyricDelegate.words.length; ++i) {
+                            if (pos >= lyricDelegate.words[i].startMs)
+                                count += 1
+                        }
+                        return count
+                    }
                     readonly property int minimumRowHeight: root.compact
                         ? (lyricDelegate.strongActive ? 44 : 32)
                         : (lyricDelegate.strongActive ? 58 : 38)
@@ -193,6 +228,7 @@ Rectangle {
                             id: lyricText
 
                             Layout.fillWidth: true
+                            visible: !lyricDelegate.karaoke
                             text: lyricDelegate.lineText
                             color: lyricDelegate.creditLine
                                 ? (lyricDelegate.activeLine ? root.creditActiveColor : root.creditLineColor)
@@ -210,6 +246,24 @@ Rectangle {
                                 : ThemeTokens.TypeScale.regular
                             wrapMode: Text.WordWrap
                             maximumLineCount: root.compact ? 2 : (lyricDelegate.strongActive ? 3 : 2)
+                            elide: Text.ElideRight
+                        }
+
+                        // 逐字高亮: 当前行用 RichText 按字着色 (已唱绿/未唱灰)
+                        Label {
+                            id: karaokeText
+
+                            Layout.fillWidth: true
+                            visible: lyricDelegate.karaoke
+                            text: lyricDelegate.karaoke
+                                ? root.karaokeHtml(lyricDelegate.words, lyricDelegate.sungCount)
+                                : ""
+                            textFormat: Text.RichText
+                            horizontalAlignment: Text.AlignHCenter
+                            font.pixelSize: ThemeTokens.TypeScale.h1
+                            font.weight: ThemeTokens.TypeScale.bold
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 3
                             elide: Text.ElideRight
                         }
 

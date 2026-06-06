@@ -12,11 +12,64 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .models import Lyric, LyricLine
+from .models import Lyric, LyricLine, LyricWord
 
 
 # [mm:ss(.xxx)?]  支持 2/3 位毫秒, 毫秒可缺省
 _TS_RE = re.compile(r"\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]")
+
+# QRC 逐字: 行首 [行起始ms,行时长ms], 行内每字 文本(字起始ms,字时长ms)
+_QRC_LINE_RE = re.compile(r"\[(\d+),(\d+)\](.*)")
+_QRC_WORD_RE = re.compile(r"\((\d+),(\d+)\)")
+
+
+def parse_qrc(raw: str) -> list[LyricLine]:
+    """解析解密后的 QRC 逐字歌词为带 words 的 LyricLine 列表 (按行起始升序).
+
+    QRC 解密后是 XML, 真正的歌词体形如::
+
+        [1185,2339]雨(1185,289)过(1474,221)...景(2321,112)
+
+    逐行扫描, 只取行首匹配 ``[数字,数字]`` 的行 (XML 标签 / [ti:]/[offset:] 等
+    元数据自然跳过). 字文本可含括号 (如 "Dizzo ("), 故以 ``(数字,数字)`` 时间标记
+    为界切分, 文本取两个时间标记之间的部分.
+    """
+    if not raw:
+        return []
+
+    result: list[LyricLine] = []
+    for raw_line in raw.splitlines():
+        match = _QRC_LINE_RE.match(raw_line.strip())
+        if not match:
+            continue
+        line_start = int(match.group(1))
+        content = match.group(3)
+
+        words: list[LyricWord] = []
+        cursor = 0
+        for wm in _QRC_WORD_RE.finditer(content):
+            text = content[cursor:wm.start()]
+            words.append(
+                LyricWord(
+                    text=text,
+                    start_ms=int(wm.group(1)),
+                    duration_ms=int(wm.group(2)),
+                )
+            )
+            cursor = wm.end()
+
+        if not words:
+            continue
+        result.append(
+            LyricLine(
+                timestamp_ms=line_start,
+                text="".join(w.text for w in words),
+                words=words,
+            )
+        )
+
+    result.sort(key=lambda ln: ln.timestamp_ms)
+    return result
 
 
 def parse_lrc(raw: str) -> list[LyricLine]:

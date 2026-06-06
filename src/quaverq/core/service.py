@@ -33,7 +33,7 @@ from qqmusic_api.models.login import QRCodeLoginEvents, QRLoginType
 from qqmusic_api.modules.search import SearchType
 from qqmusic_api.modules.singer import TabType
 
-from .lyric import parse_lrc
+from .lyric import parse_lrc, parse_qrc
 from .models import (
     Album,
     ArtistDetail,
@@ -516,8 +516,74 @@ class QuaverService:
     async def get_lyric(
         self, mid: str, *, with_translation: bool = True
     ) -> Lyric:
-        """拉歌词. 走 bypass: 0.6 lib 硬编码 crypt=1 服务端返加密歌词,
-        我们直接 POST crypt=0 拿 base64 明文."""
+        """拉歌词: 优先逐字 QRC, 拿不到 (无权限/纯音乐/解密失败) 回退逐行 LRC."""
+        lines = await self._try_get_qrc(mid, with_translation=with_translation)
+        if lines:
+            return Lyric(
+                mid=mid,
+                lines=lines,
+                has_translation=any(ln.translation for ln in lines),
+            )
+        return await self._get_lyric_lrc(mid, with_translation=with_translation)
+
+    async def _try_get_qrc(
+        self, mid: str, *, with_translation: bool
+    ) -> list[LyricLine]:
+        """请求逐字 QRC (crypt=1 -> 库自带 qrc_decrypt 解密); 失败/无 QRC 返 []."""
+        from qqmusic_api.algorithms import qrc_decrypt
+
+        block = await self._bypass_post(
+            "music.musichallSong.PlayLyricInfo",
+            "GetPlayLyricInfo",
+            {
+                "crypt": 1,
+                "lrc_t": 0,
+                "qrc": 1, "qrc_t": 0,
+                "roma": 0, "roma_t": 0,
+                "trans": 1 if with_translation else 0,
+                "trans_t": 0,
+                "type": 1,
+                "songMid": mid,
+            },
+            require_login=True,
+        )
+        if not block:
+            return []
+
+        def _dec(field: str) -> str:
+            if not field:
+                return ""
+            try:
+                return qrc_decrypt(field)
+            except Exception:
+                return ""
+
+        # QRC 逐字优先; 该歌无逐字时解出的是普通 LRC, 退回逐行解析
+        lyric_text = _dec(block.get("lyric", "") or "")
+        lines = parse_qrc(lyric_text) or parse_lrc(lyric_text)
+        if not lines:
+            return []
+
+        trans_text = _dec(block.get("trans", "") or "")
+        if trans_text:
+            trans_by_ts = {
+                ln.timestamp_ms: ln.text for ln in parse_lrc(trans_text)
+            }
+            lines = [
+                LyricLine(
+                    timestamp_ms=ln.timestamp_ms,
+                    text=ln.text,
+                    translation=trans_by_ts.get(ln.timestamp_ms, ""),
+                    words=ln.words,
+                )
+                for ln in lines
+            ]
+        return lines
+
+    async def _get_lyric_lrc(
+        self, mid: str, *, with_translation: bool
+    ) -> Lyric:
+        """逐行 LRC: bypass crypt=0 拿 base64 明文 (QRC 不可用时的回退)."""
         import base64
 
         block = await self._bypass_post(

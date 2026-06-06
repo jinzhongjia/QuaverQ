@@ -83,12 +83,21 @@ def song_from_map(data: Mapping[str, Any] | Song) -> Song:
     )
 
 
+def _lyric_words_to_maps(line: LyricLine) -> list[dict[str, Any]]:
+    """逐字 words -> QVariantMap-friendly dict 列表 (无逐字时为空)."""
+    return [
+        {"text": w.text, "startMs": w.start_ms, "durationMs": w.duration_ms}
+        for w in line.words
+    ]
+
+
 def lyric_line_to_map(line: LyricLine) -> dict[str, Any]:
     """Convert a core LyricLine into a QVariantMap-friendly dict."""
     return {
         "timestampMs": line.timestamp_ms,
         "lineText": line.text,
         "translation": line.translation,
+        "words": _lyric_words_to_maps(line),
     }
 
 
@@ -334,6 +343,7 @@ class LyricLineListModel(QAbstractListModel):
     TimestampMsRole = Qt.ItemDataRole.UserRole + 2
     LineTextRole = Qt.ItemDataRole.UserRole + 3
     TranslationRole = Qt.ItemDataRole.UserRole + 4
+    WordsRole = Qt.ItemDataRole.UserRole + 5
 
     countChanged = Signal()
 
@@ -363,6 +373,8 @@ class LyricLineListModel(QAbstractListModel):
             return line.text
         if role == self.TranslationRole:
             return line.translation
+        if role == self.WordsRole:
+            return _lyric_words_to_maps(line)
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
@@ -371,6 +383,7 @@ class LyricLineListModel(QAbstractListModel):
             self.TimestampMsRole: QByteArray(b"timestampMs"),
             self.LineTextRole: QByteArray(b"lineText"),
             self.TranslationRole: QByteArray(b"translation"),
+            self.WordsRole: QByteArray(b"words"),
         }
 
     def set_lines(self, lines: list[LyricLine]) -> None:

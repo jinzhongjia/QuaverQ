@@ -656,6 +656,58 @@ async def test_get_lyric_no_credential_returns_empty():
     assert ly.lines == []
 
 
+async def test_get_lyric_prefers_qrc_words(monkeypatch):
+    """有逐字 QRC 时: crypt=1 请求 -> qrc_decrypt -> parse_qrc, 带 words."""
+    import qqmusic_api.algorithms as algo
+
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
+
+    async def fake_post(module, method, param, **kw):
+        if param.get("qrc") == 1:
+            return {"lyric": "ENCRYPTED_QRC", "trans": "", "crypt": 1}
+        return {"lyric": "", "trans": "", "crypt": 0}
+
+    monkeypatch.setattr(svc, "_bypass_post", fake_post)
+    monkeypatch.setattr(
+        algo, "qrc_decrypt",
+        lambda s: "[1000,500]你(1000,250)好(1250,250)" if s == "ENCRYPTED_QRC" else "",
+    )
+
+    ly = await svc.get_lyric("x")
+    assert ly.lines[0].text == "你好"
+    assert [w.text for w in ly.lines[0].words] == ["你", "好"]
+    assert ly.lines[0].words[0].start_ms == 1000
+
+
+async def test_get_lyric_falls_back_to_lrc_when_no_qrc(monkeypatch):
+    """无 QRC (解密空) 时回退逐行 LRC, words 为空."""
+    import base64
+
+    import qqmusic_api.algorithms as algo
+
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
+
+    async def fake_post(module, method, param, **kw):
+        if param.get("qrc") == 1:
+            return {"lyric": "", "trans": "", "crypt": 1}
+        return {
+            "lyric": base64.b64encode("[00:05.00]纯逐行".encode()).decode("ascii"),
+            "trans": "",
+            "crypt": 0,
+        }
+
+    monkeypatch.setattr(svc, "_bypass_post", fake_post)
+    monkeypatch.setattr(algo, "qrc_decrypt", lambda s: "")
+
+    ly = await svc.get_lyric("x")
+    assert ly.lines[0].text == "纯逐行"
+    assert ly.lines[0].words == []
+
+
 # ============================================================== Discover / Home (P2.1)
 
 async def test_get_recommend_playlists_maps_to_playlist():

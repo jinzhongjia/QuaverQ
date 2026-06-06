@@ -51,12 +51,22 @@ class SongUrl:
 
 
 @dataclass
+class LyricWord:
+    """逐字歌词的单个字/词 (QRC); start/duration 为该字的播放时间."""
+
+    text: str
+    start_ms: int
+    duration_ms: int
+
+
+@dataclass
 class LyricLine:
-    """单行歌词 (带可选翻译)."""
+    """单行歌词 (带可选翻译); words 非空时为逐字 (QRC) 行."""
 
     timestamp_ms: int
     text: str
     translation: str = ""
+    words: list[LyricWord] = field(default_factory=list)
 
 
 @dataclass
@@ -130,6 +140,7 @@ __all__ = [
     "SongUrl",
     "Lyric",
     "LyricLine",
+    "LyricWord",
     "Album",
     "ArtistDetail",
     "Playlist",

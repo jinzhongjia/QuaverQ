@@ -26,6 +26,7 @@ class LyricController(QObject):
     lyricModelChanged = Signal()
     lineCountChanged = Signal()
     activeIndexChanged = Signal()
+    positionMsChanged = Signal()
     currentLineChanged = Signal()
     currentMidChanged = Signal()
     loadingChanged = Signal()
@@ -67,6 +68,11 @@ class LyricController(QObject):
     @Property(int, notify=activeIndexChanged)
     def activeIndex(self) -> int:
         return self._active_index
+
+    @Property(int, notify=positionMsChanged)
+    def positionMs(self) -> int:
+        """当前播放位置 (ms); QML 据此在当前行内推进逐字高亮."""
+        return self._player_controller.positionMs
 
     @Property(str, notify=currentLineChanged)
     def currentLineText(self) -> str:
@@ -127,6 +133,7 @@ class LyricController(QObject):
 
     @Slot()
     def _handle_position_changed(self) -> None:
+        self.positionMsChanged.emit()
         self._update_active_index()
 
     @Slot()
