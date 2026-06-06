@@ -177,6 +177,8 @@ class QuaverService:
     # 实例级内存 cache: 短期 ad-hoc 数据 (recommend 等) 不适合 SQLite TTL 表
     # key → (timestamp, value); 重启失效
     _memo: dict[str, tuple[float, Any]] = field(default_factory=dict, init=False, repr=False)
+    # 续命锁: 防并发刷新触发 refresh_token rotation (Gemini Code Review PR#1)
+    _refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     # 内存 cache 默认 TTL: 推荐数据每天/每小时换换, 10 分钟够
     _MEMO_TTL_SEC = 600
@@ -369,24 +371,38 @@ class QuaverService:
         return await self._try_refresh_credential()
 
     async def _try_refresh_credential(self) -> bool:
-        """登录凭据过期时尝试静默续命; 成功返回 False (未过期), 失败返回 True."""
+        """登录凭据过期时尝试静默续命; 成功返回 False (未过期), 失败返回 True.
+
+        并发安全: refresh_token 通常一次性 (rotation), 多协程同时刷新会让第二次拿到
+        失效 token, 整条续命链断裂. 用 `_refresh_lock` + 双重检查避免重复刷新.
+        """
         if self._client is None:
             return True
-        try:
-            new_cred = await self._client.login.refresh_credential()
-        except Exception as exc:
-            logger.warning("refresh_credential 失败: %s", exc)
-            return True
-        if new_cred is None or not getattr(new_cred, "musickey", None):
-            logger.warning("refresh_credential 返回空凭据, 视作失败")
-            return True
-        self._assign_credential(new_cred)
-        try:
-            await self.save_credential()
-        except Exception as exc:
-            logger.warning("刷新凭据后落盘失败: %s", exc)
-        logger.info("凭据已通过 refresh_credential 续命")
-        return False
+        before = self._effective_credential()
+        before_key = getattr(before, "musickey", None) if before else None
+
+        async with self._refresh_lock:
+            current = self._effective_credential()
+            current_key = getattr(current, "musickey", None) if current else None
+            if current_key and current_key != before_key:
+                # 等锁期间已被其他协程刷新成功, 直接复用结果
+                return False
+
+            try:
+                new_cred = await self._client.login.refresh_credential()
+            except Exception as exc:
+                logger.warning("refresh_credential 失败: %s", exc)
+                return True
+            if new_cred is None or not getattr(new_cred, "musickey", None):
+                logger.warning("refresh_credential 返回空凭据, 视作失败")
+                return True
+            self._assign_credential(new_cred)
+            try:
+                await self.save_credential()
+            except Exception as exc:
+                logger.warning("刷新凭据后落盘失败: %s", exc)
+            logger.info("凭据已通过 refresh_credential 续命")
+            return False
 
     # ------------------------------------------------------------------
     # 搜索 (0.6 SearchByTypeResponse 含 song/singer/album/songlist 等 list)

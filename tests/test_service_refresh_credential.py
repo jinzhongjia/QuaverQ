@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -153,6 +154,56 @@ async def test_probe_returns_true_when_refresh_returns_empty_credential(monkeypa
 
     assert await svc.probe_login_expired() is True
     assert svc._effective_credential().musickey == "old"
+
+
+async def test_concurrent_probes_only_trigger_single_refresh(monkeypatch):
+    """两个协程同时 probe → refresh_credential 只被实际调用一次 (token rotation 防御).
+
+    场景: 多 controller 路径并发触发 probe_login_expired, 不能各自再发起一次 refresh.
+    refresh_token 通常是一次性 (rotation), 第二次刷新会拿到失效 token, 整条续命链断裂.
+    """
+    new_cred = Credential(musicid=42, musickey="rotated", str_musicid="42")
+    refresh_calls = 0
+    save_calls = 0
+
+    refresh_started = asyncio.Event()
+    refresh_unblock = asyncio.Event()
+
+    async def _check_expired() -> bool:
+        return True
+
+    async def _refresh(*args, **kwargs) -> Credential:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        refresh_started.set()
+        await refresh_unblock.wait()  # 给第二个协程跑到锁前的时间窗
+        return new_cred
+
+    async def _save_credential(path=None):
+        nonlocal save_calls
+        save_calls += 1
+
+    svc = QuaverService()
+    svc._client = _fake_client(check_expired=_check_expired, refresh_credential=_refresh)
+    monkeypatch.setattr(svc, "save_credential", _save_credential)
+
+    async def _race():
+        # 第一个协程先起跑, 让它进入 refresh 阻塞点
+        first = asyncio.create_task(svc.probe_login_expired())
+        await refresh_started.wait()
+        # 第二个协程在这时启动: 它应被锁挡住, 不应触发第二次 refresh
+        second = asyncio.create_task(svc.probe_login_expired())
+        # 给 second 一些时间跑到锁前
+        await asyncio.sleep(0.01)
+        refresh_unblock.set()
+        return await asyncio.gather(first, second)
+
+    results = await _race()
+
+    assert results == [False, False], "两个 probe 都应报告未过期"
+    assert refresh_calls == 1, f"refresh_credential 应只被实际调用一次, 实际 {refresh_calls}"
+    assert save_calls == 1, f"save_credential 应只落盘一次, 实际 {save_calls}"
+    assert svc._effective_credential().musickey == "rotated"
 
 
 if __name__ == "__main__":
