@@ -155,9 +155,12 @@ Rectangle {
             }
         }
 
+        // 歌曲信息 + 喜欢 紧凑成组: 文字块按内容自适应宽度 (短标题不留大空档),
+        // 过长才省略号; 心形紧贴文字右侧.
         Item {
-            Layout.preferredWidth: 200
-            Layout.maximumWidth: 280
+            id: songInfo
+
+            Layout.preferredWidth: Math.min(220, infoColumn.implicitWidth)
             Layout.preferredHeight: 56
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("打开正在播放")
@@ -182,6 +185,7 @@ Rectangle {
             }
 
             ColumnLayout {
+                id: infoColumn
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width
                 spacing: ThemeTokens.Spacing.s2
