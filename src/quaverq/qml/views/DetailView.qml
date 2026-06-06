@@ -107,8 +107,8 @@ ColumnLayout {
             spacing: ThemeTokens.Spacing.s5
 
             Components.AlbumArt {
-                Layout.preferredWidth: 132
-                Layout.preferredHeight: 132
+                Layout.preferredWidth: 168
+                Layout.preferredHeight: 168
                 iconText: root.displayKind === "artist" ? "◎" : root.displayKind === "top" ? "↗" : "♪"
                 iconSize: ThemeTokens.TypeScale.display
                 active: root.hasSongs
@@ -133,8 +133,8 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: root.displayTitle
                     color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.h1
-                    font.weight: ThemeTokens.TypeScale.medium
+                    font.pixelSize: ThemeTokens.TypeScale.display
+                    font.weight: ThemeTokens.TypeScale.bold
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
                     elide: Text.ElideRight
@@ -168,7 +168,7 @@ ColumnLayout {
                     Button {
                         id: playAllButton
 
-                        Layout.preferredWidth: 112
+                        Layout.preferredWidth: 132
                         Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
                         enabled: root.hasSongs && !root.loading
                         text: qsTr("播放全部")
@@ -179,7 +179,7 @@ ColumnLayout {
                         }
 
                         contentItem: Label {
-                            text: playAllButton.text
+                            text: "▶  " + playAllButton.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                             color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
@@ -188,10 +188,12 @@ ColumnLayout {
                         }
 
                         background: Rectangle {
-                            radius: ThemeTokens.Spacing.radiusMd
-                            color: playAllButton.enabled
-                                ? ThemeTokens.Palette.primary
-                                : ThemeTokens.Palette.surfaceVariant
+                            radius: ThemeTokens.Spacing.radiusPill
+                            color: !playAllButton.enabled
+                                ? ThemeTokens.Palette.surfaceVariant
+                                : playAllButton.down ? ThemeTokens.Palette.primaryActive
+                                : playAllButton.hovered ? ThemeTokens.Palette.primaryHover
+                                : ThemeTokens.Palette.primary
                         }
                     }
 
@@ -214,7 +216,7 @@ ColumnLayout {
                         }
 
                         background: Rectangle {
-                            radius: ThemeTokens.Spacing.radiusMd
+                            radius: ThemeTokens.Spacing.radiusPill
                             color: searchButton.down
                                 ? ThemeTokens.Palette.statePressed
                                 : searchButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
@@ -233,7 +235,7 @@ ColumnLayout {
                 text: root.displayKind === "artist" ? qsTr("热门歌曲") : qsTr("曲目")
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
-                font.weight: ThemeTokens.TypeScale.medium
+                font.weight: ThemeTokens.TypeScale.bold
             }
 
             Label {
