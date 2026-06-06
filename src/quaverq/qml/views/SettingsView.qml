@@ -222,7 +222,7 @@ ScrollView {
                 text: section.title
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
-                font.weight: ThemeTokens.TypeScale.medium
+                font.weight: ThemeTokens.TypeScale.bold
                 elide: Text.ElideRight
             }
         }
