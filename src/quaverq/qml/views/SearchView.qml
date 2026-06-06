@@ -105,45 +105,78 @@ ColumnLayout {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s2
+            spacing: ThemeTokens.Spacing.s6
 
             Repeater {
                 model: root.searchTabs
 
-                delegate: Button {
+                delegate: Item {
                     id: typeTab
 
                     required property var modelData
                     readonly property bool current: root.searchType === typeTab.modelData.key
 
-                    Layout.preferredHeight: 32
-                    text: typeTab.modelData.label
+                    Layout.preferredHeight: 36
+                    implicitWidth: tabText.implicitWidth
+
+                    Accessible.role: Accessible.Button
                     Accessible.name: typeTab.modelData.label
-                    onClicked: {
+                    activeFocusOnTab: true
+
+                    HoverHandler { id: tabHover }
+                    TapHandler {
+                        onTapped: {
+                            if (root.serviceController)
+                                root.serviceController.setSearchType(typeTab.modelData.key)
+                        }
+                    }
+                    Keys.onReturnPressed: {
+                        if (root.serviceController)
+                            root.serviceController.setSearchType(typeTab.modelData.key)
+                    }
+                    Keys.onSpacePressed: {
                         if (root.serviceController)
                             root.serviceController.setSearchType(typeTab.modelData.key)
                     }
 
-                    contentItem: Label {
-                        text: typeTab.text
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: ThemeTokens.Spacing.s4
-                        rightPadding: ThemeTokens.Spacing.s4
-                        color: typeTab.current ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
-                        font.pixelSize: ThemeTokens.TypeScale.bodySm
-                        font.weight: typeTab.current ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
+                    Label {
+                        id: tabText
+                        anchors.top: parent.top
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: typeTab.modelData.label
+                        color: typeTab.current
+                            ? ThemeTokens.Palette.primary
+                            : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
+                        font.pixelSize: ThemeTokens.TypeScale.body
+                        font.weight: typeTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
                     }
 
-                    background: Rectangle {
-                        radius: ThemeTokens.Spacing.radiusMd
-                        color: typeTab.current
-                            ? ThemeTokens.Palette.primaryContainer
-                            : typeTab.down ? ThemeTokens.Palette.statePressed
-                            : typeTab.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: tabText.implicitWidth
+                        height: 2
+                        radius: 1
+                        visible: typeTab.current
+                        color: ThemeTokens.Palette.primary
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: typeTab.activeFocus
+                        radius: ThemeTokens.Spacing.radiusSm
+                        color: "transparent"
+                        border.color: ThemeTokens.Palette.focusRing
+                        border.width: 2
                     }
                 }
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: ThemeTokens.Palette.outlineMuted
         }
 
         Item {
@@ -241,16 +274,22 @@ ColumnLayout {
                 }
             }
 
-            ListView {
-                id: cardList
+            GridView {
+                id: cardGrid
+
                 anchors.fill: parent
                 visible: !root.isSongs
                 clip: true
-                spacing: ThemeTokens.Spacing.s2
+
+                readonly property int cols: width > 1080 ? 5 : width > 820 ? 4 : width > 560 ? 3 : 2
+                cellWidth: cardGrid.cols > 0 ? Math.floor(width / cardGrid.cols) : width
+                cellHeight: cellWidth + 44
                 model: root.serviceController ? root.serviceController.cardResults : null
 
-                delegate: Rectangle {
-                    id: cardRow
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                delegate: Item {
+                    id: cardCell
 
                     required property string kind
                     required property string cardId
@@ -259,79 +298,23 @@ ColumnLayout {
                     required property string coverUrl
                     required property string meta
 
-                    width: ListView.view ? ListView.view.width : 0
-                    implicitHeight: 72
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: cardRowHover.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
-                    border.color: ThemeTokens.Palette.outlineMuted
-                    Accessible.role: Accessible.Button
-                    Accessible.name: cardRow.title
-                    activeFocusOnTab: true
+                    width: cardGrid.cellWidth
+                    height: cardGrid.cellHeight
 
-                    HoverHandler {
-                        id: cardRowHover
-                    }
-
-                    TapHandler {
-                        onTapped: root.detailRequested(cardRow.kind, cardRow.cardId, cardRow.title, cardRow.subtitle)
-                    }
-
-                    Keys.onReturnPressed: root.detailRequested(cardRow.kind, cardRow.cardId, cardRow.title, cardRow.subtitle)
-                    Keys.onSpacePressed: root.detailRequested(cardRow.kind, cardRow.cardId, cardRow.title, cardRow.subtitle)
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: parent.activeFocus
-                        radius: parent.radius
-                        color: "transparent"
-                        border.color: ThemeTokens.Palette.focusRing
-                        border.width: 2
-                        z: 1
-                    }
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: ThemeTokens.Spacing.s3
-                        spacing: ThemeTokens.Spacing.s4
-
-                        Components.AlbumArt {
-                            Layout.preferredWidth: 48
-                            Layout.preferredHeight: 48
-                            iconText: cardRow.kind === "artist" ? "◎" : "♪"
-                            coverUrl: cardRow.coverUrl
-                            coverController: root.coverController
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: ThemeTokens.Spacing.s2
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: cardRow.title
-                                color: ThemeTokens.Palette.surfaceText
-                                font.pixelSize: ThemeTokens.TypeScale.body
-                                font.weight: ThemeTokens.TypeScale.medium
-                                elide: Text.ElideRight
-                            }
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: cardRow.subtitle
-                                color: ThemeTokens.Palette.surfaceVariantText
-                                font.pixelSize: ThemeTokens.TypeScale.caption
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        Label {
-                            Layout.preferredWidth: 56
-                            text: cardRow.meta
-                            color: ThemeTokens.Palette.surfaceVariantText
-                            horizontalAlignment: Text.AlignRight
-                            font.pixelSize: ThemeTokens.TypeScale.caption
-                            elide: Text.ElideRight
-                        }
+                    Components.Card {
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: ThemeTokens.Spacing.s2
+                        anchors.rightMargin: ThemeTokens.Spacing.s2
+                        circular: cardCell.kind === "artist"
+                        title: cardCell.title
+                        subtitle: cardCell.subtitle
+                        coverUrl: cardCell.coverUrl
+                        meta: cardCell.meta
+                        coverController: root.coverController
+                        onActivated: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                        onPlayRequested: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
                     }
                 }
             }
@@ -342,7 +325,7 @@ ColumnLayout {
                 function onLoadingChanged() {
                     if (root.serviceController && root.serviceController.loading) {
                         resultList.positionViewAtBeginning()
-                        cardList.positionViewAtBeginning()
+                        cardGrid.positionViewAtBeginning()
                     }
                 }
             }

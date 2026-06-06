@@ -118,92 +118,71 @@ ColumnLayout {
             id: libraryTabs
 
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s2
+            spacing: ThemeTokens.Spacing.s6
 
-            Button {
-                id: likedTab
+            Repeater {
+                model: [qsTr("我喜欢"), qsTr("歌单"), qsTr("专辑"), qsTr("艺人")]
 
-                Layout.fillWidth: true
-                Layout.preferredHeight: 38
-                text: qsTr("我喜欢")
-                onClicked: root.currentTab = 0
-                contentItem: Label {
-                    text: likedTab.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 0 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: root.currentTab === 0 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
-                }
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: root.currentTab === 0 ? ThemeTokens.Palette.primaryContainer : "transparent"
-                    border.color: root.currentTab === 0 ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.outline
+                delegate: Item {
+                    id: libTab
+
+                    required property int index
+                    required property string modelData
+                    readonly property bool current: root.currentTab === libTab.index
+
+                    Layout.preferredHeight: 38
+                    implicitWidth: libTabText.implicitWidth
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: libTab.modelData
+                    activeFocusOnTab: true
+
+                    HoverHandler { id: libTabHover }
+                    TapHandler { onTapped: root.currentTab = libTab.index }
+                    Keys.onReturnPressed: root.currentTab = libTab.index
+                    Keys.onSpacePressed: root.currentTab = libTab.index
+
+                    Label {
+                        id: libTabText
+                        anchors.top: parent.top
+                        anchors.topMargin: ThemeTokens.Spacing.s2
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: libTab.modelData
+                        color: libTab.current
+                            ? ThemeTokens.Palette.primary
+                            : (libTabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
+                        font.pixelSize: ThemeTokens.TypeScale.body
+                        font.weight: libTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
+                    }
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: libTabText.implicitWidth
+                        height: 2
+                        radius: 1
+                        visible: libTab.current
+                        color: ThemeTokens.Palette.primary
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: libTab.activeFocus
+                        radius: ThemeTokens.Spacing.radiusSm
+                        color: "transparent"
+                        border.color: ThemeTokens.Palette.focusRing
+                        border.width: 2
+                    }
                 }
             }
-            Button {
-                id: playlistTab
 
-                Layout.fillWidth: true
-                Layout.preferredHeight: 38
-                text: qsTr("歌单")
-                onClicked: root.currentTab = 1
-                contentItem: Label {
-                    text: playlistTab.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 1 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: root.currentTab === 1 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
-                }
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: root.currentTab === 1 ? ThemeTokens.Palette.primaryContainer : "transparent"
-                    border.color: root.currentTab === 1 ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.outline
-                }
-            }
-            Button {
-                id: albumTab
+            Item { Layout.fillWidth: true }
+        }
 
-                Layout.fillWidth: true
-                Layout.preferredHeight: 38
-                text: qsTr("专辑")
-                onClicked: root.currentTab = 2
-                contentItem: Label {
-                    text: albumTab.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 2 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: root.currentTab === 2 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
-                }
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: root.currentTab === 2 ? ThemeTokens.Palette.primaryContainer : "transparent"
-                    border.color: root.currentTab === 2 ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.outline
-                }
-            }
-            Button {
-                id: artistTab
-
-                Layout.fillWidth: true
-                Layout.preferredHeight: 38
-                text: qsTr("艺人")
-                onClicked: root.currentTab = 3
-                contentItem: Label {
-                    text: artistTab.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: root.currentTab === 3 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: root.currentTab === 3 ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
-                }
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: root.currentTab === 3 ? ThemeTokens.Palette.primaryContainer : "transparent"
-                    border.color: root.currentTab === 3 ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.outline
-                }
-            }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: ThemeTokens.Palette.outlineMuted
         }
     }
 
@@ -353,27 +332,49 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
 
-        ListView {
-            id: cardList
+        GridView {
+            id: cardGrid
 
             anchors.fill: parent
             clip: true
-            spacing: ThemeTokens.Spacing.s2
+
+            readonly property int cols: width > 1080 ? 5 : width > 820 ? 4 : width > 560 ? 3 : 2
+            cellWidth: cardGrid.cols > 0 ? Math.floor(width / cardGrid.cols) : width
+            cellHeight: cellWidth + 44
             model: tab.model
             boundsBehavior: Flickable.StopAtBounds
-            reuseItems: true
 
-            delegate: LibraryTile {
-                width: ListView.view.width
-                iconText: tab.iconText
-                fallbackKind: tab.kindFallback
-                coverController: tab.coverController
-                onActivated: function(kind, detailId, title, subtitle) {
-                    tab.cardRequested(kind, detailId, title, subtitle)
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            delegate: Item {
+                id: libCell
+
+                required property string kind
+                required property string cardId
+                required property string title
+                required property string subtitle
+                required property string coverUrl
+                required property string meta
+
+                width: cardGrid.cellWidth
+                height: cardGrid.cellHeight
+
+                Components.Card {
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: ThemeTokens.Spacing.s2
+                    anchors.rightMargin: ThemeTokens.Spacing.s2
+                    circular: (libCell.kind || tab.kindFallback) === "artist"
+                    title: libCell.title
+                    subtitle: libCell.subtitle
+                    coverUrl: libCell.coverUrl
+                    meta: libCell.meta
+                    coverController: tab.coverController
+                    onActivated: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle)
+                    onPlayRequested: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle)
                 }
             }
-
-            ScrollBar.vertical: ScrollBar {}
         }
 
         ColumnLayout {
