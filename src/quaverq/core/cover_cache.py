@@ -33,6 +33,9 @@ _VALID_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 # 命中渲染路径很热; 只有 mtime 比这个间隔更旧才回写一次, 避免每帧落盘.
 _ACCESS_BUMP_INTERVAL = 300.0
 
+# 流式下载分块大小; 每块之间检查 _closing, 退出时能立刻放弃在途下载.
+_DOWNLOAD_CHUNK = 65536
+
 
 @dataclass
 class CoverCache:
@@ -42,8 +45,12 @@ class CoverCache:
     def __init__(self, dir_: str | Path, max_bytes: int = 0):
         self.dir = Path(dir_)
         self.max_bytes = max(0, int(max_bytes))
-        # 每个 to_thread worker 线程复用一个长连接 Session (keep-alive)
+        # 每个 to_thread worker 线程复用一个长连接 Session (keep-alive);
+        # 同时登记到 _sessions, 供退出时 close() 统一关闭 (中断在途下载, 让 worker 秒退).
         self._local = threading.local()
+        self._sessions: list = []
+        self._sessions_lock = threading.Lock()
+        self._closing = False  # 退出标志: 在途下载在分块间检查到后立刻放弃
 
     # ------------------------------------------------------------------ 同步查询
 
@@ -193,15 +200,38 @@ class CoverCache:
 
             session = niquests.Session()
             self._local.session = session
+            with self._sessions_lock:
+                self._sessions.append(session)
         return session
+
+    def close(self) -> None:
+        """退出收尾: 置 _closing 让在途下载在下一分块放弃 + 关闭 session 释放连接,
+        使下载线程秒退, 避免事件循环关闭时 join 在途下载而卡顿."""
+        self._closing = True
+        with self._sessions_lock:
+            sessions = self._sessions
+            self._sessions = []
+        for session in sessions:
+            try:
+                session.close()
+            except Exception:
+                pass
 
     def _download_sync(self, url: str, dest: Path) -> bool:
         try:
-            r = self._session().get(url, timeout=10)
-            if r.status_code != 200 or not r.content:
+            with self._session().get(url, timeout=10, stream=True) as resp:
+                if resp.status_code != 200:
+                    return False
+                buffer = bytearray()
+                for chunk in resp.iter_content(_DOWNLOAD_CHUNK):
+                    if self._closing:  # 退出: 放弃在途下载, 让 worker 立刻收尾
+                        return False
+                    if chunk:
+                        buffer += chunk
+            if not buffer:
                 return False
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(r.content)
+            dest.write_bytes(bytes(buffer))
             return True
         except Exception as exc:
             logger.warning("封面下载失败 (%s): %s", url[:60], exc)

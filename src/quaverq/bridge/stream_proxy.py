@@ -71,8 +71,15 @@ class StreamProxy:
                 pass
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        # 退出要快: 请求线程 daemon 化且关闭时不 join 在途请求 (随进程退出);
+        # serve_forever 用小 poll 间隔, 让 stop() 的 shutdown() 几乎立即返回
+        # (默认 0.5s 会让退出明显钝一下).
+        self._server.daemon_threads = True
+        self._server.block_on_close = False
         self._thread = threading.Thread(
-            target=self._server.serve_forever, name="StreamProxy", daemon=True
+            target=lambda: self._server.serve_forever(poll_interval=0.05),
+            name="StreamProxy",
+            daemon=True,
         )
         self._thread.start()
         logger.info("StreamProxy 启动于 127.0.0.1:%d", self.port)

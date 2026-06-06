@@ -137,13 +137,16 @@ async def _load_initial_state(
     )
 
 
-async def _shutdown(mpris_controller: MprisController) -> None:
+async def _shutdown(mpris_controller: MprisController, cover_cache: CoverCache) -> None:
     """关窗后清理 (run_forever 返回后, 趁 loop 未关 / QObject 仍存活时跑):
-    先停 MPRIS, 再取消并排空所有挂起任务.
+    关封面下载 session -> 停 MPRIS -> 取消并排空所有挂起任务.
 
-    用户在后台刷新完成前关窗时, refresh_* 等网络任务仍挂起; 不主动取消的话它们会在
-    loop.close() 时被 GC, finally 里 emit 信号撞上已析构的 C++ QObject -> RuntimeError.
+    - cover_cache.close(): 中断在途封面下载, 让下载线程秒退; 否则 loop.close() 会
+      join 它们 (qasync 默认 executor shutdown(wait=True)), 在途下载多大就钝多久.
+    - 取消挂起任务: 用户在后台刷新完成前关窗时, refresh_* 等任务仍挂起; 不主动取消的话
+      它们会在 loop.close() 时被 GC, finally 里 emit 信号撞上已析构的 C++ QObject。
     """
+    cover_cache.close()
     try:
         await mpris_controller.stop_async()
     except Exception:
@@ -265,8 +268,8 @@ def main() -> None:
         )
         loop.create_task(mpris_controller.start_async())
         loop.run_forever()  # qasync 在关窗 (app.quit) 时干净返回
-        # 关窗后趁 loop 未关 / QObject 仍存活: 停 MPRIS + 取消排空挂起任务, 干净退出
-        loop.run_until_complete(_shutdown(mpris_controller))
+        # 关窗后趁 loop 未关 / QObject 仍存活: 关下载 session + 停 MPRIS + 取消排空挂起任务
+        loop.run_until_complete(_shutdown(mpris_controller, cover_cache))
 
 
 if __name__ == "__main__":

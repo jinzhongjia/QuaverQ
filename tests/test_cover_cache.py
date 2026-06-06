@@ -43,11 +43,11 @@ async def test_fetch_downloads_and_caches(cover_cache: CoverCache, monkeypatch):
 
     class _FakeResp:
         status_code = 200
-        content = fake_bytes
-
-    class _FakeSession:
         def __enter__(self): return self
         def __exit__(self, *a): pass
+        def iter_content(self, n): yield fake_bytes
+
+    class _FakeSession:
         def get(self, *args, **kwargs): return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
@@ -68,11 +68,11 @@ async def test_fetch_dedupes_by_url(cover_cache: CoverCache, monkeypatch):
 
     class _FakeResp:
         status_code = 200
-        content = b"img"
-
-    class _FakeSession:
         def __enter__(self): return self
         def __exit__(self, *a): pass
+        def iter_content(self, n): yield b"img"
+
+    class _FakeSession:
         def get(self, *args, **kwargs):
             download_count[0] += 1
             return _FakeResp()
@@ -91,11 +91,11 @@ async def test_fetch_returns_none_on_404(cover_cache: CoverCache, monkeypatch):
 
     class _FakeResp:
         status_code = 404
-        content = b""
-
-    class _FakeSession:
         def __enter__(self): return self
         def __exit__(self, *a): pass
+        def iter_content(self, n): yield b""
+
+    class _FakeSession:
         def get(self, *args, **kwargs): return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
@@ -120,6 +120,24 @@ async def test_fetch_returns_none_on_network_error(cover_cache: CoverCache, monk
 async def test_fetch_empty_url_returns_none(cover_cache: CoverCache):
     assert await cover_cache.fetch("") is None
     assert await cover_cache.fetch(None) is None
+
+
+async def test_close_aborts_in_flight_download(cover_cache: CoverCache, monkeypatch):
+    """close() 置 _closing 后, 在途下载在分块间放弃 (退出时下载线程秒退)."""
+    import niquests
+
+    class _FakeResp:
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def iter_content(self, n): yield b"cover-bytes"
+
+    class _FakeSession:
+        def get(self, *args, **kwargs): return _FakeResp()
+
+    monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
+    cover_cache.close()
+    assert await cover_cache.fetch("https://y.qq.com/c.jpg") is None
 
 
 def test_session_reused_keeps_connection_alive(cover_cache: CoverCache, monkeypatch):
@@ -313,11 +331,11 @@ async def test_fetch_runs_eviction_after_download(cover_cache: CoverCache, monke
 
     class _FakeResp:
         status_code = 200
-        content = b"imgbytes"
-
-    class _FakeSession:
         def __enter__(self): return self
         def __exit__(self, *a): pass
+        def iter_content(self, n): yield b"imgbytes"
+
+    class _FakeSession:
         def get(self, *args, **kwargs): return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
@@ -334,11 +352,11 @@ async def test_fetch_skips_eviction_when_unlimited(cover_cache: CoverCache, monk
 
     class _FakeResp:
         status_code = 200
-        content = b"imgbytes"
-
-    class _FakeSession:
         def __enter__(self): return self
         def __exit__(self, *a): pass
+        def iter_content(self, n): yield b"imgbytes"
+
+    class _FakeSession:
         def get(self, *args, **kwargs): return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
