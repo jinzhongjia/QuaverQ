@@ -7,16 +7,21 @@ Item {
 
     property bool active: false
     property bool compact: false
+    property bool circular: false
     property string coverUrl: ""
     property var coverController
     property string iconText: "♪"
     property int iconSize: compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h2
     property int imageSize: compact ? 96 : 512
     property int imageRevision: 0
-    property int coverRadius: compact
-        ? ThemeTokens.Spacing.radiusSm
-        : Math.max(ThemeTokens.Spacing.radiusSm, Math.min(6, Math.round(root.imageSize * 0.1)))
-    readonly property int placeholderRadius: compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
+    property int coverRadius: root.circular
+        ? Math.round(root.imageSize / 2)
+        : compact
+            ? ThemeTokens.Spacing.radiusSm
+            : Math.max(ThemeTokens.Spacing.radiusSm, Math.min(6, Math.round(root.imageSize * 0.1)))
+    readonly property int placeholderRadius: root.circular
+        ? Math.round(Math.max(root.width, root.implicitWidth) / 2)
+        : compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
     readonly property bool coverCached: root.coverUrl.length > 0
         && root.coverController
         && root.imageRevision >= 0
@@ -77,7 +82,7 @@ Item {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         width: Math.min(34, Math.max(4, parent.width * 0.1))
-        visible: !root.hasImage
+        visible: !root.hasImage && !root.circular
         radius: root.placeholderRadius
         color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.accent
     }
@@ -89,7 +94,7 @@ Item {
         anchors.bottomMargin: Math.max(5, parent.height * 0.12)
         width: Math.max(8, parent.width * 0.24)
         height: width
-        visible: !root.hasImage
+        visible: !root.hasImage && !root.circular
         radius: width / 2
         color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.accent
     }

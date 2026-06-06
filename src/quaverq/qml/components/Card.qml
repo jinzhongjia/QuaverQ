@@ -44,6 +44,7 @@ Item {
 
             AlbumArt {
                 anchors.fill: parent
+                circular: root.circular
                 coverUrl: root.coverUrl
                 coverController: root.coverController
                 iconText: root.circular ? "♬" : "♪"
@@ -62,7 +63,7 @@ Item {
 
             // 播放量角标（hover 时让位给播放浮层）
             Rectangle {
-                visible: root.meta.length > 0 && !hover.hovered
+                visible: root.meta.length > 0 && !hover.hovered && !root.circular
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: ThemeTokens.Spacing.s2
@@ -86,7 +87,7 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 visible: hover.hovered
-                radius: ThemeTokens.Spacing.radiusLg
+                radius: root.circular ? Math.round(coverWrap.width / 2) : ThemeTokens.Spacing.radiusLg
                 color: "#2b000000"
                 z: 2
 

@@ -109,6 +109,7 @@ ColumnLayout {
             Components.AlbumArt {
                 Layout.preferredWidth: 168
                 Layout.preferredHeight: 168
+                circular: root.displayKind === "artist"
                 iconText: root.displayKind === "artist" ? "◎" : root.displayKind === "top" ? "↗" : "♪"
                 iconSize: ThemeTokens.TypeScale.display
                 active: root.hasSongs
