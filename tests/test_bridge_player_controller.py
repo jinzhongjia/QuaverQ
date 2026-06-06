@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtMultimedia import QMediaPlayer
+
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.bridge.models import SongListModel
 from quaverq.core.models import Singer, Song, SongUrl
@@ -330,3 +332,62 @@ def test_mode_and_transport_slots_emit_player_commands():
     assert controller.volume == 1.0
     assert seeks == [0]
     assert pauses == [True]
+
+
+async def test_media_error_retries_with_fresh_url_once():
+    # 瞬态 401 (ResourceError): 自动重取链 (新 vkey) 重播一次, 不报错
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    play_requests: list[bool] = []
+    controller.playRequested.connect(lambda: play_requests.append(True))
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+    assert len(service.calls) == 1
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.ResourceError.value, "401")
+
+    assert len(service.calls) == 2  # 重取链 (现签新 vkey)
+    assert play_requests == [True, True]  # 重新播放
+    assert controller.errorMessage == ""  # 重试中不报错
+
+
+async def test_media_error_gives_up_after_one_retry():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.ResourceError.value, "401")
+    await controller.handle_media_error_async(QMediaPlayer.Error.ResourceError.value, "401")
+
+    assert len(service.calls) == 2  # 首播 + 1 次重试, 不再重试
+    assert controller.playbackState == "stopped"
+    assert errors and "晴天" in errors[-1]
+
+
+async def test_media_error_non_retryable_reports_immediately():
+    # FormatError 解码错误重试无意义 -> 直接报错, 不重取链
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "bad codec")
+
+    assert len(service.calls) == 1  # 没重取链
+    assert controller.playbackState == "stopped"
+    assert errors and "晴天" in errors[-1]
+
+
+async def test_media_error_retry_counter_resets_after_successful_play():
+    # 成功播放后计数清零, 同曲后续 (如 vkey 过期) 仍可再重试
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.NetworkError.value, "x")
+    controller.updatePlaybackState("playing")  # 重试成功
+    await controller.handle_media_error_async(QMediaPlayer.Error.NetworkError.value, "x")
+
+    assert len(service.calls) == 3  # 首播 + 两次 (各自允许的) 重试

@@ -7,7 +7,13 @@ import urllib.parse
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor, QImage
 
-from quaverq.bridge.cover_provider import CoverController, CoverImageProvider
+import asyncio
+
+from quaverq.bridge.cover_provider import (
+    _MAX_CONCURRENT_DOWNLOADS,
+    CoverController,
+    CoverImageProvider,
+)
 from quaverq.core.cover_cache import CoverCache
 
 
@@ -93,3 +99,30 @@ def test_cover_controller_emits_ready_for_cached_url(tmp_path):
     controller.fetchCover(url)
 
     assert ready == [url]
+
+
+async def test_fetch_cover_caps_concurrent_downloads():
+    """并发下载不超过上限 (配合 keep-alive 复用少量连接, 防 CDN 限流)."""
+    state = {"in_flight": 0, "peak": 0}
+    release = asyncio.Event()
+
+    class _SlowCache:
+        def get_path(self, url):
+            return None  # 强制走下载路径
+
+        async def fetch(self, url):
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+            await release.wait()
+            state["in_flight"] -= 1
+            return None
+
+    controller = CoverController(_SlowCache())  # type: ignore[arg-type]
+    for i in range(_MAX_CONCURRENT_DOWNLOADS + 4):
+        controller.fetchCover(f"https://x/{i}.jpg")
+
+    await asyncio.sleep(0.05)  # 让任务跑到信号量边界
+    assert state["peak"] == _MAX_CONCURRENT_DOWNLOADS
+
+    release.set()
+    await asyncio.gather(*list(controller._tasks.values()), return_exceptions=True)

@@ -251,6 +251,10 @@ ApplicationWindow {
             if (root.playerController && mediaStatus === MediaPlayer.EndOfMedia)
                 root.playerController.handleEndOfMedia()
         }
+        onErrorOccurred: function(error, errorString) {
+            if (root.playerController)
+                root.playerController.handleMediaError(error, errorString)
+        }
     }
 
     Connections {

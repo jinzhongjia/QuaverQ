@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtMultimedia import QMediaPlayer
 from qasync import asyncSlot
 
 from quaverq.core.models import Song
@@ -31,6 +32,17 @@ _MODE_TO_NAME = {
     PlayMode.SHUFFLE: "shuffle",
 }
 _NAME_TO_MODE = {value: key for key, value in _MODE_TO_NAME.items()}
+
+# 这些媒体错误多为瞬态 (CDN 偶发 401 / 网络抖动 / vkey 边缘节点延迟), 重取链 (现签新 vkey)
+# 通常即恢复; FormatError 等解码类错误重试无意义, 不在此列.
+_RETRYABLE_MEDIA_ERRORS = frozenset(
+    {
+        QMediaPlayer.Error.ResourceError.value,
+        QMediaPlayer.Error.NetworkError.value,
+        QMediaPlayer.Error.AccessDeniedError.value,
+    }
+)
+_MAX_MEDIA_RETRIES = 1
 
 
 class PlayerController(QObject):
@@ -77,6 +89,9 @@ class PlayerController(QObject):
         self._loading = False
         self._error_message = ""
         self._load_generation = 0
+        # 瞬态媒体错误 (CDN 401 等) 的自动重试: 按当前曲 mid 计数, 成功播放清零
+        self._media_retry_count = 0
+        self._media_retry_mid = ""
         self._restore_session_snapshot()
 
     @Property("QVariant", notify=currentSongChanged)
@@ -278,7 +293,44 @@ class PlayerController(QObject):
 
     @Slot(str)
     def updatePlaybackState(self, state: str) -> None:
+        if state == "playing":
+            self._media_retry_count = 0  # 成功播放 -> 清零, 允许后续 (如 vkey 过期) 再重试
         self._set_playback_state(state)
+
+    @asyncSlot(int, str)
+    async def handleMediaError(self, error: int, error_string: str) -> None:
+        await self.handle_media_error_async(error, error_string)
+
+    async def handle_media_error_async(self, error: int, error_string: str) -> None:
+        """QML MediaPlayer 报错回调: 瞬态错误 (CDN 401 等) 重取链重试当前曲一次."""
+        song = self._queue.current()
+        if song is None:
+            return
+        if song.mid != self._media_retry_mid:  # 换了曲 -> 重置计数
+            self._media_retry_mid = song.mid
+            self._media_retry_count = 0
+        if int(error) in _RETRYABLE_MEDIA_ERRORS and self._media_retry_count < _MAX_MEDIA_RETRIES:
+            self._media_retry_count += 1
+            logger.warning(
+                "媒体错误 (code=%s: %s), 重取链重试 %d/%d: %s",
+                error,
+                error_string,
+                self._media_retry_count,
+                _MAX_MEDIA_RETRIES,
+                song.name,
+            )
+            await self._load_current(
+                play_when_ready=True,
+                resume_position_ms=self._position_ms,
+            )
+            return
+        # 不可重试 或 重试已用尽 -> 报错停下, 交给用户
+        self._media_retry_count = 0
+        self._media_retry_mid = ""
+        self._set_playback_state("stopped")
+        message = f"播放失败：{song.name}"
+        self._set_error_message(message)
+        self.errorRaised.emit(message)
 
     @Slot()
     def saveSessionSnapshot(self) -> None:

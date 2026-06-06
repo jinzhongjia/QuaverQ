@@ -15,6 +15,10 @@ from quaverq.core.cover_cache import CoverCache
 
 logger = logging.getLogger(__name__)
 
+# 封面下载并发上限: 配合 CoverCache 的 keep-alive session, 复用 ~N 条到 CDN 的长连接,
+# 避免一屏几十张封面瞬间开几十个线程/连接被 CDN 限流.
+_MAX_CONCURRENT_DOWNLOADS = 6
+
 
 class CoverImageProvider(QQuickImageProvider):
     """Serve cached cover files through image://covers/<url>|<size>|<radius>."""
@@ -136,6 +140,7 @@ class CoverController(QObject):
         super().__init__(parent)
         self._cover_cache = cover_cache
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._download_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_DOWNLOADS)
 
     @Slot(str)
     def fetchCover(self, url: str) -> None:
@@ -160,7 +165,8 @@ class CoverController(QObject):
 
     async def _fetch(self, url: str) -> None:
         try:
-            path = await self._cover_cache.fetch(url)
+            async with self._download_semaphore:
+                path = await self._cover_cache.fetch(url)
             if path is None:
                 self.coverFailed.emit(url)
                 return

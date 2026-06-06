@@ -122,6 +122,27 @@ async def test_fetch_empty_url_returns_none(cover_cache: CoverCache):
     assert await cover_cache.fetch(None) is None
 
 
+def test_session_reused_keeps_connection_alive(cover_cache: CoverCache, monkeypatch):
+    """同线程内复用同一个 Session (keep-alive), 不每张图新建 -> 省 TLS 握手."""
+    import niquests
+
+    created: list[object] = []
+
+    class _FakeSession:
+        def get(self, *args, **kwargs):
+            return None
+
+    def factory():
+        session = _FakeSession()
+        created.append(session)
+        return session
+
+    monkeypatch.setattr(niquests, "Session", factory)
+
+    assert cover_cache._session() is cover_cache._session()
+    assert len(created) == 1
+
+
 # ============================================================== 文件名
 
 def test_filename_keeps_jpg_extension(cover_cache: CoverCache):

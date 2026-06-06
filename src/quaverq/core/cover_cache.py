@@ -20,6 +20,7 @@ import hashlib
 import logging
 import os
 import shutil
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -41,6 +42,8 @@ class CoverCache:
     def __init__(self, dir_: str | Path, max_bytes: int = 0):
         self.dir = Path(dir_)
         self.max_bytes = max(0, int(max_bytes))
+        # 每个 to_thread worker 线程复用一个长连接 Session (keep-alive)
+        self._local = threading.local()
 
     # ------------------------------------------------------------------ 同步查询
 
@@ -178,17 +181,28 @@ class CoverCache:
             return suffix
         return ".jpg"
 
-    def _download_sync(self, url: str, dest: Path) -> bool:
-        import niquests
+    def _session(self):
+        """当前线程复用的 niquests.Session (keep-alive).
 
+        长连接复用到 CDN 的 TLS 连接, 省掉每张封面一次握手 (批量封面下载快数倍);
+        urllib3 连接池自管理连接健康, 单次失败不污染后续请求, 故无需每次重建.
+        """
+        session = getattr(self._local, "session", None)
+        if session is None:
+            import niquests
+
+            session = niquests.Session()
+            self._local.session = session
+        return session
+
+    def _download_sync(self, url: str, dest: Path) -> bool:
         try:
-            with niquests.Session() as s:
-                r = s.get(url, timeout=10)
-                if r.status_code != 200 or not r.content:
-                    return False
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(r.content)
-                return True
+            r = self._session().get(url, timeout=10)
+            if r.status_code != 200 or not r.content:
+                return False
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(r.content)
+            return True
         except Exception as exc:
             logger.warning("封面下载失败 (%s): %s", url[:60], exc)
             return False

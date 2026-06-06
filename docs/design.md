@@ -739,7 +739,7 @@ src/quaverq/
 │   └── models.py                QAbstractListModel 族
 ├── core/                   保持
 │   ├── service / queue / cover_cache /
-│   │   state / lyric / mpris / models
+│   │   state / serde / home_cache / lyric / mpris / models
 │   └── platform/           deferred：Windows / macOS 支持前引入
 └── qml/                    新增
     ├── Main.qml
@@ -1027,6 +1027,24 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - 选小于当前缓存的上限会立即按 LRU 淘汰到上限内。
 - 启动后旧架构遗留的 `cache.db` / `CacheStorage` / `WebKitCache` 被清除。
 
+**Q15 首屏秒开（SWR）+ 封面提速 + 播放重试（已完成）**
+
+目标：冷启动首帧即见上次内容、封面秒显、瞬态取链失败自愈、关窗干净退出。
+
+已交付：
+- **首屏 SWR（stale-while-revalidate）**：`core/home_cache.py` 把发现页 5 区块（猜你喜欢 / 今日推荐 / 新歌速递 / 排行榜 / 我的歌单）快照到 `~/.cache/quaverq/home.json`；启动**同步**填充 model（公共区块在 `engine.load` 前、私有区块在凭据就绪后），网络在后台刷新并回写（失败的区块保留上次缓存）。Song 序列化抽到 `core/serde.py`，与 `state.py` 共用防字段漂移。
+- **账号隔离**：私有两块（猜你喜欢 / 我的歌单）各自按 `hash(musicid)` 存 account_key，仅匹配才恢复，杜绝跨账号串号；登出 `clear_private()`。
+- **乐观登录**：`ServiceController.prime_credential_sync()` 启动**只读盘不联网**置 authed，首帧即登录态（消除"登录态抖动"）；真正的网络校验留给后台 `start()`，过期才降级。`start()` 加 `asyncio.Lock` 防并发双 `connect()`（曾导致泄漏第二个 Client → 退出卡死）。
+- **无闪刷新**：`SongListModel.set_songs` / `CardListModel.set_cards` 在数据未变时跳过 `beginResetModel`，避免列表整体重建闪烁；首页移除"正在加载"文案（有缓存即稳定显示）。
+- **封面提速**：`CoverCache` 每线程复用 keep-alive `niquests.Session`（省每张图一次 TLS 握手），`CoverController` 用 `asyncio.Semaphore(6)` 限并发、复用少量到 CDN 的长连接。
+- **播放重试**：QML `MediaPlayer.onErrorOccurred` → `PlayerController.handleMediaError`；瞬态错误（CDN 偶发 401 / 网络 / 访问拒绝）**重取链（现签新 vkey）重播一次**（按当前曲 mid 计数，成功播放清零），不可重试（如解码 FormatError）或重试用尽才弹错。
+- **干净退出**：`run_forever` 返回后 `_shutdown` 先停 MPRIS、再取消并排空挂起任务（趁 QObject 仍存活），避免关窗时 `Signal source has been deleted` / `Task destroyed`。
+
+验收：
+- 返回用户冷启动首帧即登录态 + 上次缓存内容，封面秒显，后台静默刷新无闪。
+- 关窗（含后台刷新进行中）干净退出，无 traceback。
+- 偶发 401 自动换 vkey 重播；真不可播才提示。
+
 ### 14.5 产品完整度 Backlog → 已排期为 Q12–Q14
 
 下列项不阻塞 Q11 发布，但阻塞 1.0 完整体验，现已纳入正式里程碑（见 §14 分期表与 §15 看板）。core 层多类型搜索接口（`search_singers / search_albums / search_playlists`）已就绪，Q12 主要补 bridge + QML。
@@ -1066,6 +1084,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 - [x] Q12 多类型搜索（P1）
 - [x] Q13 统一反馈与控件（P2）
 - [x] Q14 缓存策略（P2）封面缓存上限 + LRU + 孤儿缓存清理；音频缓存预留
+- [x] Q15 首屏 SWR 秒开 + 乐观登录 + 无闪刷新 + 封面 keep-alive + 播放 401 自动重试 + 干净退出
 
 ---
 
