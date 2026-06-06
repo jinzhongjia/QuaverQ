@@ -15,6 +15,7 @@ QtObject {
     readonly property int radiusMd: 8
     readonly property int radiusLg: 12
     readonly property int radiusXl: 16
+    readonly property int radiusPill: 20
 
     readonly property int windowWidth: 1080
     readonly property int windowHeight: 720

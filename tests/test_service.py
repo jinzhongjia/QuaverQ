@@ -486,6 +486,87 @@ async def test_try_bypass_url_uses_short_vkey_timeout():
     assert captured["timeout"] == svc._VKEY_REQUEST_TIMEOUT_SEC
 
 
+# ============================================================== get_fav_albums (bypass)
+
+def _fav_cred():
+    return SimpleNamespace(encrypt_uin="euin123", musickey="key", musicid=1)
+
+
+async def test_get_fav_albums_parses_v_list():
+    svc = QuaverService()
+    svc._effective_credential = _fav_cred
+
+    async def fake_post(module, method, param, **_kwargs):
+        return {"v_list": [
+            {"mid": "alb1", "name": "叶惠美", "songnum": 12,
+             "v_singer": [{"mid": "s1", "name": "周杰伦"}]},
+            {"mid": "alb2", "name": "范特西", "songnum": 10,
+             "v_singer": [{"mid": "s1", "name": "周杰伦"}]},
+        ]}
+
+    svc._bypass_post = fake_post
+    albums = await svc.get_fav_albums()
+
+    assert [a.mid for a in albums] == ["alb1", "alb2"]
+    assert albums[0].name == "叶惠美"
+    assert albums[0].song_count == 12
+    assert albums[0].singers[0].name == "周杰伦"
+    assert albums[0].cover_url  # 有封面 URL
+
+
+async def test_get_fav_albums_tolerates_single_dict_v_list():
+    """0/1 个专辑时 v_list 是单个 dict 而非数组 (lib pydantic 会崩, bypass 不崩)."""
+    svc = QuaverService()
+    svc._effective_credential = _fav_cred
+
+    async def fake_post(module, method, param, **_kwargs):
+        return {"v_list": {"id": 23005471, "mid": "alb1", "name": "孤独专辑",
+                           "songnum": 1, "v_singer": [{"mid": "s1", "name": "歌手"}]}}
+
+    svc._bypass_post = fake_post
+    albums = await svc.get_fav_albums()
+
+    assert len(albums) == 1
+    assert albums[0].mid == "alb1"
+    assert albums[0].name == "孤独专辑"
+
+
+async def test_get_fav_albums_empty_when_v_list_missing():
+    svc = QuaverService()
+    svc._effective_credential = _fav_cred
+
+    async def fake_post(module, method, param, **_kwargs):
+        return {"total": 0}
+
+    svc._bypass_post = fake_post
+    assert await svc.get_fav_albums() == []
+
+
+async def test_get_fav_albums_no_credential_returns_empty():
+    svc = QuaverService()
+    svc._effective_credential = lambda: None
+    assert await svc.get_fav_albums() == []
+
+
+async def test_get_fav_albums_sends_correct_request():
+    svc = QuaverService()
+    svc._effective_credential = _fav_cred
+    captured: dict[str, object] = {}
+
+    async def fake_post(module, method, param, **_kwargs):
+        captured["module"] = module
+        captured["method"] = method
+        captured["param"] = param
+        return {"v_list": []}
+
+    svc._bypass_post = fake_post
+    await svc.get_fav_albums()
+
+    assert captured["module"] == "music.musicasset.AlbumFavRead"
+    assert captured["method"] == "CgiGetAlbumFavInfo"
+    assert captured["param"]["euin"] == "euin123"
+
+
 # ============================================================== ct 随机白名单
 
 def test_safe_ct_values_excludes_blocklist():
@@ -1063,44 +1144,8 @@ async def test_get_followed_singers_extracts_users():
     assert singers[0].avatar_url == "http://a.jpg"
 
 
-async def test_get_fav_albums_tolerates_lib_pydantic_error():
-    """0.6.1 lib 在用户有 0 或 1 个专辑时 pydantic 校验报错, 应被 try/except 吃掉."""
-    svc = QuaverService()
-    svc.credential = Credential(musicid=1, musickey="k", encrypt_uin="EUIN")
-
-    async def fake_fav_album(euin, **kw):
-        raise ValueError("pydantic validation error")
-
-    svc._client = SimpleNamespace(
-        user=SimpleNamespace(get_fav_album=fake_fav_album),
-        credential=svc.credential,
-    )
-    # 不抛, 返回空
-    assert await svc.get_fav_albums() == []
-
-
-async def test_get_fav_albums_extracts_when_available():
-    svc = QuaverService()
-    svc.credential = Credential(musicid=1, musickey="k", encrypt_uin="EUIN")
-
-    async def fake_fav_album(euin, **kw):
-        return SimpleNamespace(albums=[
-            SimpleNamespace(
-                mid="alb1", name="叶惠美",
-                singer=SimpleNamespace(mid="j", name="周杰伦"),
-                pic_url="http://a.jpg", time_public="2003-07-29",
-                song_num=12,
-            ),
-        ])
-
-    svc._client = SimpleNamespace(
-        user=SimpleNamespace(get_fav_album=fake_fav_album),
-        credential=svc.credential,
-    )
-    albums = await svc.get_fav_albums()
-    assert len(albums) == 1
-    assert albums[0].name == "叶惠美"
-    assert albums[0].singers[0].name == "周杰伦"
+# get_fav_albums 已改走 _bypass_post 手动解析 v_list（见上方 "get_fav_albums (bypass)"
+# 区的 5 个测试）；旧的 lib-path 测试（mock svc._client.user.get_fav_album）随实现移除。
 
 
 # ============================================================== 详情拉取

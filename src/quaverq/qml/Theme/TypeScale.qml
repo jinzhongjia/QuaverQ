@@ -12,4 +12,5 @@ QtObject {
 
     readonly property int regular: Font.Normal
     readonly property int medium: Font.Medium
+    readonly property int bold: Font.DemiBold
 }

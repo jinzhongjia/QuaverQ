@@ -29,8 +29,8 @@ FocusScope {
     Rectangle {
         anchors.fill: parent
         radius: height / 2
-        color: ThemeTokens.Palette.surfaceElevated
-        border.color: input.activeFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
+        color: ThemeTokens.Palette.surfaceVariant
+        border.color: input.activeFocus ? ThemeTokens.Palette.focusRing : "transparent"
         border.width: input.activeFocus ? 2 : 1
     }
 

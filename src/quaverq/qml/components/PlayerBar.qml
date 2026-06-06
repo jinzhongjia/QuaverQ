@@ -41,7 +41,14 @@ Rectangle {
     radius: root.bottomCornerRadius
     antialiasing: true
     color: ThemeTokens.Palette.surfaceElevated
-    border.color: ThemeTokens.Palette.outlineMuted
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 1
+        color: ThemeTokens.Palette.outlineMuted
+    }
 
     Rectangle {
         anchors.left: parent.left
@@ -89,25 +96,40 @@ Rectangle {
         case "repeat_all":
             return qsTr("列表循环")
         case "repeat_one":
-            return qsTr("单曲")
+            return qsTr("单曲循环")
         case "shuffle":
-            return qsTr("随机")
+            return qsTr("随机播放")
         default:
-            return qsTr("顺序")
+            return qsTr("顺序播放")
+        }
+    }
+
+    function modeGlyph(value) {
+        switch (value) {
+        case "repeat_all":
+            return "↻"
+        case "repeat_one":
+            return "①"
+        case "shuffle":
+            return "⇋"
+        default:
+            return "⇄"
         }
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: ThemeTokens.Spacing.s6
-        anchors.rightMargin: ThemeTokens.Spacing.s6
-        spacing: ThemeTokens.Spacing.s5
+        anchors.topMargin: root.bottomCornerRadius
+        anchors.leftMargin: ThemeTokens.Spacing.s5
+        anchors.rightMargin: ThemeTokens.Spacing.s5
+        spacing: ThemeTokens.Spacing.s4
 
+        // ---------------------------------------------------------- LEFT zone
         AlbumArt {
             id: coverArt
 
-            Layout.preferredWidth: 64
-            Layout.preferredHeight: 64
+            Layout.preferredWidth: 56
+            Layout.preferredHeight: 56
             active: root.hasSong
             coverUrl: root.hasSong && root.currentSong.coverUrl ? root.currentSong.coverUrl : ""
             coverController: root.coverController
@@ -120,14 +142,8 @@ Rectangle {
                 onTapped: root.nowPlayingRequested()
             }
 
-            Keys.onReturnPressed: {
-                if (root.hasSong)
-                    root.nowPlayingRequested()
-            }
-            Keys.onSpacePressed: {
-                if (root.hasSong)
-                    root.nowPlayingRequested()
-            }
+            Keys.onReturnPressed: { if (root.hasSong) root.nowPlayingRequested() }
+            Keys.onSpacePressed: { if (root.hasSong) root.nowPlayingRequested() }
 
             Rectangle {
                 anchors.fill: parent
@@ -140,9 +156,9 @@ Rectangle {
         }
 
         Item {
-            Layout.preferredWidth: 260
-            Layout.maximumWidth: 340
-            Layout.preferredHeight: 64
+            Layout.preferredWidth: 200
+            Layout.maximumWidth: 280
+            Layout.preferredHeight: 56
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("打开正在播放")
             activeFocusOnTab: root.hasSong
@@ -152,14 +168,8 @@ Rectangle {
                 onTapped: root.nowPlayingRequested()
             }
 
-            Keys.onReturnPressed: {
-                if (root.hasSong)
-                    root.nowPlayingRequested()
-            }
-            Keys.onSpacePressed: {
-                if (root.hasSong)
-                    root.nowPlayingRequested()
-            }
+            Keys.onReturnPressed: { if (root.hasSong) root.nowPlayingRequested() }
+            Keys.onSpacePressed: { if (root.hasSong) root.nowPlayingRequested() }
 
             Rectangle {
                 anchors.fill: parent
@@ -172,16 +182,15 @@ Rectangle {
             }
 
             ColumnLayout {
-                anchors.fill: parent
-                anchors.topMargin: ThemeTokens.Spacing.s3
-                anchors.bottomMargin: ThemeTokens.Spacing.s3
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
                 spacing: ThemeTokens.Spacing.s2
 
                 Label {
                     Layout.fillWidth: true
                     text: root.songTitle
                     color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.body
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
                 }
@@ -203,94 +212,85 @@ Rectangle {
             song: root.currentSong
         }
 
+        // ---------------------------------------------------------- CENTER zone
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(parent.width, 520)
-                spacing: ThemeTokens.Spacing.s3
+                width: Math.min(parent.width, 560)
+                spacing: ThemeTokens.Spacing.s2
 
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: ThemeTokens.Spacing.s3
+                    spacing: ThemeTokens.Spacing.s4
 
-                    Button {
-                        id: prevButton
-
-                        Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
-                        Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                        text: "‹"
+                    IconButton {
+                        text: root.modeLabel(root.mode)
+                        iconText: root.modeGlyph(root.mode)
+                        iconSize: ThemeTokens.TypeScale.body
+                        iconColor: root.mode !== "sequence"
+                            ? ThemeTokens.Palette.primary
+                            : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
-                        Accessible.name: qsTr("上一首")
+                        onClicked: root.modeRequested(root.nextModeName(root.mode))
+                    }
+
+                    IconButton {
+                        text: qsTr("上一首")
+                        iconText: "◂◂"
+                        iconSize: ThemeTokens.TypeScale.h2
+                        iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
+                        enabled: root.canControl
                         onClicked: root.prevRequested()
-
-                        contentItem: Label {
-                            text: prevButton.text
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: prevButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
-                            font.pixelSize: ThemeTokens.TypeScale.h2
-                        }
-
-                        background: Rectangle {
-                            radius: width / 2
-                            color: prevButton.down ? ThemeTokens.Palette.statePressed : prevButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                            border.color: "transparent"
-                        }
                     }
 
                     Button {
                         id: playButton
 
-                        Layout.preferredWidth: 54
-                        Layout.preferredHeight: 54
-                        text: root.playbackState === "playing" ? "Ⅱ" : "▶"
+                        Layout.preferredWidth: 52
+                        Layout.preferredHeight: 52
                         enabled: root.canControl
                         Accessible.name: root.playbackState === "playing" ? qsTr("暂停") : qsTr("播放")
                         onClicked: root.playPauseRequested()
 
                         contentItem: Label {
-                            text: playButton.text
+                            text: root.playbackState === "playing" ? "❚❚" : "▶"
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            color: playButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
-                            font.pixelSize: ThemeTokens.TypeScale.body
-                            font.weight: ThemeTokens.TypeScale.medium
+                            color: ThemeTokens.Palette.primaryText
+                            font.pixelSize: ThemeTokens.TypeScale.h2
+                            // optical centering for the play triangle
+                            leftPadding: root.playbackState === "playing" ? 0 : 3
                         }
 
                         background: Rectangle {
                             radius: width / 2
-                            color: playButton.enabled
-                                ? (playButton.down ? ThemeTokens.Palette.primary : ThemeTokens.Palette.primary)
-                                : ThemeTokens.Palette.stateDisabled
+                            color: !playButton.enabled
+                                ? ThemeTokens.Palette.stateDisabled
+                                : playButton.down ? ThemeTokens.Palette.primaryActive
+                                : playButton.hovered ? ThemeTokens.Palette.primaryHover
+                                : ThemeTokens.Palette.primary
+
+                            Rectangle {
+                                anchors.fill: parent
+                                visible: playButton.activeFocus
+                                radius: width / 2
+                                color: "transparent"
+                                border.color: ThemeTokens.Palette.focusRing
+                                border.width: 2
+                            }
                         }
                     }
 
-                    Button {
-                        id: nextButton
-
-                        Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
-                        Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                        text: "›"
+                    IconButton {
+                        text: qsTr("下一首")
+                        iconText: "▸▸"
+                        iconSize: ThemeTokens.TypeScale.h2
+                        iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
-                        Accessible.name: qsTr("下一首")
                         onClicked: root.nextRequested()
-
-                        contentItem: Label {
-                            text: nextButton.text
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: nextButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
-                            font.pixelSize: ThemeTokens.TypeScale.h2
-                        }
-
-                        background: Rectangle {
-                            radius: width / 2
-                            color: nextButton.down ? ThemeTokens.Palette.statePressed : nextButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                            border.color: "transparent"
-                        }
                     }
                 }
 
@@ -310,7 +310,7 @@ Rectangle {
                         id: progressSlider
 
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 20
+                        Layout.preferredHeight: 18
                         from: 0
                         to: Math.max(1, root.durationMs)
                         enabled: root.hasSong && root.durationMs > 0
@@ -329,9 +329,9 @@ Rectangle {
                             x: progressSlider.leftPadding
                             y: progressSlider.topPadding + progressSlider.availableHeight / 2 - height / 2
                             width: progressSlider.availableWidth
-                            height: 5
+                            height: 4
                             radius: height / 2
-                            color: ThemeTokens.Palette.outlineMuted
+                            color: ThemeTokens.Palette.outline
 
                             Rectangle {
                                 width: progressSlider.visualPosition * parent.width
@@ -344,10 +344,11 @@ Rectangle {
                         handle: Rectangle {
                             x: progressSlider.leftPadding + progressSlider.visualPosition * (progressSlider.availableWidth - width)
                             y: progressSlider.topPadding + progressSlider.availableHeight / 2 - height / 2
-                            width: 13
-                            height: 13
+                            width: 12
+                            height: 12
                             radius: width / 2
                             color: progressSlider.enabled ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+                            visible: progressSlider.enabled
                         }
                     }
 
@@ -361,81 +362,70 @@ Rectangle {
             }
         }
 
-        Button {
-            id: queueButton
-
-            Layout.preferredWidth: root.queueCount > 99 ? 96 : 78
-            Layout.preferredHeight: 36
-            text: root.queueCount > 0 ? qsTr("待播 %1").arg(root.queueCount) : qsTr("待播")
-            Accessible.name: qsTr("待播列表")
-            onClicked: root.queueRequested()
-
-            contentItem: Label {
-                text: queueButton.text
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                color: ThemeTokens.Palette.surfaceText
-                font.pixelSize: ThemeTokens.TypeScale.caption
-                font.weight: ThemeTokens.TypeScale.medium
-                elide: Text.ElideRight
-            }
-
-            background: Rectangle {
-                radius: ThemeTokens.Spacing.radiusMd
-                color: queueButton.down
-                    ? ThemeTokens.Palette.statePressed
-                    : queueButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
-                border.color: "transparent"
-            }
-        }
-
+        // ---------------------------------------------------------- RIGHT zone
         RowLayout {
-            Layout.preferredWidth: root.width >= 920 ? 230 : 0
-            Layout.maximumWidth: root.width >= 920 ? 230 : 0
+            Layout.preferredWidth: root.width >= 920 ? 232 : 0
+            Layout.maximumWidth: root.width >= 920 ? 232 : 0
             Layout.fillHeight: true
             visible: root.width >= 920
-            spacing: ThemeTokens.Spacing.s3
+            spacing: ThemeTokens.Spacing.s2
 
-            Button {
-                id: modeButton
+            IconButton {
+                text: qsTr("歌词")
+                iconText: "词"
+                iconSize: ThemeTokens.TypeScale.bodySm
+                iconColor: ThemeTokens.Palette.surfaceVariantText
+                enabled: root.hasSong
+                onClicked: root.nowPlayingRequested()
+            }
 
-                Layout.preferredWidth: 88
-                Layout.preferredHeight: 36
-                text: root.modeLabel(root.mode)
-                enabled: root.canControl
-                Accessible.name: qsTr("播放模式")
-                onClicked: root.modeRequested(root.nextModeName(root.mode))
+            Item {
+                Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+                Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
 
-                contentItem: Label {
-                    text: modeButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: modeButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.caption
-                    font.weight: ThemeTokens.TypeScale.medium
-                    elide: Text.ElideRight
+                IconButton {
+                    id: queueButton
+                    anchors.fill: parent
+                    text: qsTr("待播列表")
+                    iconText: "☰"
+                    iconSize: ThemeTokens.TypeScale.body
+                    iconColor: ThemeTokens.Palette.surfaceVariantText
+                    onClicked: root.queueRequested()
                 }
 
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: modeButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : modeButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
-                    border.color: "transparent"
+                Rectangle {
+                    visible: root.queueCount > 0
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.rightMargin: 2
+                    anchors.topMargin: 4
+                    width: Math.max(16, badgeLabel.implicitWidth + 8)
+                    height: 16
+                    radius: 8
+                    color: ThemeTokens.Palette.primary
+
+                    Label {
+                        id: badgeLabel
+                        anchors.centerIn: parent
+                        text: root.queueCount > 99 ? "99+" : root.queueCount
+                        color: ThemeTokens.Palette.primaryText
+                        font.pixelSize: 10
+                        font.weight: ThemeTokens.TypeScale.medium
+                    }
                 }
             }
 
             Label {
-                text: qsTr("音量")
+                text: "♪"
                 color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.caption
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
 
             Slider {
                 id: volumeSlider
 
                 Layout.fillWidth: true
-                Layout.preferredHeight: 20
+                Layout.preferredHeight: 18
                 from: 0
                 to: 1
                 value: root.volume
@@ -445,9 +435,9 @@ Rectangle {
                     x: volumeSlider.leftPadding
                     y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
                     width: volumeSlider.availableWidth
-                    height: 5
+                    height: 4
                     radius: height / 2
-                    color: ThemeTokens.Palette.outlineMuted
+                    color: ThemeTokens.Palette.outline
 
                     Rectangle {
                         width: volumeSlider.visualPosition * parent.width

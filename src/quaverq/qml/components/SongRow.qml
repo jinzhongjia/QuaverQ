@@ -74,8 +74,12 @@ Rectangle {
 
         Label {
             Layout.preferredWidth: 28
-            text: root.selected ? "♪" : (root.index >= 0 ? String(root.index + 1) : "")
-            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+            text: root.selected
+                ? "♪"
+                : (hoverHandler.hovered ? "▶" : (root.index >= 0 ? String(root.index + 1) : ""))
+            color: (root.selected || hoverHandler.hovered)
+                ? ThemeTokens.Palette.primary
+                : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
             font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular

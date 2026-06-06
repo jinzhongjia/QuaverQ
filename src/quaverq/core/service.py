@@ -1096,46 +1096,60 @@ class QuaverService:
         return out
 
     async def get_fav_albums(self) -> list[Album]:
-        """收藏的专辑. 0.6.1 lib 在用户只有 0/1 个专辑时 pydantic 校验报错, try/except 容错."""
+        """收藏的专辑.
+
+        绕过 qqmusic-api 0.6.1 的 ``UserFavAlbumResponse``：该模型用 jsonpath
+        ``$.v_list[*]`` 取列表，当用户只有 0/1 个专辑时 ``v_list`` 可能是单个
+        dict 而非数组，pydantic 直接校验失败、整页拉不到。这里走 ``_bypass_post``
+        取原始 data，手动容错解析（``v_list`` 为 dict / list / 缺失都能处理）。
+        """
         cred = self._effective_credential()
         if cred is None or not cred.encrypt_uin:
             return []
-        try:
-            resp = await self.client.user.get_fav_album(
-                cred.encrypt_uin, page=1, num=200, credential=cred
-            )
-        except Exception as exc:
-            if is_credential_expired_error(exc):
-                raise CredentialExpiredError("登录已过期，请重新登录") from exc
-            logger.warning("get_fav_album 失败 (lib 校验问题或无数据): %s", exc)
-            return []
+        data = await self._bypass_post(
+            "music.musicasset.AlbumFavRead",
+            "CgiGetAlbumFavInfo",
+            {"euin": cred.encrypt_uin, "offset": 0, "size": 200},
+            require_login=True,
+        )
+        return self._parse_fav_albums(data)
+
+    @staticmethod
+    def _parse_fav_albums(data: dict[str, Any] | None) -> list[Album]:
+        raw = (data or {}).get("v_list")
+        if isinstance(raw, dict):
+            # 单个专辑时 API 直接返回 dict；或 index→album 的映射
+            items = [raw] if ("mid" in raw or "id" in raw) else [
+                v for v in raw.values() if isinstance(v, dict)
+            ]
+        elif isinstance(raw, list):
+            items = raw
+        else:
+            items = []
         out: list[Album] = []
-        for a in (getattr(resp, "albums", None) or []):
-            mid = getattr(a, "mid", "") or ""
-            singer_obj = getattr(a, "singer", None)
+        for a in items:
+            if not isinstance(a, dict):
+                continue
+            mid = str(a.get("mid", "") or "")
+            if not mid:
+                continue
             singers: list[Singer] = []
-            if singer_obj is not None:
-                # 可能是单个或列表
-                items = (
-                    singer_obj if isinstance(singer_obj, list) else [singer_obj]
-                )
-                for s in items:
+            for s in (a.get("v_singer") or a.get("singer") or []):
+                if isinstance(s, dict):
                     singers.append(
                         Singer(
-                            mid=getattr(s, "mid", "") or "",
-                            name=getattr(s, "name", "") or "",
+                            mid=str(s.get("mid", "") or ""),
+                            name=str(s.get("name", "") or ""),
                         )
                     )
             out.append(
                 Album(
                     mid=mid,
-                    name=getattr(a, "name", "") or "",
+                    name=str(a.get("name", "") or ""),
                     singers=singers,
-                    cover_url=getattr(a, "pic_url", None)
-                        or getattr(a, "pic", None)
-                        or _cover_url(mid, 300),
-                    publish_date=getattr(a, "time_public", "") or "",
-                    song_count=int(getattr(a, "song_num", 0) or 0),
+                    cover_url=_cover_url(mid, 300),
+                    publish_date="",
+                    song_count=int(a.get("songnum", 0) or 0),
                 )
             )
         return out

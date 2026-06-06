@@ -1,6 +1,6 @@
 # QuaverQ 设计文档 — PySide6 + Qt Quick
 
-> QQ 音乐桌面客户端 · **Linux 优先（Windows / macOS 后续支持）** · **明暗双主题（默认跟随系统）** · 采用现代音乐应用熟悉的三栏工作区（侧栏导航 + 主内容 + 底部播放栏），但通过 QuaverQ 自有的歌词优先体验、封面处理、动效与 token 系统建立独立视觉识别；所有资源均自研，不复刻任何商标元素。
+> QQ 音乐桌面客户端 · **Linux 优先（Windows / macOS 后续支持）** · **明暗双主题（默认跟随系统）** · **视觉风格对齐 QQ 音乐 PC**（三栏工作区：侧栏导航 + 主内容 + 底部播放栏；品牌绿 `#31C27C`；布局 / 组件 / 交互见 `.claude/skills/qq-music-design`）。图标与字体资源自研 / 开源（Qt + Material Icons），不打包任何 QQ 商标图形资产。
 
 ---
 
@@ -116,7 +116,7 @@
 - **封面走 image provider**：QML 用 `image://covers/<percent-encoded-url>|<size>`，provider 内部用原始 URL 命中 `core/cover_cache`
 - **MediaPlayer 控制权**：QML 端持有 `MediaPlayer` 实例，但 source/position/playbackState 双向绑定到 `PlayerController`，让 MPRIS 也能读写
 - **QQ 音乐 vkey 风控策略**：`core/service.py` 不走 `qqmusic-api-python` 默认 `ct=11` 取链路，而是启动时从 `_SAFE_CT_VALUES` 随机选择一个 safe `ct`，本进程内固定使用。这样避免单一固定指纹，也避开已知高风险客户端值；除非重新完成稳定性矩阵验证，不要退回库默认取链路。
-- **无任何竞品商标资产**：图标全用 [Qt 自带](https://doc.qt.io/qt-6/qtquickcontrols-icons.html) + Material Icons 字体（Apache-2.0）；强调色为自定义 token，不复用任何品牌色
+- **视觉风格对齐 QQ 音乐 PC**：采用 `.claude/skills/qq-music-design` 的三栏布局、组件规格、交互模式与品牌绿 `#31C27C` 作为设计语言；图标仍用 [Qt 自带](https://doc.qt.io/qt-6/qtquickcontrols-icons.html) + Material Icons 字体（Apache-2.0），**不打包任何 QQ 商标图形资产**（logo / 吉祥物等）
 
 ---
 
@@ -154,39 +154,43 @@ import "Theme" as ThemeTokens
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `background` | `#101115` | 页面底色（最暗层） |
-| `surface` | `#17191f` | 卡片 / 侧栏 / 播放栏 |
-| `surfaceVariant` | `#242833` | 悬浮 / 选中行 / 输入框 |
-| `surfaceContainerHigh` | `#2b303b` | 弹出面板 / 抽屉 |
-| `surfaceText` | `#f1f3f6` | 主文本 |
-| `surfaceVariantText` | `#a9b0bd` | 次文本 / 元数据 / 图标默认 |
-| `outline` | `#303744` | 分割线 / 边框 |
-| `primary` | `#32d296` | 强调色（CTA / 进度 / 喜欢激活） |
-| `primaryText` | `#08130e` | primary 上的文字 / 图标 |
-| `primaryContainer` | `#163c31` | primary tint 背景（按钮 hover） |
-| `error` | `#ef4444` | 错误 / 不可用 |
-| `warning` | `#f59e0b` | 凭据过期 / 降级提示 |
+| `background` | `#1b1c1f` | 页面底色（主内容） |
+| `surface` | `#232428` | 卡片 / 播放栏 |
+| `surfaceVariant` | `#2e3036` | 悬浮 / 选中行 / 输入框 |
+| `surfaceContainerHigh` | `#34363d` | 弹出面板 / 抽屉 |
+| `sidebar` | `#1f2024` | 侧栏 |
+| `surfaceText` | `#f0f1f3` | 主文本 |
+| `surfaceVariantText` | `#9a9ca2` | 次文本 / 元数据 / 图标默认 |
+| `outline` | `#3a3c42` | 分割线 / 边框 |
+| `primary` | `#31c27c` | 品牌绿（CTA / 进度 / 播放键 / 激活） |
+| `primaryText` | `#ffffff` | primary 上的文字 / 图标 |
+| `primaryContainer` | `#173c2c` | primary tint 背景（选中 / hover） |
+| `error` | `#f87171` | 错误 / 不可用 |
+| `warning` | `#fbbf24` | 凭据过期 / 降级提示 |
 
 **亮色主题**
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `background` | `#f5f7fb` | 页面底色 |
-| `surface` | `#fbfcff` | 卡片 / 侧栏 / 播放栏 |
-| `surfaceVariant` | `#eef2f7` | 悬浮 / 选中行 / 输入框 |
-| `surfaceContainerHigh` | `#e6ebf2` | 弹出面板 / 抽屉 |
-| `surfaceText` | `#171a22` | 主文本 |
-| `surfaceVariantText` | `#626b7a` | 次文本 / 元数据 / 图标默认 |
-| `outline` | `#dfe5ee` | 分割线 / 边框 |
-| `primary` | `#12805c` | 强调色（CTA / 进度 / 喜欢激活） |
+| `background` | `#ffffff` | 页面底色（主内容） |
+| `surface` | `#ffffff` | 卡片 / 播放栏 |
+| `surfaceVariant` | `#f5f5f7` | 悬浮 / 选中行 / 输入框 |
+| `surfaceContainerHigh` | `#ebebeb` | 弹出面板 / 抽屉 |
+| `sidebar` | `#f5f5f7` | 侧栏 |
+| `surfaceText` | `#333333` | 主文本 |
+| `surfaceVariantText` | `#767676` | 次文本 / 元数据 / 图标默认（≈4.6:1 过 AA） |
+| `outline` | `#e0e0e0` | 分割线 / 边框 |
+| `primary` | `#31c27c` | 品牌绿（CTA / 进度 / 播放键 / 激活） |
 | `primaryText` | `#ffffff` | primary 上的文字 / 图标 |
-| `primaryContainer` | `#dff7ec` | primary tint 背景（按钮 hover） |
-| `error` | `#b91c1c` | 错误 / 不可用 |
-| `warning` | `#b45309` | 凭据过期 / 降级提示 |
+| `primaryContainer` | `#e7f7ef` | primary tint 背景（选中 / hover） |
+| `error` | `#dc2626` | 错误 / 不可用 |
+| `warning` | `#e08600` | 凭据过期 / 降级提示 |
 
-> **强调色策略**：暗色用 `#32d296`、亮色用更深的 `#12805c`，都是开源调色板里常见的中性绿；都是项目自有 token，**不与任何流媒体应用的注册商标色相同**。两值由 `Palette.qml` 集中维护，换肤改一处即生效。
+> **强调色策略**：明暗都用 QQ 音乐品牌绿 `#31C27C`（hover `#2CAF6F` / active `#28A065`），承担 CTA、进度、播放键、选中与激活态。绿色只做填充与强调，不做大面积装饰背景。两套主题 token 由 `Palette.qml` 集中维护，换肤改一处即生效。
 >
-> **状态色（error / warning）也要分主题**：直接照搬暗色版本贴到亮色背景上对比度会跌破 3:1，亮色版用对应色相的更深一档。
+> **状态色（error / warning）分主题**：亮色用对应色相的更深一档，避免贴在白底上对比度跌破 3:1。
+>
+> **对比度**：次文本用 `#767676`（亮，≈4.6:1，过 AA）/ `#9a9ca2`（暗，≈5.8:1，过 AA），主 / 正文文本均 ≥ 4.5:1。品牌绿 `#31C27C` 作文字时 on 白 ≈ 1.9:1 低于 AA，故仅用作填充 / 强调（播放键 / 进度 / 选中 / 激活），不作正文——这是对齐 QQ 的取舍。
 
 **交互状态 token**
 
@@ -671,9 +675,10 @@ Home 和 Library 的网络请求可以并发，但 model 更新必须回到 Qt �
 
 ### 10.1 WCAG 2.2
 
-- 文本对比度 ≥ 4.5:1（两套主题都过）：
-  - **暗**：`surfaceText` (#f1f3f6) on `background` (#101115) = **17.0:1** ✅；`surfaceVariantText` (#a9b0bd) on `surface` (#17191f) = **8.1:1** ✅；`primary` (#32d296) on `background` = **9.7:1** ✅
-  - **亮**：`surfaceText` (#171a22) on `background` (#f5f7fb) = **16.2:1** ✅；`surfaceVariantText` (#626b7a) on `surface` (#fbfcff) = **5.2:1** ✅；`primary` (#12805c) on `background` = **4.6:1** ✅
+- 文本对比度（QQ 对齐后实况，非全部达 AA，取舍见 §4.2）：
+  - **主 / 正文文本达 AA**：亮 `surfaceText` (#333) on #fff ≈ **12.6:1** ✅；暗 `surfaceText` (#f0f1f3) on #1b1c1f ≈ **15:1** ✅
+  - **次文本达 AA**：亮 `surfaceVariantText` (#767676) on #fff ≈ **4.6:1** ✅；暗 (#9a9ca2) on #1b1c1f ≈ **5.8:1** ✅
+  - **品牌绿作文字低于 AA（对齐 QQ 的取舍）**：`primary` (#31C27C) on #fff ≈ **1.9:1**，仅作填充 / 强调（播放键 / 进度 / 选中 / 激活），不作正文
 - 大文本（≥ 18 px / 14 px Bold）≥ 3:1
 - **颜色不是唯一指示**：喜欢 = 实心♥ + 颜色；播放中 = 跳动条 + 颜色
 - **焦点环**：所有交互件 `activeFocus` 时画 2 px `primary` 描边 + 2 px offset

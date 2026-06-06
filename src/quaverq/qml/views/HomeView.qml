@@ -211,7 +211,7 @@ ScrollView {
                 text: header.title
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
-                font.weight: ThemeTokens.TypeScale.medium
+                font.weight: ThemeTokens.TypeScale.bold
                 elide: Text.ElideRight
             }
 
@@ -362,7 +362,7 @@ ScrollView {
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56
                 enabled: section.requiresLogin || section.hasPreview
-                text: section.requiresLogin ? qsTr("登录") : section.showsPause ? "Ⅱ" : "▶"
+                text: section.requiresLogin ? qsTr("登录") : section.showsPause ? "❚❚" : "▶"
                 Accessible.name: section.requiresLogin
                     ? qsTr("登录")
                     : section.showsPause ? qsTr("暂停猜你喜欢") : qsTr("播放猜你喜欢")
@@ -409,11 +409,11 @@ ScrollView {
         signal actionRequested()
         signal songRequested(int row)
 
-        Layout.preferredHeight: songColumn.implicitHeight + ThemeTokens.Spacing.s6 * 2
+        Layout.preferredHeight: songColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
-        radius: ThemeTokens.Spacing.radiusLg
-        color: ThemeTokens.Palette.surfaceElevated
-        border.color: ThemeTokens.Palette.outlineMuted
+        radius: 0
+        color: "transparent"
+        border.color: "transparent"
 
         ColumnLayout {
             id: songColumn
@@ -421,7 +421,7 @@ ScrollView {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: ThemeTokens.Spacing.s5
+            anchors.margins: 0
             spacing: ThemeTokens.Spacing.s4
 
             SectionHeader {
@@ -488,11 +488,11 @@ ScrollView {
 
         signal cardRequested(string kind, string detailId, string title, string subtitle)
 
-        Layout.preferredHeight: cardColumn.implicitHeight + ThemeTokens.Spacing.s6 * 2
+        Layout.preferredHeight: cardColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
-        radius: ThemeTokens.Spacing.radiusLg
-        color: ThemeTokens.Palette.surfaceElevated
-        border.color: ThemeTokens.Palette.outlineMuted
+        radius: 0
+        color: "transparent"
+        border.color: "transparent"
 
         ColumnLayout {
             id: cardColumn
@@ -500,7 +500,7 @@ ScrollView {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: ThemeTokens.Spacing.s5
+            anchors.margins: 0
             spacing: ThemeTokens.Spacing.s4
 
             SectionHeader {
@@ -538,17 +538,41 @@ ScrollView {
             GridLayout {
                 Layout.fillWidth: true
                 visible: section.hasCards
-                columns: root.availableWidth > 980 ? 3 : root.availableWidth > 680 ? 2 : 1
-                columnSpacing: ThemeTokens.Spacing.s3
-                rowSpacing: ThemeTokens.Spacing.s3
+                columns: root.availableWidth > 1080 ? 5 : root.availableWidth > 820 ? 4 : root.availableWidth > 560 ? 3 : 2
+                columnSpacing: ThemeTokens.Spacing.s5
+                rowSpacing: ThemeTokens.Spacing.s5
 
                 Repeater {
                     model: section.hasCards ? section.model : null
 
-                    delegate: CardTile {
+                    delegate: Item {
+                        id: cardCell
+
+                        required property string kind
+                        required property string cardId
+                        required property string title
+                        required property string subtitle
+                        required property string coverUrl
+                        required property string meta
+
                         Layout.fillWidth: true
-                        coverController: section.coverController
-                        onActivated: section.cardRequested(kind, cardId, title, subtitle)
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
+                        implicitHeight: cardItem.implicitHeight
+
+                        Components.Card {
+                            id: cardItem
+
+                            width: parent.width
+                            circular: cardCell.kind === "artist"
+                            title: cardCell.title
+                            subtitle: cardCell.subtitle
+                            coverUrl: cardCell.coverUrl
+                            meta: cardCell.meta
+                            coverController: section.coverController
+                            onActivated: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                            onPlayRequested: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                        }
                     }
                 }
             }

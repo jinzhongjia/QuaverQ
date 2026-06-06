@@ -2,34 +2,54 @@ pragma Singleton
 
 import QtQuick
 
+// QQ 音乐 PC 风格配色 (见 .claude/skills/qq-music-design)。
+// 亮色为主：品牌绿 #31C27C + 白底 #FFF + 浅灰侧栏 #F5F5F7 + 文本 #333/#999。
+// 深色为打磨过的对应版（同品牌绿，中性深灰层级）。所有 token 名保持稳定，
+// 组件只绑定名字、不写裸 hex；换肤只动本文件。
 QtObject {
-    readonly property color background: Theme.dark ? "#101115" : "#f5f7fb"
-    readonly property color surface: Theme.dark ? "#17191f" : "#fbfcff"
-    readonly property color surfaceElevated: Theme.dark ? "#1d2027" : "#ffffff"
-    readonly property color surfaceVariant: Theme.dark ? "#242833" : "#eef2f7"
-    readonly property color surfaceContainerHigh: Theme.dark ? "#2b303b" : "#e6ebf2"
-    readonly property color sidebar: Theme.dark ? "#14161b" : "#f0f3f8"
-    readonly property color surfaceText: Theme.dark ? "#f1f3f6" : "#171a22"
-    readonly property color surfaceVariantText: Theme.dark ? "#a9b0bd" : "#626b7a"
-    readonly property color outline: Theme.dark ? "#303744" : "#dfe5ee"
-    readonly property color outlineMuted: Theme.dark ? "#252b35" : "#edf1f6"
-    readonly property color windowBorder: Theme.dark ? "#444b57" : "#aeb8c5"
-    readonly property color windowBorderInactive: Theme.dark ? "#313842" : "#d2d8e1"
-    readonly property color primary: Theme.dark ? "#32d296" : "#12805c"
-    readonly property color primaryText: Theme.dark ? "#08130e" : "#ffffff"
-    readonly property color primaryContainer: Theme.dark ? "#163c31" : "#dff7ec"
-    readonly property color accent: Theme.dark ? "#8ea7ff" : "#4f67d8"
-    readonly property color accentContainer: Theme.dark ? "#202a4c" : "#e8edff"
-    readonly property color accentText: Theme.dark ? "#0b1022" : "#ffffff"
-    readonly property color albumSurface: Theme.dark ? "#273043" : "#e9edf7"
-    readonly property color albumAccent: Theme.dark ? "#32d296" : "#12805c"
-    readonly property color error: Theme.dark ? "#ef4444" : "#b91c1c"
-    readonly property color warning: Theme.dark ? "#f59e0b" : "#b45309"
+    // ---- 背景层 ----
+    readonly property color background: Theme.dark ? "#1b1c1f" : "#ffffff"
+    readonly property color surface: Theme.dark ? "#232428" : "#ffffff"
+    readonly property color surfaceElevated: Theme.dark ? "#2a2b30" : "#ffffff"
+    readonly property color surfaceVariant: Theme.dark ? "#2e3036" : "#f5f5f7"
+    readonly property color surfaceContainerHigh: Theme.dark ? "#34363d" : "#ebebeb"
+    readonly property color sidebar: Theme.dark ? "#1f2024" : "#f5f5f7"
 
-    readonly property color stateHover: Theme.dark ? "#222630" : "#edf2f8"
-    readonly property color statePressed: Theme.dark ? "#2c3240" : "#e4ebf4"
+    // ---- 文本 ----
+    readonly property color surfaceText: Theme.dark ? "#f0f1f3" : "#333333"
+    readonly property color surfaceVariantText: Theme.dark ? "#9a9ca2" : "#767676"
+
+    // ---- 描边 / 窗口边框 ----
+    readonly property color outline: Theme.dark ? "#3a3c42" : "#e0e0e0"
+    readonly property color outlineMuted: Theme.dark ? "#2c2e33" : "#f0f0f0"
+    readonly property color windowBorder: Theme.dark ? "#4a4c52" : "#d0d4da"
+    readonly property color windowBorderInactive: Theme.dark ? "#34363b" : "#e0e0e0"
+
+    // ---- 品牌强调色 (QQ 音乐绿) ----
+    readonly property color primary: "#31c27c"
+    readonly property color primaryHover: Theme.dark ? "#3ace8a" : "#2caf6f"
+    readonly property color primaryActive: Theme.dark ? "#2cb074" : "#28a065"
+    readonly property color primaryText: "#ffffff"
+    readonly property color primaryContainer: Theme.dark ? "#173c2c" : "#e7f7ef"
+
+    // ---- 次级强调 (徽章 / 空间音频蓝等) ----
+    readonly property color accent: Theme.dark ? "#5b9bff" : "#3b82f6"
+    readonly property color accentContainer: Theme.dark ? "#1e2a40" : "#e8f0fe"
+    readonly property color accentText: "#ffffff"
+
+    // ---- 封面占位 ----
+    readonly property color albumSurface: Theme.dark ? "#2a2c32" : "#f0f0f2"
+    readonly property color albumAccent: "#31c27c"
+
+    // ---- 状态色 ----
+    readonly property color error: Theme.dark ? "#f87171" : "#dc2626"
+    readonly property color warning: Theme.dark ? "#fbbf24" : "#e08600"
+
+    // ---- 交互状态 ----
+    readonly property color stateHover: Theme.dark ? "#2a2c31" : "#f4f4f5"
+    readonly property color statePressed: Theme.dark ? "#34363d" : "#ebebeb"
     readonly property color stateSelected: primaryContainer
-    readonly property color stateDisabled: Theme.dark ? "#30343d" : "#d8dee8"
+    readonly property color stateDisabled: Theme.dark ? "#34363b" : "#e0e0e0"
     readonly property color focusRing: primary
     readonly property color scrim: Theme.dark ? "#99000000" : "#66000000"
 }

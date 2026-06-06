@@ -1,0 +1,132 @@
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import "../Theme" as ThemeTokens
+
+// 内容卡片（歌单 / 专辑 / 艺人 / 排行榜）：方形封面 + 播放量角标 + hover 播放浮层 + 标题副标题。
+// 整卡点击 → activated()（进详情）；hover 播放键 → playRequested()（播放）。
+Item {
+    id: root
+
+    property string title: ""
+    property string subtitle: ""
+    property string coverUrl: ""
+    property string meta: ""          // 播放量等角标文案；空则不显示
+    property bool circular: false      // 艺人卡用圆形封面
+    property var coverController
+
+    signal activated()
+    signal playRequested()
+
+    implicitWidth: 160
+    implicitHeight: column.implicitHeight
+
+    Accessible.role: Accessible.Button
+    Accessible.name: root.subtitle.length > 0 ? (root.title + "，" + root.subtitle) : root.title
+    activeFocusOnTab: true
+
+    HoverHandler { id: hover }
+    TapHandler { onTapped: root.activated() }
+    Keys.onReturnPressed: root.activated()
+    Keys.onSpacePressed: root.activated()
+
+    ColumnLayout {
+        id: column
+
+        width: root.width
+        spacing: ThemeTokens.Spacing.s3
+
+        Item {
+            id: coverWrap
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: width
+
+            AlbumArt {
+                anchors.fill: parent
+                coverUrl: root.coverUrl
+                coverController: root.coverController
+                iconText: root.circular ? "♬" : "♪"
+            }
+
+            // 圆形遮罩（艺人）——用一个边框圈近似，封面本身仍方形圆角
+            Rectangle {
+                anchors.fill: parent
+                visible: root.activeFocus
+                radius: root.circular ? width / 2 : ThemeTokens.Spacing.radiusLg
+                color: "transparent"
+                border.color: ThemeTokens.Palette.focusRing
+                border.width: 2
+                z: 3
+            }
+
+            // 播放量角标（hover 时让位给播放浮层）
+            Rectangle {
+                visible: root.meta.length > 0 && !hover.hovered
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: ThemeTokens.Spacing.s2
+                height: 20
+                width: metaLabel.implicitWidth + ThemeTokens.Spacing.s3
+                radius: ThemeTokens.Spacing.radiusSm
+                color: "#99000000"
+                z: 2
+
+                Label {
+                    id: metaLabel
+
+                    anchors.centerIn: parent
+                    text: "▶ " + root.meta
+                    color: "#ffffff"
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                }
+            }
+
+            // hover：暗化 + 居中绿色播放键
+            Rectangle {
+                anchors.fill: parent
+                visible: hover.hovered
+                radius: ThemeTokens.Spacing.radiusLg
+                color: "#2b000000"
+                z: 2
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 44
+                    height: 44
+                    radius: width / 2
+                    color: playHover.hovered ? ThemeTokens.Palette.primaryHover : ThemeTokens.Palette.primary
+
+                    HoverHandler { id: playHover }
+                    TapHandler { onTapped: root.playRequested() }
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "▶"
+                        color: ThemeTokens.Palette.primaryText
+                        font.pixelSize: ThemeTokens.TypeScale.h2
+                        leftPadding: 3
+                    }
+                }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: root.title
+            color: ThemeTokens.Palette.surfaceText
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+            font.weight: ThemeTokens.TypeScale.medium
+            elide: Text.ElideRight
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: root.subtitle.length > 0
+            text: root.subtitle
+            color: ThemeTokens.Palette.surfaceVariantText
+            font.pixelSize: ThemeTokens.TypeScale.caption
+            elide: Text.ElideRight
+        }
+    }
+}

@@ -415,19 +415,39 @@ ApplicationWindow {
 
                 Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                visible: contentStack.depth > 1
+                enabled: contentStack.depth > 1
                 text: qsTr("返回")
-                iconText: "‹"
-                iconColor: ThemeTokens.Palette.surfaceText
+                iconText: "←"
+                iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                 cornerRadius: width / 2
                 onClicked: root.goBack()
             }
 
-            Label {
-                text: qsTr("QuaverQ")
-                color: ThemeTokens.Palette.surfaceText
-                font.pixelSize: ThemeTokens.TypeScale.h2
-                font.weight: ThemeTokens.TypeScale.medium
+            RowLayout {
+                spacing: ThemeTokens.Spacing.s3
+
+                Rectangle {
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: ThemeTokens.Palette.primary
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "♪"
+                        color: ThemeTokens.Palette.primaryText
+                        font.pixelSize: ThemeTokens.TypeScale.body
+                        font.weight: ThemeTokens.TypeScale.bold
+                    }
+                }
+
+                Label {
+                    visible: root.width >= 920
+                    text: qsTr("QuaverQ")
+                    color: ThemeTokens.Palette.surfaceText
+                    font.pixelSize: ThemeTokens.TypeScale.h2
+                    font.weight: ThemeTokens.TypeScale.bold
+                }
             }
 
             Components.SearchField {
@@ -544,11 +564,16 @@ ApplicationWindow {
             Layout.preferredWidth: root.width < 920 ? 64 : 240
             Layout.fillHeight: true
             appController: root.appController
+            libraryController: root.libraryController
+            coverController: root.coverController
             compact: root.width < 920
             selectedRoute: root.currentTopRoute
             onLoginRequested: loginDialog.open()
             onRouteRequested: function(route) {
                 root.navigate(route)
+            }
+            onOpenPlaylistRequested: function(pid, title) {
+                root.pushDetail("playlist", pid, title, "")
             }
         }
 
