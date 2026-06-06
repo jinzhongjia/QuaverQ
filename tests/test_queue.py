@@ -18,6 +18,7 @@ def _make_songs(n: int) -> list[Song]:
 
 # ============================================================== 基础
 
+
 def test_empty_queue_has_no_current():
     q = PlayQueue()
     assert q.current() is None
@@ -64,6 +65,7 @@ def test_clear_empties_queue():
 
 # ============================================================== SEQUENCE
 
+
 def test_sequence_next_walks_through_then_stops_at_end():
     q = PlayQueue(mode=PlayMode.SEQUENCE)
     q.push(_make_songs(3), play_now=True)  # current m0
@@ -90,6 +92,7 @@ def test_sequence_on_song_end_advances_then_stops():
 
 # ============================================================== REPEAT_ALL
 
+
 def test_repeat_all_wraps_around_at_end():
     q = PlayQueue(mode=PlayMode.REPEAT_ALL)
     q.push(_make_songs(3), play_now=True, start_index=2)
@@ -113,6 +116,7 @@ def test_repeat_all_on_song_end_wraps_forever():
 
 # ============================================================== REPEAT_ONE
 
+
 def test_repeat_one_on_song_end_returns_same_song():
     q = PlayQueue(mode=PlayMode.REPEAT_ONE)
     q.push(_make_songs(3), play_now=True, start_index=1)
@@ -128,6 +132,7 @@ def test_repeat_one_next_button_still_skips_to_next():
 
 
 # ============================================================== SHUFFLE
+
 
 def test_shuffle_covers_all_songs_eventually():
     """SHUFFLE 模式连续 EOS 后, 所有歌都被播过 (一轮覆盖)."""
@@ -159,6 +164,7 @@ def test_shuffle_deterministic_when_seeded():
 
 # ============================================================== insert_next / jump_to
 
+
 def test_insert_next_plays_after_current():
     q = PlayQueue(mode=PlayMode.SEQUENCE)
     q.push(_make_songs(3), play_now=True)  # m0, m1, m2; current m0
@@ -186,6 +192,7 @@ def test_jump_to_invalid_index_returns_none():
 
 
 # ============================================================== mode 切换
+
 
 def test_set_mode_takes_effect_for_next_on_song_end():
     q = PlayQueue(mode=PlayMode.SEQUENCE)

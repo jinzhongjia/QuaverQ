@@ -10,9 +10,7 @@ from quaverq.core.service import CredentialExpiredError
 
 def test_log_bridge_error_squashes_dns_traceback(caplog):
     logger = logging.getLogger("tests.bridge_error_utils")
-    exc = ConnectionError(
-        "Failed to resolve 'u.y.qq.com' (Name or service not known)"
-    )
+    exc = ConnectionError("Failed to resolve 'u.y.qq.com' (Name or service not known)")
 
     with caplog.at_level(logging.WARNING, logger=logger.name):
         message = log_bridge_error(logger, "refresh liked songs failed", exc)

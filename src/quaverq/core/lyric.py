@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 
 from .models import Lyric, LyricLine, LyricWord
 
-
 # [mm:ss(.xxx)?]  支持 2/3 位毫秒, 毫秒可缺省
 _TS_RE = re.compile(r"\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]")
 
@@ -48,7 +47,7 @@ def parse_qrc(raw: str) -> list[LyricLine]:
         words: list[LyricWord] = []
         cursor = 0
         for wm in _QRC_WORD_RE.finditer(content):
-            text = content[cursor:wm.start()]
+            text = content[cursor : wm.start()]
             words.append(
                 LyricWord(
                     text=text,
@@ -87,7 +86,7 @@ def parse_lrc(raw: str) -> list[LyricLine]:
         if not matches:
             continue
         # 取最后一个时间戳之后的文本作为歌词内容
-        text = line[matches[-1].end():].strip()
+        text = line[matches[-1].end() :].strip()
         for m in matches:
             mm = int(m.group(1))
             ss = int(m.group(2))

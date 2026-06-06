@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from PySide6.QtCore import QObject, Property, Signal
+from PySide6.QtCore import Property, QObject, Signal
 from qasync import asyncSlot
 
 from quaverq.core.home_cache import HomeCache
@@ -213,9 +213,7 @@ class HomeController(QObject):
             if songs is not None:
                 self._daily_model.set_songs(songs)
                 self.dailyModelChanged.emit()
-                self._persist(
-                    daily=songs, account_key=self._service_controller.account_key()
-                )
+                self._persist(daily=songs, account_key=self._service_controller.account_key())
         finally:
             if self._daily_refresh_task is current_task:
                 self._daily_refresh_task = None
@@ -304,9 +302,7 @@ class HomeController(QObject):
             except RuntimeError:
                 return
             if self._daily_refresh_task is None or self._daily_refresh_task.done():
-                self._daily_refresh_task = loop.create_task(
-                    self.refresh_daily_thirty_async()
-                )
+                self._daily_refresh_task = loop.create_task(self.refresh_daily_thirty_async())
             return
         self._set_daily_requires_login(True)
         self._daily_model.clear()

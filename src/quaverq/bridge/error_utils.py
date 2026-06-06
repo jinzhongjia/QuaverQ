@@ -6,7 +6,6 @@ import logging
 import socket
 from collections.abc import Iterator
 
-
 _NETWORK_MODULE_PREFIXES = (
     "aiohttp",
     "httpx",

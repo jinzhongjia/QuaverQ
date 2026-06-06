@@ -25,6 +25,7 @@ def test_device_guid_regenerates_on_blank_file(tmp_path):
 
 # ============================================================== orphan caches
 
+
 def test_purge_orphan_caches_removes_known_artifacts(tmp_path):
     config_dir = tmp_path / "config"
     cache_dir = tmp_path / "cache"
@@ -47,7 +48,11 @@ def test_purge_orphan_caches_removes_known_artifacts(tmp_path):
     removed = config.purge_orphan_caches(config_dir, cache_dir)
 
     assert {p.name for p in removed} == {
-        "cache.db", "cache.db-wal", "cache.db-shm", "CacheStorage", "WebKitCache",
+        "cache.db",
+        "cache.db-wal",
+        "cache.db-shm",
+        "CacheStorage",
+        "WebKitCache",
     }
     assert not (config_dir / "cache.db").exists()
     assert not (cache_dir / "CacheStorage").exists()
@@ -74,7 +79,5 @@ def test_purge_orphan_caches_idempotent(tmp_path):
 
 
 def test_purge_orphan_caches_handles_missing_dirs(tmp_path):
-    removed = config.purge_orphan_caches(
-        tmp_path / "nope-config", tmp_path / "nope-cache"
-    )
+    removed = config.purge_orphan_caches(tmp_path / "nope-config", tmp_path / "nope-cache")
     assert removed == []

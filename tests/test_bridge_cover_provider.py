@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import urllib.parse
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor, QImage
-
-import asyncio
 
 from quaverq.bridge.cover_provider import (
     _MAX_CONCURRENT_DOWNLOADS,
@@ -115,7 +114,7 @@ async def test_fetch_cover_caps_concurrent_downloads():
             state["peak"] = max(state["peak"], state["in_flight"])
             await release.wait()
             state["in_flight"] -= 1
-            return None
+            return
 
     controller = CoverController(_SlowCache())  # type: ignore[arg-type]
     for i in range(_MAX_CONCURRENT_DOWNLOADS + 4):

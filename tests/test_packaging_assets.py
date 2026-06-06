@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import tomllib
 import xml.etree.ElementTree as ET
+
+import tomllib
 
 from quaverq import __version__, resources
 
@@ -67,9 +68,7 @@ def test_metainfo_maintainer_email() -> None:
 
 
 def test_version_matches_pyproject() -> None:
-    data = tomllib.loads(
-        (resources.project_root() / "pyproject.toml").read_text(encoding="utf-8")
-    )
+    data = tomllib.loads((resources.project_root() / "pyproject.toml").read_text(encoding="utf-8"))
     assert data["project"]["version"] == __version__
 
 

@@ -32,14 +32,10 @@ class _FakeHomeService:
         ]
 
     async def get_recommend_playlists(self, *, limit: int = 8) -> list[Playlist]:
-        return [
-            Playlist(pid="p1", name="今日推荐", creator="QuaverQ", song_count=30)
-        ][:limit]
+        return [Playlist(pid="p1", name="今日推荐", creator="QuaverQ", song_count=30)][:limit]
 
     async def get_recommend_new_songs(self, *, limit: int = 12) -> list[Song]:
-        return [
-            Song(mid="n1", name="新歌", singers=[Singer(mid="s1", name="周杰伦")])
-        ][:limit]
+        return [Song(mid="n1", name="新歌", singers=[Singer(mid="s1", name="周杰伦")])][:limit]
 
     async def get_top_categories(
         self,

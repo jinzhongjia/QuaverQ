@@ -20,8 +20,9 @@ import random
 import re
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from qqmusic_api import Client, Credential
 from qqmusic_api.core.exceptions import (
@@ -131,8 +132,8 @@ def _clean_text(s: str | None, *, max_len: int = 120) -> str:
     """去 HTML 标签 + 折空白 + 截断 (UI 显示用的文本规整)."""
     if not s:
         return ""
-    txt = _HTML_TAG_RE.sub(" ", s)        # <br>/<em> 等 → 空格
-    txt = _WS_RE.sub(" ", txt).strip()    # 多空白 → 单空格
+    txt = _HTML_TAG_RE.sub(" ", s)  # <br>/<em> 等 → 空格
+    txt = _WS_RE.sub(" ", txt).strip()  # 多空白 → 单空格
     if len(txt) > max_len:
         txt = txt[:max_len].rstrip() + "…"
     return txt
@@ -175,9 +176,7 @@ class QuaverService:
     _device_guid: str = field(default="", init=False, repr=False)
     # 实例级内存 cache: 短期 ad-hoc 数据 (recommend 等) 不适合 SQLite TTL 表
     # key → (timestamp, value); 重启失效
-    _memo: dict[str, tuple[float, Any]] = field(
-        default_factory=dict, init=False, repr=False
-    )
+    _memo: dict[str, tuple[float, Any]] = field(default_factory=dict, init=False, repr=False)
 
     # 内存 cache 默认 TTL: 推荐数据每天/每小时换换, 10 分钟够
     _MEMO_TTL_SEC = 600
@@ -189,25 +188,47 @@ class QuaverService:
     # 合法 ct 候选池 (排除 findings.md 列出的风控值 1/3/4/11/18/23/27/46)
     # 反风控原则: 1) 不固定一个值 2) 避开"客户端热门"值
     _SAFE_CT_VALUES = (
-        2, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17,
-        19, 20, 21, 22, 24, 25, 26, 28, 29, 30,
+        2,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        20,
+        21,
+        22,
+        24,
+        25,
+        26,
+        28,
+        29,
+        30,
     )
 
     # vkey 接口 filename 前缀 + 扩展名 (mid 双拼)
     # 见 findings 第五节: filename=`{prefix}{mid}{mid}.{ext}`
     _QUALITY_FILE: dict[str, tuple[str, str]] = field(
         default_factory=lambda: {
-            "FLAC":    ("F000", "flac"),
+            "FLAC": ("F000", "flac"),
             "MP3_320": ("M800", "mp3"),
             "OGG_192": ("O600", "ogg"),
             "MP3_128": ("M500", "mp3"),
         },
-        init=False, repr=False,
+        init=False,
+        repr=False,
     )
 
     # 各档音质偏好的降级顺序 (字符串 label, 不依赖 qqmusic SongFileType)
     _QUALITY_PROFILES = {
-        "high":     ("FLAC", "MP3_320", "OGG_192", "MP3_128"),
+        "high": ("FLAC", "MP3_320", "OGG_192", "MP3_128"),
         "balanced": ("MP3_320", "OGG_192", "MP3_128"),
         "standard": ("MP3_128", "OGG_192"),
     }
@@ -220,7 +241,7 @@ class QuaverService:
     # 生命周期
     # ------------------------------------------------------------------
 
-    async def __aenter__(self) -> "QuaverService":
+    async def __aenter__(self) -> QuaverService:
         await self.connect()
         return self
 
@@ -234,6 +255,7 @@ class QuaverService:
         self._ct_value = random.choice(self._SAFE_CT_VALUES)
         if not self._device_guid:
             from ..config import device_guid
+
             self._device_guid = device_guid()
         logger.info(
             "QQMusic 服务初始化 (qqmusic-api 0.6.1, vkey bypass ct=%d)",
@@ -284,9 +306,7 @@ class QuaverService:
     # 登录
     # ------------------------------------------------------------------
 
-    async def login_by_qrcode(
-        self, login_type: QRLoginType = QRLoginType.QQ
-    ) -> bool:
+    async def login_by_qrcode(self, login_type: QRLoginType = QRLoginType.QQ) -> bool:
         if self._client is None:
             raise RuntimeError("服务未连接")
         qr = await self._client.login.get_qrcode(login_type)
@@ -349,25 +369,19 @@ class QuaverService:
     # 搜索 (0.6 SearchByTypeResponse 含 song/singer/album/songlist 等 list)
     # ------------------------------------------------------------------
 
-    async def search_songs(
-        self, keyword: str, *, page: int = 1, limit: int = 30
-    ) -> list[Song]:
+    async def search_songs(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Song]:
         resp = await self.client.search.search_by_type(
             keyword, SearchType.SONG, num=limit, page=page, highlight=False
         )
         return [self._to_song(item) for item in (resp.song or [])]
 
-    async def search_singers(
-        self, keyword: str, *, page: int = 1, limit: int = 30
-    ) -> list[Singer]:
+    async def search_singers(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Singer]:
         resp = await self.client.search.search_by_type(
             keyword, SearchType.SINGER, num=limit, page=page, highlight=False
         )
         return [self._to_singer(item) for item in (resp.singer or [])]
 
-    async def search_albums(
-        self, keyword: str, *, page: int = 1, limit: int = 30
-    ) -> list[Album]:
+    async def search_albums(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Album]:
         resp = await self.client.search.search_by_type(
             keyword, SearchType.ALBUM, num=limit, page=page, highlight=False
         )
@@ -381,24 +395,18 @@ class QuaverService:
         )
         return [self._to_playlist_brief(item) for item in (resp.songlist or [])]
 
-    async def search(
-        self, keyword: str, *, page: int = 1, limit: int = 30
-    ) -> list[Song]:
+    async def search(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Song]:
         return await self.search_songs(keyword, page=page, limit=limit)
 
     # ------------------------------------------------------------------
     # 详情拉取
     # ------------------------------------------------------------------
 
-    async def get_album_detail(
-        self, album_mid: str, *, song_limit: int = 100
-    ) -> Album:
+    async def get_album_detail(self, album_mid: str, *, song_limit: int = 100) -> Album:
         # 0.6.1 client method 返回 Request 对象, 不是直接的 awaitable
         # asyncio.gather 不能用; 顺序 await
         detail_resp = await self.client.album.get_detail(album_mid)
-        songs_resp = await self.client.album.get_song(
-            album_mid, num=song_limit, page=1
-        )
+        songs_resp = await self.client.album.get_song(album_mid, num=song_limit, page=1)
 
         bi = getattr(detail_resp, "album", None)
         company_singers = getattr(detail_resp, "singers", None) or []
@@ -432,55 +440,45 @@ class QuaverService:
         )
         return album
 
-    async def get_playlist_detail(
-        self, pid: str | int, *, song_limit: int = 300
-    ) -> Playlist:
+    async def get_playlist_detail(self, pid: str | int, *, song_limit: int = 300) -> Playlist:
         try:
             sid = int(pid)
         except (TypeError, ValueError):
             sid = 0
-        resp = await self.client.songlist.get_detail(
-            songlist_id=sid, num=song_limit
-        )
+        resp = await self.client.songlist.get_detail(songlist_id=sid, num=song_limit)
         # 0.6.1 GetSonglistDetailResponse: info (SonglistInfo) + songs (list) + total
         info = getattr(resp, "info", None)
         creator_obj = getattr(info, "creator", None)
         # creator 可能是 SonglistCreator (pydantic) 含 nick/name 字段
         creator_name = (
-            getattr(creator_obj, "nick", "")
-            or getattr(creator_obj, "name", "")
-        ) if creator_obj else ""
+            (getattr(creator_obj, "nick", "") or getattr(creator_obj, "name", ""))
+            if creator_obj
+            else ""
+        )
         playlist = Playlist(
             pid=str(getattr(info, "id", "") or pid or ""),
             name=getattr(info, "title", "") or "",
             cover_url=getattr(info, "picurl", "") or "",
             description=getattr(info, "desc", "") or "",
             creator=creator_name,
-            song_count=int(getattr(resp, "total", 0) or 0)
-                or int(getattr(info, "songnum", 0) or 0),
+            song_count=int(getattr(resp, "total", 0) or 0) or int(getattr(info, "songnum", 0) or 0),
             play_count=int(getattr(info, "listennum", 0) or 0),
-            songs=[
-                self._to_song(s) for s in (getattr(resp, "songs", None) or [])
-            ],
+            songs=[self._to_song(s) for s in (getattr(resp, "songs", None) or [])],
         )
         return playlist
 
-    async def get_artist_detail(
-        self, singer_mid: str, *, hot_song_limit: int = 50
-    ) -> ArtistDetail:
+    async def get_artist_detail(self, singer_mid: str, *, hot_song_limit: int = 50) -> ArtistDetail:
         info_resp = await self.client.singer.get_info(singer_mid)
         tab_resp = await self.client.singer.get_tab_detail(
             singer_mid, TabType.SONG, 1, hot_song_limit
         )
         # 0.6 HomepageHeaderResponse 含 singer (HomepageSinger), base_info
-        singer_obj = getattr(info_resp, "singer", None) or getattr(
-            info_resp, "base_info", None
-        )
+        singer_obj = getattr(info_resp, "singer", None) or getattr(info_resp, "base_info", None)
         name = getattr(singer_obj, "name", "") if singer_obj else ""
         avatar = (
-            getattr(singer_obj, "singer_pic", "")
-            or getattr(singer_obj, "avatar", "")
-            if singer_obj else ""
+            getattr(singer_obj, "singer_pic", "") or getattr(singer_obj, "avatar", "")
+            if singer_obj
+            else ""
         )
         s = Singer(mid=singer_mid, name=name or "", avatar_url=avatar or "")
 
@@ -513,9 +511,7 @@ class QuaverService:
                 return inner
         return []
 
-    async def get_lyric(
-        self, mid: str, *, with_translation: bool = True
-    ) -> Lyric:
+    async def get_lyric(self, mid: str, *, with_translation: bool = True) -> Lyric:
         """拉歌词: 优先逐字 QRC, 拿不到 (无权限/纯音乐/解密失败) 回退逐行 LRC."""
         lines = await self._try_get_qrc(mid, with_translation=with_translation)
         if lines:
@@ -526,9 +522,7 @@ class QuaverService:
             )
         return await self._get_lyric_lrc(mid, with_translation=with_translation)
 
-    async def _try_get_qrc(
-        self, mid: str, *, with_translation: bool
-    ) -> list[LyricLine]:
+    async def _try_get_qrc(self, mid: str, *, with_translation: bool) -> list[LyricLine]:
         """请求逐字 QRC (crypt=1 -> 库自带 qrc_decrypt 解密); 失败/无 QRC 返 []."""
         from qqmusic_api.algorithms import qrc_decrypt
 
@@ -538,8 +532,10 @@ class QuaverService:
             {
                 "crypt": 1,
                 "lrc_t": 0,
-                "qrc": 1, "qrc_t": 0,
-                "roma": 0, "roma_t": 0,
+                "qrc": 1,
+                "qrc_t": 0,
+                "roma": 0,
+                "roma_t": 0,
                 "trans": 1 if with_translation else 0,
                 "trans_t": 0,
                 "type": 1,
@@ -566,9 +562,7 @@ class QuaverService:
 
         trans_text = _dec(block.get("trans", "") or "")
         if trans_text:
-            trans_by_ts = {
-                ln.timestamp_ms: ln.text for ln in parse_lrc(trans_text)
-            }
+            trans_by_ts = {ln.timestamp_ms: ln.text for ln in parse_lrc(trans_text)}
             lines = [
                 LyricLine(
                     timestamp_ms=ln.timestamp_ms,
@@ -580,9 +574,7 @@ class QuaverService:
             ]
         return lines
 
-    async def _get_lyric_lrc(
-        self, mid: str, *, with_translation: bool
-    ) -> Lyric:
+    async def _get_lyric_lrc(self, mid: str, *, with_translation: bool) -> Lyric:
         """逐行 LRC: bypass crypt=0 拿 base64 明文 (QRC 不可用时的回退)."""
         import base64
 
@@ -592,8 +584,10 @@ class QuaverService:
             {
                 "crypt": 0,
                 "lrc_t": 0,
-                "qrc": 0, "qrc_t": 0,
-                "roma": 0, "roma_t": 0,
+                "qrc": 0,
+                "qrc_t": 0,
+                "roma": 0,
+                "roma_t": 0,
                 "trans": 1 if with_translation else 0,
                 "trans_t": 0,
                 "type": 1,
@@ -630,9 +624,7 @@ class QuaverService:
                 )
                 for ln in lines
             ]
-        return Lyric(
-            mid=mid, lines=lines, has_translation=bool(trans_text)
-        )
+        return Lyric(mid=mid, lines=lines, has_translation=bool(trans_text))
 
     # ------------------------------------------------------------------
     # 歌曲播放 URL (绕过库的 get_song_urls; 走自拼 vkey)
@@ -656,9 +648,7 @@ class QuaverService:
             )
             if url:
                 logger.info("命中 %s: %s", quality_label, song_obj.name)
-                return SongUrl(
-                    mid=song_obj.mid, url=url, quality=quality_label
-                )
+                return SongUrl(mid=song_obj.mid, url=url, quality=quality_label)
         logger.warning("所有音质均不可下发: %s", song_obj.name)
         return None
 
@@ -692,6 +682,7 @@ class QuaverService:
         def _do() -> dict[str, Any]:
             # 反风控 U1: curl_cffi 用官方浏览器 TLS 指纹 (JA3) + UA 发请求
             from curl_cffi import requests as creq
+
             r = creq.post(
                 "https://u.y.qq.com/cgi-bin/musicu.fcg",
                 json=body,
@@ -716,10 +707,7 @@ class QuaverService:
         for item in candidates:
             code = item.get("code")
             message = str(
-                item.get("message", "")
-                or item.get("msg", "")
-                or item.get("tips", "")
-                or ""
+                item.get("message", "") or item.get("msg", "") or item.get("tips", "") or ""
             ).lower()
             if code in _CREDENTIAL_EXPIRED_CODES:
                 return True
@@ -775,9 +763,7 @@ class QuaverService:
     # 0.6 QQ "我喜欢" 歌单的固定 dirid (所有账号都是 201)
     FAV_DIRID = 201
 
-    async def get_liked_songs(
-        self, *, limit: int = 500
-    ) -> list[Song]:
+    async def get_liked_songs(self, *, limit: int = 500) -> list[Song]:
         """拉远端"我喜欢"歌单的歌. 需要登录态."""
         cred = self._effective_credential()
         if cred is None or not cred.encrypt_uin:
@@ -823,9 +809,7 @@ class QuaverService:
     def _memo_put(self, key: str, value: Any) -> None:
         self._memo[key] = (time.time(), value)
 
-    async def get_recommend_playlists(
-        self, *, limit: int = 8
-    ) -> list[Playlist]:
+    async def get_recommend_playlists(self, *, limit: int = 8) -> list[Playlist]:
         """推荐歌单 (首页 Featured Playlists). 10 分钟内存 cache."""
         cached = self._memo_get("recommend_playlists")
         if cached is not None:
@@ -850,9 +834,7 @@ class QuaverService:
         self._memo_put("recommend_playlists", out)
         return out
 
-    async def get_top_categories(
-        self, *, limit_per_group: int | None = None
-    ) -> list[TopList]:
+    async def get_top_categories(self, *, limit_per_group: int | None = None) -> list[TopList]:
         """所有排行榜入口扁平化 (各 group 拼起来). 10 分钟内存 cache.
 
         直接走 musicu.fcg 线程请求, 避开 qqmusic-api async recommend/top
@@ -875,7 +857,7 @@ class QuaverService:
         if not data:
             return []
         out: list[TopList] = []
-        for g in (data.get("group", None) or []):
+        for g in data.get("group", None) or []:
             tlist = self._g(g, "toplist", None) or []
             if limit_per_group is not None:
                 tlist = tlist[:limit_per_group]
@@ -884,9 +866,7 @@ class QuaverService:
         self._memo_put("top_categories", out)
         return out
 
-    async def get_top_detail(
-        self, top_id: int, *, limit: int = 100
-    ) -> Playlist:
+    async def get_top_detail(self, top_id: int, *, limit: int = 100) -> Playlist:
         """单个排行榜详情, 复用 Playlist 模型.
 
         注: 某些榜本身服务端无 intro (如 tid=135 巅峰潮流榜, 编辑榜没规则文本),
@@ -916,11 +896,7 @@ class QuaverService:
             songs_raw = info.get("song", None) or []
         return Playlist(
             pid=str(top_id),
-            name=(
-                self._g(info, "name", None)
-                or self._g(info, "title", "")
-                or ""
-            ),
+            name=(self._g(info, "name", None) or self._g(info, "title", "") or ""),
             cover_url=(
                 self._g(info, "front_pic_url", None)
                 or self._g(info, "frontPicUrl", None)
@@ -930,22 +906,12 @@ class QuaverService:
             ),
             description=_clean_text(self._g(info, "intro", ""), max_len=400),
             creator="",
-            song_count=int(
-                self._g(info, "total_num", None)
-                or self._g(info, "totalNum", 0)
-                or 0
-            ),
-            play_count=int(
-                self._g(info, "listen_num", None)
-                or self._g(info, "listenNum", 0)
-                or 0
-            ),
+            song_count=int(self._g(info, "total_num", None) or self._g(info, "totalNum", 0) or 0),
+            play_count=int(self._g(info, "listen_num", None) or self._g(info, "listenNum", 0) or 0),
             songs=[self._to_song_from_top_raw(s) for s in songs_raw],
         )
 
-    async def get_recommend_new_songs(
-        self, *, limit: int = 12
-    ) -> list[Song]:
+    async def get_recommend_new_songs(self, *, limit: int = 12) -> list[Song]:
         """新歌速递 (首页 New Releases). 10 分钟内存 cache."""
         cached = self._memo_get("recommend_new_songs")
         if cached is not None:
@@ -968,9 +934,7 @@ class QuaverService:
         self._memo_put("recommend_new_songs", out)
         return out
 
-    async def get_daily_recommend_songs(
-        self, *, limit: int = 30
-    ) -> list[Song]:
+    async def get_daily_recommend_songs(self, *, limit: int = 30) -> list[Song]:
         """每日推荐歌曲. 优先取雷达推荐并补足到 limit, 失败时回退猜你喜欢."""
         if limit <= 0:
             return []
@@ -999,9 +963,7 @@ class QuaverService:
                     timeout=5,
                 )
                 songs_raw = (
-                    (data or {}).get("VecSongs", None)
-                    or (data or {}).get("songs", None)
-                    or []
+                    (data or {}).get("VecSongs", None) or (data or {}).get("songs", None) or []
                 )
                 for raw in songs_raw:
                     song = self._to_radar_song(raw)
@@ -1012,8 +974,7 @@ class QuaverService:
                     if len(out) >= limit:
                         break
                 has_more = bool(
-                    (data or {}).get("HasMore", None)
-                    or (data or {}).get("has_more", False)
+                    (data or {}).get("HasMore", None) or (data or {}).get("has_more", False)
                 )
                 if not songs_raw or not has_more:
                     break
@@ -1037,9 +998,7 @@ class QuaverService:
                     timeout=5,
                 )
                 songs_raw = (
-                    (data or {}).get("tracks", None)
-                    or (data or {}).get("songs", None)
-                    or []
+                    (data or {}).get("tracks", None) or (data or {}).get("songs", None) or []
                 )
                 for raw in songs_raw:
                     song = self._to_song(raw)
@@ -1079,9 +1038,7 @@ class QuaverService:
         self._memo_put("hot_search", out)
         return out[:limit]
 
-    async def get_search_suggest(
-        self, keyword: str, *, limit: int = 10
-    ) -> list[str]:
+    async def get_search_suggest(self, keyword: str, *, limit: int = 10) -> list[str]:
         """搜索补全 (smartbox items 抽 hint). 空 keyword 不发请求."""
         kw = (keyword or "").strip()
         if not kw:
@@ -1111,16 +1068,14 @@ class QuaverService:
         if cred is None or not cred.musicid:
             return []
         try:
-            resp = await self.client.user.get_created_songlist(
-                int(cred.musicid), credential=cred
-            )
+            resp = await self.client.user.get_created_songlist(int(cred.musicid), credential=cred)
         except Exception as exc:
             if is_credential_expired_error(exc):
                 raise CredentialExpiredError("登录已过期，请重新登录") from exc
             logger.warning("get_created_songlist 失败: %s", exc)
             return []
         out: list[Playlist] = []
-        for p in (resp.playlists or []):
+        for p in resp.playlists or []:
             if getattr(p, "dirid", 0) == self.FAV_DIRID:
                 continue  # 我喜欢单独成 Tab
             out.append(
@@ -1161,9 +1116,11 @@ class QuaverService:
         raw = (data or {}).get("v_list")
         if isinstance(raw, dict):
             # 单个专辑时 API 直接返回 dict；或 index→album 的映射
-            items = [raw] if ("mid" in raw or "id" in raw) else [
-                v for v in raw.values() if isinstance(v, dict)
-            ]
+            items = (
+                [raw]
+                if ("mid" in raw or "id" in raw)
+                else [v for v in raw.values() if isinstance(v, dict)]
+            )
         elif isinstance(raw, list):
             items = raw
         else:
@@ -1176,7 +1133,7 @@ class QuaverService:
             if not mid:
                 continue
             singers: list[Singer] = []
-            for s in (a.get("v_singer") or a.get("singer") or []):
+            for s in a.get("v_singer") or a.get("singer") or []:
                 if isinstance(s, dict):
                     singers.append(
                         Singer(
@@ -1211,7 +1168,7 @@ class QuaverService:
             logger.warning("get_follow_singers 失败: %s", exc)
             return []
         out: list[Singer] = []
-        for s in (getattr(resp, "users", None) or []):
+        for s in getattr(resp, "users", None) or []:
             out.append(
                 Singer(
                     mid=getattr(s, "mid", "") or "",
@@ -1268,6 +1225,7 @@ class QuaverService:
     @property
     def _credential_cache_path(self) -> str:
         from ..config import CONFIG_DIR
+
         return str(CONFIG_DIR / "credential.json")
 
     # ------------------------------------------------------------------
@@ -1325,12 +1283,13 @@ class QuaverService:
     def _to_singer(raw: Any) -> Singer:
         """0.6 SingerSearch: mid/name/pic; 0.4 raw dict: singerMID/singerName/singerPic."""
         return Singer(
-            mid=QuaverService._g(raw, "mid", None)
-                or QuaverService._g(raw, "singerMID", "") or "",
+            mid=QuaverService._g(raw, "mid", None) or QuaverService._g(raw, "singerMID", "") or "",
             name=QuaverService._g(raw, "name", None)
-                or QuaverService._g(raw, "singerName", "") or "",
+            or QuaverService._g(raw, "singerName", "")
+            or "",
             avatar_url=QuaverService._g(raw, "pic", None)
-                or QuaverService._g(raw, "singerPic", "") or "",
+            or QuaverService._g(raw, "singerPic", "")
+            or "",
         )
 
     @staticmethod
@@ -1347,14 +1306,9 @@ class QuaverService:
             )
         # 0.6 是 'mid' / 'albummid' 都试一下
         album_mid = (
-            QuaverService._g(raw, "mid", None)
-            or QuaverService._g(raw, "albummid", "")
-            or ""
+            QuaverService._g(raw, "mid", None) or QuaverService._g(raw, "albummid", "") or ""
         )
-        cover = (
-            QuaverService._g(raw, "pic", None)
-            or _cover_url(album_mid, 300)
-        )
+        cover = QuaverService._g(raw, "pic", None) or _cover_url(album_mid, 300)
         publish_date = (
             QuaverService._g(raw, "time_public", None)
             or QuaverService._g(raw, "publish_date", "")
@@ -1381,21 +1335,14 @@ class QuaverService:
         注意: 传给 get_detail(songlist_id=...) 的是 `id` 字段, 不是 `dirid`.
         SongListSearch.dirid 经常是 0 (无意义), id 才是真的 songlist 全局 ID.
         """
-        pid = str(
-            QuaverService._g(raw, "id", None)
-            or QuaverService._g(raw, "dissid", "")
-            or ""
-        )
-        name = (
-            QuaverService._g(raw, "title", None)
-            or QuaverService._g(raw, "dissname", "")
-            or ""
-        )
+        pid = str(QuaverService._g(raw, "id", None) or QuaverService._g(raw, "dissid", "") or "")
+        name = QuaverService._g(raw, "title", None) or QuaverService._g(raw, "dissname", "") or ""
         return Playlist(
             pid=pid,
             name=name,
             cover_url=QuaverService._g(raw, "picurl", None)
-                or QuaverService._g(raw, "logo", "") or "",
+            or QuaverService._g(raw, "logo", "")
+            or "",
             description=QuaverService._g(raw, "desc", "") or "",
             creator=QuaverService._g(raw, "nickname", "") or "",
             song_count=int(QuaverService._g(raw, "songnum", 0) or 0),
@@ -1411,9 +1358,7 @@ class QuaverService:
         creator = QuaverService._g(basic, "creator", None) or {}
         return Playlist(
             pid=str(
-                QuaverService._g(basic, "tid", None)
-                or QuaverService._g(basic, "id", "")
-                or ""
+                QuaverService._g(basic, "tid", None) or QuaverService._g(basic, "id", "") or ""
             ),
             name=QuaverService._g(basic, "title", "") or "",
             cover_url=(
@@ -1444,16 +1389,8 @@ class QuaverService:
     def _to_top_list(raw: Any) -> TopList:
         """排行榜入口 raw dict / pydantic -> TopList."""
         return TopList(
-            top_id=int(
-                QuaverService._g(raw, "topId", None)
-                or QuaverService._g(raw, "id", 0)
-                or 0
-            ),
-            name=(
-                QuaverService._g(raw, "title", None)
-                or QuaverService._g(raw, "name", "")
-                or ""
-            ),
+            top_id=int(QuaverService._g(raw, "topId", None) or QuaverService._g(raw, "id", 0) or 0),
+            name=(QuaverService._g(raw, "title", None) or QuaverService._g(raw, "name", "") or ""),
             cover_url=(
                 QuaverService._g(raw, "frontPicUrl", None)
                 or QuaverService._g(raw, "front_pic_url", None)
@@ -1486,19 +1423,9 @@ class QuaverService:
         cover_url = QuaverService._g(raw, "cover", "") or ""
         return Song(
             mid=QuaverService._g(raw, "songMid", "") or "",
-            id=int(
-                QuaverService._g(raw, "songId", None)
-                or QuaverService._g(raw, "id", 0)
-                or 0
-            ),
-            name=(
-                QuaverService._g(raw, "title", None)
-                or QuaverService._g(raw, "name", "")
-                or ""
-            ),
-            singers=[
-                Singer(mid=singer_mid, name=singer_name)
-            ] if singer_mid or singer_name else [],
+            id=int(QuaverService._g(raw, "songId", None) or QuaverService._g(raw, "id", 0) or 0),
+            name=(QuaverService._g(raw, "title", None) or QuaverService._g(raw, "name", "") or ""),
+            singers=[Singer(mid=singer_mid, name=singer_name)] if singer_mid or singer_name else [],
             album_mid=album_mid,
             cover_url=cover_url or (_cover_url(album_mid, 300) if album_mid else ""),
         )

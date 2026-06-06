@@ -18,8 +18,7 @@ from pathlib import Path
 
 from .models import Song
 from .queue import PlayMode, PlayQueue
-from .serde import song_from_dict as _song_from_dict
-from .serde import song_to_dict as _song_to_dict
+from .serde import song_from_dict as _song_from_dict, song_to_dict as _song_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +55,7 @@ class SessionSnapshot:
 
 
 # ---------------------------------------------------------------- SessionState
+
 
 @dataclass
 class SessionState:

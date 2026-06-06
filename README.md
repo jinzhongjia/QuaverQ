@@ -42,8 +42,10 @@
 
 ```bash
 uv sync --dev
-uv run pytest        # 单元测试
-uv run quaverq       # 启动应用
+uv run pytest                          # 单元测试
+uv run python scripts/lint.py          # 跑 lint (ruff + pyside6-qmllint)
+uv run python scripts/lint.py --fix    # ruff 自动修复 + 格式化
+uv run quaverq                         # 启动应用
 ```
 
 环境要求:Linux、Python ≥ 3.10、桌面基础库(libEGL / libGL / libxkbcommon / libxcb-* / dbus)。播放需先扫码登录 QQ 音乐。

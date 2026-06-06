@@ -15,8 +15,8 @@ from quaverq.core.mpris import (
     song_to_metadata,
 )
 
-
 # ============================================================== metadata mapping
+
 
 def test_song_to_metadata_basic_fields():
     s = Song(
@@ -32,7 +32,7 @@ def test_song_to_metadata_basic_fields():
     assert meta["xesam:title"] == "晴天"
     assert meta["xesam:artist"] == ["周杰伦"]
     assert meta["xesam:album"] == "叶惠美"
-    assert meta["mpris:length"] == 269 * 1_000_000   # 微秒
+    assert meta["mpris:length"] == 269 * 1_000_000  # 微秒
     assert meta["mpris:artUrl"] == "https://y.qq.com/.../jay.jpg"
     # trackid 必须是 D-Bus object path 风格
     assert meta["mpris:trackid"].startswith("/")
@@ -93,6 +93,7 @@ def test_song_to_metadata_falls_back_to_remote_cover():
 
 
 # ============================================================== status mapping
+
 
 def test_normalize_status_play():
     assert normalize_status("play") == "Playing"

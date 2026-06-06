@@ -69,6 +69,7 @@ def test_settings_controller_reports_and_clears_cover_cache(tmp_path):
 
 # ============================================================== cover cache cap
 
+
 def test_cover_cache_max_bytes_defaults(tmp_path):
     controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
     assert controller.coverCacheMaxBytes == _DEFAULT_COVER_MAX_BYTES
@@ -172,6 +173,7 @@ def test_invalid_stored_max_bytes_falls_back_to_default(tmp_path):
 
 
 # ============================================================== orphan cleanup
+
 
 def test_clear_cover_cache_runs_orphan_cleanup(tmp_path):
     cache = CoverCache(tmp_path / "covers")

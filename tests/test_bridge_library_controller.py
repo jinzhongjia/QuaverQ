@@ -99,9 +99,7 @@ async def test_refresh_liked_async_logs_network_failure_without_traceback(caplog
     service = _FakeLibraryService()
 
     async def fail_liked_songs(*, limit: int = 500) -> list[Song]:
-        raise ConnectionError(
-            "Failed to resolve 'u.y.qq.com' (Name or service not known)"
-        )
+        raise ConnectionError("Failed to resolve 'u.y.qq.com' (Name or service not known)")
 
     service.get_liked_songs = fail_liked_songs  # type: ignore[method-assign]
     service_controller = ServiceController(service=service)  # type: ignore[arg-type]

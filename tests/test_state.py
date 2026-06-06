@@ -20,9 +20,11 @@ def state_path(tmp_path: Path) -> Path:
 def _make_queue(n: int = 3, mode: PlayMode = PlayMode.SEQUENCE) -> PlayQueue:
     songs = [
         Song(
-            mid=f"m{i}", name=f"S{i}",
+            mid=f"m{i}",
+            name=f"S{i}",
             singers=[Singer(mid=f"s{i}", name=f"歌手{i}")],
-            album_name=f"album{i}", duration=200 + i,
+            album_name=f"album{i}",
+            duration=200 + i,
         )
         for i in range(n)
     ]
@@ -32,6 +34,7 @@ def _make_queue(n: int = 3, mode: PlayMode = PlayMode.SEQUENCE) -> PlayQueue:
 
 
 # ============================================================== 基础
+
 
 def test_restore_missing_file_returns_none(state_path: Path):
     s = SessionState(state_path)
@@ -45,6 +48,7 @@ def test_restore_corrupted_file_returns_none(state_path: Path):
 
 
 # ============================================================== save/restore
+
 
 def test_save_creates_file(state_path: Path):
     s = SessionState(state_path)
@@ -78,13 +82,17 @@ def test_roundtrip_queue_with_songs(state_path: Path):
 
 
 def test_restore_clamps_volume(state_path: Path):
-    state_path.write_text(json.dumps({
-        "queue": [],
-        "current_index": -1,
-        "position_ms": 0,
-        "play_mode": "SEQUENCE",
-        "volume": 2.0,
-    }))
+    state_path.write_text(
+        json.dumps(
+            {
+                "queue": [],
+                "current_index": -1,
+                "position_ms": 0,
+                "play_mode": "SEQUENCE",
+                "volume": 2.0,
+            }
+        )
+    )
     s = SessionState(state_path)
     snap = s.restore()
     assert snap is not None
@@ -117,6 +125,7 @@ def test_save_overwrites_previous(state_path: Path):
 
 # ============================================================== apply_to_queue
 
+
 def test_apply_snapshot_to_queue(state_path: Path):
     """SessionSnapshot.apply_to(queue) 还原 queue 状态."""
     s = SessionState(state_path)
@@ -144,13 +153,18 @@ def test_apply_empty_snapshot_does_not_crash(state_path: Path):
 
 # ============================================================== invalid play_mode 容错
 
+
 def test_restore_unknown_play_mode_falls_back_to_sequence(state_path: Path):
-    state_path.write_text(json.dumps({
-        "queue": [],
-        "current_index": -1,
-        "position_ms": 0,
-        "play_mode": "WEIRD_VALUE_FROM_FUTURE_VERSION",
-    }))
+    state_path.write_text(
+        json.dumps(
+            {
+                "queue": [],
+                "current_index": -1,
+                "position_ms": 0,
+                "play_mode": "WEIRD_VALUE_FROM_FUTURE_VERSION",
+            }
+        )
+    )
     s = SessionState(state_path)
     snap = s.restore()
     assert snap is not None
@@ -158,6 +172,7 @@ def test_restore_unknown_play_mode_falls_back_to_sequence(state_path: Path):
 
 
 # ============================================================== clear
+
 
 def test_clear_removes_file(state_path: Path):
     s = SessionState(state_path)

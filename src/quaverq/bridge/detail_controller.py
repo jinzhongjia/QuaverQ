@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QObject, Property, Signal
+from PySide6.QtCore import Property, QObject, Signal
 from qasync import asyncSlot
 
 from quaverq.core.models import Album, ArtistDetail, Playlist, Song

@@ -12,7 +12,19 @@ LLM 约定：
 
 ## 开发可用命令
 
-<AGNET-TODO>
+- `uv sync --dev` — 安装运行 + 开发依赖 (含 ruff / pytest / nuitka)
+- `uv run pytest` — 跑所有单元测试 (testpaths=tests, asyncio_mode=auto)
+- `uv run quaverq` — 启动应用 (等价 `python -m quaverq`)
+- `uv run python scripts/lint.py` — 跑 lint (ruff check + ruff format --check + pyside6-qmllint)
+- `uv run python scripts/lint.py --fix` — 自动修复可修的 ruff 问题并执行 `ruff format`
+- `uv run python scripts/lint.py --py` / `--qml` — 只跑其中一项
+- `uv run python build.py --appimage` — 打 AppImage (Nuitka standalone + linuxdeploy)
+
+## 项目使用的 Lint
+
+- **Python**: `ruff check` + `ruff format`, 配置在 `pyproject.toml [tool.ruff]`. 规则集 F/E/W/I/B/UP/C4/SIM/RET/PIE, line-length 100, target-version py310.
+- **QML**: `pyside6-qmllint` (随 PySide6 自带), 默认配置在 `.qmllint.ini` (由 `pyside6-qmllint --write-defaults` 生成). `--max-warnings=0` 严格模式: ContextProperty 等已知合法用法用 inline `// qmllint disable <rule>` 注释精确抑制, 不放水整条规则.
+- **CI**: 见 `.github/workflows/lint.yml`, push/PR 自动触发.
 
 ## commit 消息生成规范
 

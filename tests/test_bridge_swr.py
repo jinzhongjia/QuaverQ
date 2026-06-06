@@ -163,7 +163,8 @@ async def test_logout_clears_private_cache(tmp_path: Path) -> None:
         tops=[_card("榜", kind="top", cid="t")],
         account_key=key,
     )
-    home = HomeController(sc, home_cache=cache)
+    # HomeController 订阅 sc.authStateChanged, 登出时清理私有缓存; 必须持有引用否则 GC 立即断开 slot
+    _home = HomeController(sc, home_cache=cache)  # noqa: F841
 
     sc._service.is_authenticated = False  # type: ignore[attr-defined]
     sc.authStateChanged.emit()  # 登出

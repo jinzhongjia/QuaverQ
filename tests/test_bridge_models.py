@@ -6,11 +6,11 @@ from PySide6.QtCore import Qt
 
 from quaverq.bridge.models import (
     CardListModel,
+    SongListModel,
     album_to_card,
     playlist_to_card,
     singer_to_card,
     song_from_map,
-    SongListModel,
     song_to_map,
     top_to_card,
 )
@@ -123,7 +123,9 @@ def test_card_list_model_roles_and_helpers():
     model = CardListModel()
     cards = [
         playlist_to_card(Playlist(pid="p1", name="每日歌单", creator="QuaverQ", song_count=30)),
-        album_to_card(Album(mid="a1", name="叶惠美", singers=[Singer(mid="s1", name="周杰伦")], song_count=11)),
+        album_to_card(
+            Album(mid="a1", name="叶惠美", singers=[Singer(mid="s1", name="周杰伦")], song_count=11)
+        ),
         singer_to_card(Singer(mid="ar1", name="周杰伦")),
         top_to_card(TopList(top_id=4, name="流行指数榜", total_num=100)),
     ]

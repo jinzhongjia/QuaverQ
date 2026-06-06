@@ -27,6 +27,9 @@ ApplicationWindow {
     title: qsTr("QuaverQ")
     flags: Qt.Window | Qt.FramelessWindowHint
     color: "transparent"
+    // ContextProperty 由 Python (__main__.py setContextProperty) 注入, qmllint 视角下不可见;
+    // 此处收拢为 root 的 readonly property var, 子组件经 root.<name> 走 qualified 访问.
+    // qmllint disable unqualified
     readonly property var appController: AppController
     readonly property var coverController: CoverController
     readonly property var homeController: HomeController
@@ -37,6 +40,7 @@ ApplicationWindow {
     readonly property var playerController: PlayerController
     readonly property var settingsController: SettingsController
     readonly property var systemTheme: SystemTheme
+    // qmllint enable unqualified
     // 托盘可用时由 Python 置 true: 关闭改为隐藏到托盘而非退出
     property bool closeToTray: false
     property bool queuePanelOpen: false

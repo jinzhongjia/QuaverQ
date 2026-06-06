@@ -11,6 +11,7 @@ freedesktop ``org.freedesktop.appearance / color-scheme`` 约定：
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from PySide6.QtCore import Property, QObject, Signal
@@ -95,9 +96,7 @@ class SystemThemeWatcher(QObject):
             self._bus.add_message_handler(self._on_message)
             logger.info("系统主题跟随 portal color-scheme: dark=%s", self._dark)
         except Exception as exc:
-            logger.warning(
-                "portal color-scheme 不可用，跟随系统回退默认浅色: %s", exc
-            )
+            logger.warning("portal color-scheme 不可用，跟随系统回退默认浅色: %s", exc)
 
     def _on_message(self, message: object) -> None:
         from dbus_next import MessageType
@@ -114,8 +113,6 @@ class SystemThemeWatcher(QObject):
 
     async def stop(self) -> None:
         if self._bus is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._bus.disconnect()
-            except Exception:
-                pass
             self._bus = None

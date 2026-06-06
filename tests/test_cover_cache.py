@@ -24,6 +24,7 @@ def cover_cache(tmp_path: Path) -> CoverCache:
 
 # ============================================================== get_path
 
+
 def test_get_path_returns_none_when_not_cached(cover_cache: CoverCache):
     assert cover_cache.get_path("https://x/c.jpg") is None
 
@@ -35,6 +36,7 @@ def test_get_path_returns_none_for_empty_url(cover_cache: CoverCache):
 
 # ============================================================== fetch
 
+
 async def test_fetch_downloads_and_caches(cover_cache: CoverCache, monkeypatch):
     """fetch 调用 niquests, 写文件, 之后 get_path 返本地路径."""
     import niquests
@@ -43,12 +45,19 @@ async def test_fetch_downloads_and_caches(cover_cache: CoverCache, monkeypatch):
 
     class _FakeResp:
         status_code = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def iter_content(self, n): yield fake_bytes
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_content(self, n):
+            yield fake_bytes
 
     class _FakeSession:
-        def get(self, *args, **kwargs): return _FakeResp()
+        def get(self, *args, **kwargs):
+            return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
 
@@ -64,13 +73,20 @@ async def test_fetch_downloads_and_caches(cover_cache: CoverCache, monkeypatch):
 async def test_fetch_dedupes_by_url(cover_cache: CoverCache, monkeypatch):
     """同 URL 重复 fetch 复用文件, 不重复下载."""
     import niquests
+
     download_count = [0]
 
     class _FakeResp:
         status_code = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def iter_content(self, n): yield b"img"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_content(self, n):
+            yield b"img"
 
     class _FakeSession:
         def get(self, *args, **kwargs):
@@ -91,12 +107,19 @@ async def test_fetch_returns_none_on_404(cover_cache: CoverCache, monkeypatch):
 
     class _FakeResp:
         status_code = 404
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def iter_content(self, n): yield b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_content(self, n):
+            yield b""
 
     class _FakeSession:
-        def get(self, *args, **kwargs): return _FakeResp()
+        def get(self, *args, **kwargs):
+            return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
     p = await cover_cache.fetch("https://x/missing.jpg")
@@ -107,8 +130,12 @@ async def test_fetch_returns_none_on_network_error(cover_cache: CoverCache, monk
     import niquests
 
     class _FakeSession:
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
         def get(self, *args, **kwargs):
             raise ConnectionError("network down")
 
@@ -128,12 +155,19 @@ async def test_close_aborts_in_flight_download(cover_cache: CoverCache, monkeypa
 
     class _FakeResp:
         status_code = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def iter_content(self, n): yield b"cover-bytes"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_content(self, n):
+            yield b"cover-bytes"
 
     class _FakeSession:
-        def get(self, *args, **kwargs): return _FakeResp()
+        def get(self, *args, **kwargs):
+            return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
     cover_cache.close()
@@ -162,6 +196,7 @@ def test_session_reused_keeps_connection_alive(cover_cache: CoverCache, monkeypa
 
 
 # ============================================================== 文件名
+
 
 def test_filename_keeps_jpg_extension(cover_cache: CoverCache):
     name = cover_cache._filename_for("https://x/T002R500x500M000abc.jpg")
@@ -194,6 +229,7 @@ def test_filename_different_urls_different(cover_cache: CoverCache):
 
 # ============================================================== to_file_uri
 
+
 def test_to_file_uri_returns_file_scheme(cover_cache: CoverCache, tmp_path: Path):
     p = tmp_path / "covers" / "x.jpg"
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -204,6 +240,7 @@ def test_to_file_uri_returns_file_scheme(cover_cache: CoverCache, tmp_path: Path
 
 
 # ============================================================== size / clear
+
 
 def test_size_bytes_sums_cached_files(cover_cache: CoverCache):
     cover_cache.dir.mkdir(parents=True)
@@ -228,6 +265,7 @@ def test_clear_removes_cached_files_and_returns_size(cover_cache: CoverCache):
 
 
 # ============================================================== max_bytes / LRU
+
 
 def _seed(cover_cache: CoverCache, name: str, data: bytes, mtime: float) -> Path:
     """Write a file directly into the cache dir with a controlled mtime."""
@@ -331,12 +369,19 @@ async def test_fetch_runs_eviction_after_download(cover_cache: CoverCache, monke
 
     class _FakeResp:
         status_code = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def iter_content(self, n): yield b"imgbytes"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_content(self, n):
+            yield b"imgbytes"
 
     class _FakeSession:
-        def get(self, *args, **kwargs): return _FakeResp()
+        def get(self, *args, **kwargs):
+            return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
     cover_cache.max_bytes = 100
@@ -352,12 +397,19 @@ async def test_fetch_skips_eviction_when_unlimited(cover_cache: CoverCache, monk
 
     class _FakeResp:
         status_code = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def iter_content(self, n): yield b"imgbytes"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_content(self, n):
+            yield b"imgbytes"
 
     class _FakeSession:
-        def get(self, *args, **kwargs): return _FakeResp()
+        def get(self, *args, **kwargs):
+            return _FakeResp()
 
     monkeypatch.setattr(niquests, "Session", lambda: _FakeSession())
     # max_bytes stays 0 (unlimited) -> no eviction work on the common path

@@ -38,9 +38,7 @@ def test_nuitka_command_includes_qml_qt_plugins():
 
 def test_nuitka_command_includes_assets_dir():
     cmd = packaging.nuitka_command()
-    assert any(
-        c.startswith("--include-data-dir=") and c.endswith("=assets") for c in cmd
-    )
+    assert any(c.startswith("--include-data-dir=") and c.endswith("=assets") for c in cmd)
 
 
 def test_nuitka_command_injects_version():
@@ -58,9 +56,7 @@ def test_nuitka_command_modes_and_entrypoint():
 
 
 def test_project_version_matches_pyproject():
-    data = tomllib.loads(
-        (resources.project_root() / "pyproject.toml").read_text(encoding="utf-8")
-    )
+    data = tomllib.loads((resources.project_root() / "pyproject.toml").read_text(encoding="utf-8"))
     assert packaging.project_version() == data["project"]["version"]
 
 

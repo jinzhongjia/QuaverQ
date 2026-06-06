@@ -38,12 +38,57 @@ dev = [
     "patchelf>=0.17.2.4",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "ruff>=0.6.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "dist", "build", ".pytest_cache"]
+
+[tool.ruff.lint]
+# 选规则: pyflakes(F) + pycodestyle(E/W) + isort(I) + bugbear(B) + pyupgrade(UP)
+# + comprehensions(C4) + simplify(SIM) + return(RET) + 自然 Python(PIE) + 类型注解(ANN 仅公开 API)
+select = [
+    "F",   # pyflakes: 未用 import / 未定义名
+    "E",   # pycodestyle 错误
+    "W",   # pycodestyle 警告
+    "I",   # isort: import 排序
+    "B",   # bugbear: 常见陷阱
+    "UP",  # pyupgrade: 升级到目标版本写法
+    "C4",  # comprehensions: 推导式简化
+    "SIM", # simplify: 等价简化
+    "RET", # 返回语句风格
+    "PIE", # 自然 Python 风格
+]
+ignore = [
+    "E501",   # 行宽由 formatter 管, 不在 lint 报
+    "SIM108", # 三元 if 不强制 (可读性优先)
+    "B008",   # 函数默认值调用 (PySide6 Signal/Slot 装饰器场景常见)
+    "RET504", # 允许显式 result 变量再 return (调试友好)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件: 允许未用 fixture 参数 / magic value / 长 setup
+"tests/**/*.py" = ["B011", "SIM117"]
+# MPRIS D-Bus 服务端: dbus-next 通过 __annotations__ 读 D-Bus 签名,
+# 注解必须是字符串字面量 (如 "b", "s", "o", "as", "a{sv}"), 这些不是 Python 类型,
+# 会被 ruff 误报为未定义名 / 语法错误.
+"src/quaverq/core/mpris.py" = ["F821", "F722", "UP037"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["quaverq"]
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
 [project.urls]
 repository = "https://github.com/jinzhongjia/quaverq"
 

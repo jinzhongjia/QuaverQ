@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 class PlayMode(Enum):
     """播放模式."""
 
-    SEQUENCE = auto()       # 顺序: 播完最后一首即停
-    REPEAT_ALL = auto()     # 列表循环
-    REPEAT_ONE = auto()     # 单曲循环 (EOS 时回到同一首, next/prev 仍跳)
-    SHUFFLE = auto()        # 随机播放
+    SEQUENCE = auto()  # 顺序: 播完最后一首即停
+    REPEAT_ALL = auto()  # 列表循环
+    REPEAT_ONE = auto()  # 单曲循环 (EOS 时回到同一首, next/prev 仍跳)
+    SHUFFLE = auto()  # 随机播放
 
 
 @dataclass
@@ -98,13 +98,9 @@ class PlayQueue:
         if self.mode == PlayMode.SHUFFLE:
             # 已存在索引 >= insert_at 的全部 +1
             self._shuffle_remaining = [
-                i + 1 if i >= insert_at else i
-                for i in self._shuffle_remaining
+                i + 1 if i >= insert_at else i for i in self._shuffle_remaining
             ]
-            self._shuffle_history = [
-                i + 1 if i >= insert_at else i
-                for i in self._shuffle_history
-            ]
+            self._shuffle_history = [i + 1 if i >= insert_at else i for i in self._shuffle_history]
             self._shuffle_remaining.insert(0, insert_at)
 
     def clear(self) -> None:

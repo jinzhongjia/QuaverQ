@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtMultimedia import QMediaPlayer
 
-from quaverq.bridge.player_controller import PlayerController
 from quaverq.bridge.models import SongListModel
+from quaverq.bridge.player_controller import PlayerController
 from quaverq.core.models import Singer, Song, SongUrl
 from quaverq.core.queue import PlayMode, PlayQueue
 from quaverq.core.state import SessionState
@@ -86,10 +86,7 @@ async def test_source_url_routed_through_stream_proxy():
             "duration": 269,
         }
     )
-    assert (
-        controller.sourceUrl
-        == "http://127.0.0.1:9000/tok?u=https://audio.example.test/m1.mp3"
-    )
+    assert controller.sourceUrl == "http://127.0.0.1:9000/tok?u=https://audio.example.test/m1.mp3"
 
 
 async def test_push_and_play_uses_settings_quality_preference():

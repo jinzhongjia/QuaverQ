@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, QSettings, Signal, Slot
+from PySide6.QtCore import Property, QObject, QSettings, Signal, Slot
 
 from quaverq.core.cover_cache import CoverCache
 

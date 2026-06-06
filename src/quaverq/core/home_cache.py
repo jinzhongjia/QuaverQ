@@ -46,11 +46,7 @@ class HomeSnapshot:
 
     def is_empty(self) -> bool:
         return not (
-            self.daily
-            or self.new_songs
-            or self.playlists
-            or self.tops
-            or self.my_playlists
+            self.daily or self.new_songs or self.playlists or self.tops or self.my_playlists
         )
 
 

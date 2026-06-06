@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -212,10 +213,8 @@ class CoverCache:
             sessions = self._sessions
             self._sessions = []
         for session in sessions:
-            try:
+            with contextlib.suppress(Exception):
                 session.close()
-            except Exception:
-                pass
 
     def _download_sync(self, url: str, dest: Path) -> bool:
         try:

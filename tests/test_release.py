@@ -21,9 +21,7 @@ def test_smoke_output_ok_rejects_qml_failure():
 
 
 def test_smoke_output_ok_rejects_traceback():
-    assert not packaging.smoke_output_ok(
-        f"{_STARTED}\nTraceback (most recent call last):"
-    )
+    assert not packaging.smoke_output_ok(f"{_STARTED}\nTraceback (most recent call last):")
 
 
 def test_smoke_output_ok_rejects_module_not_installed():

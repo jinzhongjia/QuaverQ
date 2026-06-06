@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
 from .service_controller import ServiceController

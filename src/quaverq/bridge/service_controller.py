@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
-from collections.abc import Mapping
-from typing import Any, Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, TypeVar
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
 from quaverq.core.models import Lyric, Song
 from quaverq.core.service import (
     CredentialExpiredError,
-    is_credential_expired_error,
     QuaverService,
+    is_credential_expired_error,
 )
 
 from .error_utils import log_bridge_error
@@ -167,8 +168,7 @@ class ServiceController(QObject):
                             logger.info("loaded verified QQ Music credential")
                         else:
                             logger.info(
-                                "loaded cached QQ Music credential "
-                                "(credential probe unavailable)"
+                                "loaded cached QQ Music credential (credential probe unavailable)"
                             )
                         self.authStateChanged.emit()
             self._started = True
@@ -251,9 +251,7 @@ class ServiceController(QObject):
             self._set_current_page(1 if items else 0)
             self._set_has_next_page(False)
         except Exception as exc:
-            message = log_bridge_error(
-                logger, f"search {self._search_type} failed: {keyword}", exc
-            )
+            message = log_bridge_error(logger, f"search {self._search_type} failed: {keyword}", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
         finally:
@@ -394,7 +392,7 @@ class ServiceController(QObject):
     async def _probe_current_credential(self) -> bool | None:
         probe = getattr(self._service, "probe_login_expired", None)
         if not callable(probe):
-            return True if self.authed else False
+            return bool(self.authed)
         expired = await probe()
         if expired is None:
             return None
@@ -420,10 +418,8 @@ class ServiceController(QObject):
             await set_credential(None)
             logger.info("cleared QQ Music credential from memory")
         else:
-            try:
-                setattr(self._service, "is_authenticated", False)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                self._service.is_authenticated = False
 
         if not remove_cache:
             return

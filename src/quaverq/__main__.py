@@ -14,6 +14,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
+from . import diagnostics, resources
 from .bridge import (
     AppController,
     CoverController,
@@ -27,7 +28,6 @@ from .bridge import (
     ServiceController,
     SettingsController,
 )
-from . import diagnostics, resources
 from .bridge.stream_proxy import StreamProxy
 from .bridge.system_theme import SystemThemeWatcher
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
@@ -39,9 +39,8 @@ logger = logging.getLogger("quaverq")
 
 
 def _should_suppress_qt_message(message: str) -> bool:
-    return (
-        message.startswith("QSocketNotifier: Invalid socket ")
-        and message.endswith(" and type 'Read', disabling...")
+    return message.startswith("QSocketNotifier: Invalid socket ") and message.endswith(
+        " and type 'Read', disabling..."
     )
 
 
@@ -100,13 +99,9 @@ def _setup_tray(
     tray.setToolTip("QuaverQ")
 
     menu = QMenu()
-    menu.addAction("显示 QuaverQ").triggered.connect(
-        lambda *_: _raise_main_window(engine)
-    )
+    menu.addAction("显示 QuaverQ").triggered.connect(lambda *_: _raise_main_window(engine))
     menu.addSeparator()
-    menu.addAction("播放 / 暂停").triggered.connect(
-        lambda *_: player_controller.togglePlayPause()
-    )
+    menu.addAction("播放 / 暂停").triggered.connect(lambda *_: player_controller.togglePlayPause())
     menu.addAction("下一首").triggered.connect(lambda *_: player_controller.next())
     menu.addAction("上一首").triggered.connect(lambda *_: player_controller.prev())
     menu.addSeparator()
@@ -243,11 +238,11 @@ def main() -> None:
 
     # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
     # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.
-    tray = None
+    # _setup_tray 内部 QSystemTrayIcon(parent=app) + tray._menu=menu 已持有引用, 此处不存
     if QSystemTrayIcon.isSystemTrayAvailable():
         app.setQuitOnLastWindowClosed(False)
         engine.rootObjects()[0].setProperty("closeToTray", True)
-        tray = _setup_tray(app, engine, player_controller)
+        _setup_tray(app, engine, player_controller)
     else:
         logger.info("系统托盘不可用, 关闭窗口将退出程序")
 

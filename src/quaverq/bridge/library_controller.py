@@ -7,7 +7,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
 from quaverq.core.home_cache import HomeCache
@@ -16,10 +16,10 @@ from quaverq.core.models import Song
 from .error_utils import log_bridge_error
 from .models import (
     CardListModel,
+    SongListModel,
     album_to_card,
     playlist_to_card,
     singer_to_card,
-    SongListModel,
     song_from_map,
 )
 from .service_controller import ServiceController
@@ -245,9 +245,7 @@ class LibraryController(QObject):
                     operation_name="like song",
                 )
         except Exception as exc:
-            self._raise_error(
-                log_bridge_error(logger, f"toggle like failed: {song.name}", exc)
-            )
+            self._raise_error(log_bridge_error(logger, f"toggle like failed: {song.name}", exc))
             return
         finally:
             self._set_loading(False)

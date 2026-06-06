@@ -56,14 +56,10 @@ class _FakeService:
         self.search_calls.append((keyword, page, limit))
         return self.search_pages.get(page, [])
 
-    async def search_singers(
-        self, keyword: str, *, page: int = 1, limit: int = 30
-    ) -> list[Singer]:
+    async def search_singers(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Singer]:
         return [Singer(mid="ar1", name="周杰伦", avatar_url="http://a.jpg")]
 
-    async def search_albums(
-        self, keyword: str, *, page: int = 1, limit: int = 30
-    ) -> list[Album]:
+    async def search_albums(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Album]:
         return [
             Album(
                 mid="al1",

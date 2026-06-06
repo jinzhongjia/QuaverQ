@@ -6,11 +6,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from PySide6.QtCore import (
+    Property,
     QAbstractListModel,
     QByteArray,
     QModelIndex,
     QObject,
-    Property,
     Qt,
     Signal,
     Slot,
@@ -86,8 +86,7 @@ def song_from_map(data: Mapping[str, Any] | Song) -> Song:
 def _lyric_words_to_maps(line: LyricLine) -> list[dict[str, Any]]:
     """逐字 words -> QVariantMap-friendly dict 列表 (无逐字时为空)."""
     return [
-        {"text": w.text, "startMs": w.start_ms, "durationMs": w.duration_ms}
-        for w in line.words
+        {"text": w.text, "startMs": w.start_ms, "durationMs": w.duration_ms} for w in line.words
     ]
 
 

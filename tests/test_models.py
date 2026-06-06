@@ -12,8 +12,8 @@ from quaverq.core.models import (
     SongUrl,
 )
 
-
 # ---------------------------------------------------------------------- Song
+
 
 def test_song_minimal_fields():
     s = Song(mid="abc", name="Hello")
@@ -48,6 +48,7 @@ def test_song_singer_names_empty_when_no_singers():
 
 # --------------------------------------------------------------------- Album
 
+
 def test_album_singer_name_derives_from_first_singer():
     a = Album(
         mid="album1",
@@ -73,6 +74,7 @@ def test_album_defaults():
 
 # ------------------------------------------------------------------ Playlist
 
+
 def test_playlist_defaults():
     p = Playlist(pid="1", name="我的歌单")
     assert p.creator == ""
@@ -84,6 +86,7 @@ def test_playlist_defaults():
 
 # -------------------------------------------------------------------- SongUrl
 
+
 def test_song_url_minimal():
     u = SongUrl(mid="x", url="https://example.com/a.mp3")
     assert u.quality == ""
@@ -92,6 +95,7 @@ def test_song_url_minimal():
 
 
 # ----------------------------------------------------------------------- Lyric
+
 
 def test_lyric_defaults():
     ly = Lyric(mid="x")

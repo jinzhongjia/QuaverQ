@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from quaverq.core.models import Lyric, LyricLine
 from quaverq.core.lyric import LyricSync, parse_lrc, parse_qrc
-
+from quaverq.core.models import Lyric, LyricLine
 
 # ============================================================== parse_lrc
+
 
 def test_parse_lrc_basic():
     raw = "[00:12.50]第一行\n[00:18.20]第二行"
@@ -84,6 +84,7 @@ def test_parse_lrc_malformed_lines_ignored():
 
 # ============================================================== parse_qrc
 
+
 def test_parse_qrc_basic_word_timings():
     raw = "[1185,2339]雨(1185,289)过(1474,221)后(1695,202)"
     lines = parse_qrc(raw)
@@ -143,6 +144,7 @@ def test_parse_qrc_empty_input():
 
 # ============================================================== LyricSync.line_at
 
+
 def _ly(*pairs):
     return Lyric(
         mid="x",
@@ -180,6 +182,7 @@ def test_line_at_with_no_lyric_returns_neg1():
 
 
 # ============================================================== LyricSync.window
+
 
 def test_window_returns_centered_slice():
     s = LyricSync()

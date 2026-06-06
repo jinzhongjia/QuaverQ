@@ -19,26 +19,21 @@ from qqmusic_api.core.exceptions import (
 )
 
 from quaverq.core.models import (
-    Album,
-    ArtistDetail,
     Lyric,
-    Playlist,
     Singer,
     Song,
-    TopList,
 )
 from quaverq.core.service import (
     CredentialExpiredError,
     QuaverService,
     _clean_text,
-    _cover_url,
     _credential_from_dict,
     _credential_to_dict,
     is_credential_expired_error,
 )
 
-
 # ============================================================== Credential 往返
+
 
 def test_credential_roundtrip_via_dict():
     cred = Credential(musicid=123, musickey="abc", str_musicid="123")
@@ -64,6 +59,7 @@ def test_credential_from_dict_ignores_unknown_fields():
 
 
 # ============================================================== 二维码登录状态映射
+
 
 async def test_login_by_qrcode_status_sequence(monkeypatch):
     """QR 事件 → UI 状态字符串：SCAN=等待扫描→waiting，CONF=已扫待确认→scanned，DONE→done。"""
@@ -114,6 +110,7 @@ async def test_login_by_qrcode_status_sequence(monkeypatch):
 
 # ============================================================== is_authenticated
 
+
 def test_is_authenticated_requires_musickey():
     svc = QuaverService()
     assert svc.is_authenticated is False
@@ -124,18 +121,12 @@ def test_is_authenticated_requires_musickey():
 
 
 def test_is_credential_expired_error_recognizes_qqmusic_exceptions():
-    assert is_credential_expired_error(
-        QQCredentialExpiredError(code=1000, data={})
-    )
-    assert is_credential_expired_error(
-        QQCredentialInvalidError("接口需要有效登录凭证")
-    )
+    assert is_credential_expired_error(QQCredentialExpiredError(code=1000, data={}))
+    assert is_credential_expired_error(QQCredentialInvalidError("接口需要有效登录凭证"))
     assert is_credential_expired_error(
         QQLoginError("登录鉴权参数无效或已过期", code=104401, data={})
     )
-    assert is_credential_expired_error(
-        CredentialExpiredError("登录已过期，请重新登录")
-    )
+    assert is_credential_expired_error(CredentialExpiredError("登录已过期，请重新登录"))
     assert not is_credential_expired_error(RuntimeError("ordinary API failure"))
 
 
@@ -163,6 +154,7 @@ async def test_probe_login_expired_maps_qqmusic_expired_exception():
 
 
 # ============================================================== _to_song
+
 
 def _raw_song(**overrides):
     """模拟 0.6 SongSearch pydantic 对象 (SimpleNamespace + 属性)."""
@@ -246,6 +238,7 @@ def test_to_song_accepts_plain_dict():
 
 # ============================================================== _to_singer / album / playlist
 
+
 def test_to_singer_from_06_fields():
     raw = SimpleNamespace(mid="x", name="周杰伦", pic="http://avatar.jpg")
     s = QuaverService._to_singer(raw)
@@ -285,7 +278,7 @@ def test_to_playlist_brief_from_06_fields():
     """0.6 SongListSearch 的 ID 在 'id' 字段, 不是 dirid."""
     raw = SimpleNamespace(
         id=7039749142,
-        dirid=0,           # 0.6 search 经常给 0; 不可用
+        dirid=0,  # 0.6 search 经常给 0; 不可用
         title="百听不厌",
         picurl="http://x/pl.jpg",
         desc="经典",
@@ -294,7 +287,7 @@ def test_to_playlist_brief_from_06_fields():
         listennum=399747305,
     )
     p = QuaverService._to_playlist_brief(raw)
-    assert p.pid == "7039749142"   # 用 id 而非 dirid
+    assert p.pid == "7039749142"  # 用 id 而非 dirid
     assert p.name == "百听不厌"
     assert p.creator == "今晚月色很美"
     assert p.song_count == 99
@@ -303,13 +296,17 @@ def test_to_playlist_brief_from_06_fields():
 
 # ============================================================== search
 
+
 def _stub_client_for_search(items_song=(), items_singer=(), items_album=(), items_songlist=()):
     """构造 mock client.search.search_by_type, 按 search_type 返回不同 list."""
     from qqmusic_api.modules.search import SearchType
 
     async def fake_search_by_type(keyword, search_type, num, page, **kwargs):
         resp = SimpleNamespace(
-            song=[], singer=[], album=[], songlist=[],
+            song=[],
+            singer=[],
+            album=[],
+            songlist=[],
         )
         if search_type == SearchType.SONG:
             resp.song = list(items_song)
@@ -361,8 +358,9 @@ async def test_search_playlists_returns_playlist_list():
     svc = QuaverService()
     svc._client = _stub_client_for_search(
         items_songlist=[
-            SimpleNamespace(id=1, dirid=0, title="P", picurl="", desc="",
-                           nickname="", songnum=5, listennum=0),
+            SimpleNamespace(
+                id=1, dirid=0, title="P", picurl="", desc="", nickname="", songnum=5, listennum=0
+            ),
         ]
     )
     playlists = await svc.search_playlists("kw")
@@ -371,6 +369,7 @@ async def test_search_playlists_returns_playlist_list():
 
 
 # ============================================================== get_song_url (bypass)
+
 
 async def test_get_song_url_uses_bypass_path():
     """get_song_url 在 quality 偏好顺序中依次试 _try_bypass_url, 命中即返."""
@@ -386,9 +385,7 @@ async def test_get_song_url_uses_bypass_path():
         return None
 
     svc._try_bypass_url = fake_try
-    url = await svc.get_song_url(
-        Song(mid="m1", name="x"), quality_preference="high"
-    )
+    url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
     assert url is not None
     assert url.quality == "FLAC"
     assert attempts[0] == "FLAC"
@@ -404,9 +401,7 @@ async def test_get_song_url_walks_through_quality_until_hit():
         return None
 
     svc._try_bypass_url = fake_try
-    url = await svc.get_song_url(
-        Song(mid="m1", name="x"), quality_preference="high"
-    )
+    url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
     assert url.quality == "MP3_128"
 
 
@@ -488,6 +483,7 @@ async def test_try_bypass_url_uses_short_vkey_timeout():
 
 # ============================================================== get_fav_albums (bypass)
 
+
 def _fav_cred():
     return SimpleNamespace(encrypt_uin="euin123", musickey="key", musicid=1)
 
@@ -497,12 +493,22 @@ async def test_get_fav_albums_parses_v_list():
     svc._effective_credential = _fav_cred
 
     async def fake_post(module, method, param, **_kwargs):
-        return {"v_list": [
-            {"mid": "alb1", "name": "叶惠美", "songnum": 12,
-             "v_singer": [{"mid": "s1", "name": "周杰伦"}]},
-            {"mid": "alb2", "name": "范特西", "songnum": 10,
-             "v_singer": [{"mid": "s1", "name": "周杰伦"}]},
-        ]}
+        return {
+            "v_list": [
+                {
+                    "mid": "alb1",
+                    "name": "叶惠美",
+                    "songnum": 12,
+                    "v_singer": [{"mid": "s1", "name": "周杰伦"}],
+                },
+                {
+                    "mid": "alb2",
+                    "name": "范特西",
+                    "songnum": 10,
+                    "v_singer": [{"mid": "s1", "name": "周杰伦"}],
+                },
+            ]
+        }
 
     svc._bypass_post = fake_post
     albums = await svc.get_fav_albums()
@@ -520,8 +526,15 @@ async def test_get_fav_albums_tolerates_single_dict_v_list():
     svc._effective_credential = _fav_cred
 
     async def fake_post(module, method, param, **_kwargs):
-        return {"v_list": {"id": 23005471, "mid": "alb1", "name": "孤独专辑",
-                           "songnum": 1, "v_singer": [{"mid": "s1", "name": "歌手"}]}}
+        return {
+            "v_list": {
+                "id": 23005471,
+                "mid": "alb1",
+                "name": "孤独专辑",
+                "songnum": 1,
+                "v_singer": [{"mid": "s1", "name": "歌手"}],
+            }
+        }
 
     svc._bypass_post = fake_post
     albums = await svc.get_fav_albums()
@@ -569,6 +582,7 @@ async def test_get_fav_albums_sends_correct_request():
 
 # ============================================================== ct 随机白名单
 
+
 def test_safe_ct_values_excludes_blocklist():
     """findings 列出的风控值不应在白名单里."""
     blocklist = {1, 3, 4, 11, 18, 23, 27, 46}
@@ -590,6 +604,7 @@ async def test_connect_picks_random_ct_within_safe_pool():
 
 
 # ============================================================== get_lyric
+
 
 def _stub_lyric_response(lyric_text: str, trans_text: str = ""):
     """构造一个 fake niquests Session.post 返回值 (走 bypass)."""
@@ -617,6 +632,7 @@ def _stub_lyric_response(lyric_text: str, trans_text: str = ""):
 async def test_get_lyric_parses_lrc_bypass(monkeypatch):
     """bypass 路径: POST musicu.fcg 拿 base64 LRC, 解码 + 解析."""
     from curl_cffi import requests as creq
+
     svc = QuaverService()
     svc._ct_value = 5
     svc.credential = Credential(musicid=1, musickey="key")
@@ -632,13 +648,12 @@ async def test_get_lyric_parses_lrc_bypass(monkeypatch):
 
 async def test_get_lyric_merges_translation_bypass(monkeypatch):
     from curl_cffi import requests as creq
+
     svc = QuaverService()
     svc._ct_value = 5
     svc.credential = Credential(musicid=1, musickey="key")
 
-    fake_resp = _stub_lyric_response(
-        "[00:10.00]Hello", "[00:10.00]你好"
-    )
+    fake_resp = _stub_lyric_response("[00:10.00]Hello", "[00:10.00]你好")
     monkeypatch.setattr(creq, "post", lambda *a, **k: fake_resp)
 
     ly = await svc.get_lyric("x")
@@ -671,7 +686,8 @@ async def test_get_lyric_prefers_qrc_words(monkeypatch):
 
     monkeypatch.setattr(svc, "_bypass_post", fake_post)
     monkeypatch.setattr(
-        algo, "qrc_decrypt",
+        algo,
+        "qrc_decrypt",
         lambda s: "[1000,500]你(1000,250)好(1250,250)" if s == "ENCRYPTED_QRC" else "",
     )
 
@@ -709,6 +725,7 @@ async def test_get_lyric_falls_back_to_lrc_when_no_qrc(monkeypatch):
 
 
 # ============================================================== Discover / Home (P2.1)
+
 
 async def test_get_recommend_playlists_maps_to_playlist():
     svc = QuaverService()
@@ -812,8 +829,7 @@ async def test_get_daily_recommend_songs_collects_radar_pages():
         start = (page - 1) * 20
         return {
             "VecSongs": [
-                {"Track": _raw_song(mid=f"m{i}", name=f"每日{i}")}
-                for i in range(start, start + 20)
+                {"Track": _raw_song(mid=f"m{i}", name=f"每日{i}")} for i in range(start, start + 20)
             ],
             "HasMore": page < 2,
         }
@@ -855,7 +871,7 @@ def test_clean_text_removes_br_tags():
 def test_clean_text_truncates():
     raw = "abc" * 200
     out = _clean_text(raw, max_len=20)
-    assert len(out) <= 21   # 20 + ellipsis
+    assert len(out) <= 21  # 20 + ellipsis
     assert out.endswith("…")
 
 
@@ -922,11 +938,11 @@ async def test_get_top_categories_flattens_groups():
 
     svc._bypass_post = fake_post
     tops = await svc.get_top_categories()
-    assert len(tops) == 3   # 扁平化全 group 的 toplist
+    assert len(tops) == 3  # 扁平化全 group 的 toplist
     assert tops[0].top_id == 135
     assert tops[0].name == "巅峰潮流榜"
     assert tops[0].cover_url == "http://p1"
-    assert tops[2].cover_url == "http://p3"   # head_pic_url 兜底
+    assert tops[2].cover_url == "http://p3"  # head_pic_url 兜底
 
 
 async def test_get_top_categories_cached():
@@ -1064,7 +1080,7 @@ async def test_get_search_suggest_extracts_hints():
             "items": [
                 {"hint": "周杰伦", "hint_hilight": "<em>周杰</em>伦"},
                 {"hint": "周杰伦 七里香", "hint_hilight": "<em>周杰</em>伦 七里香"},
-                {"hint": "", "hint_hilight": ""},          # 空跳过
+                {"hint": "", "hint_hilight": ""},  # 空跳过
                 {"hint": "周杰伦", "hint_hilight": "重复"},  # 去重
             ]
         }
@@ -1131,17 +1147,32 @@ async def test_get_recommend_new_songs_maps_to_song():
 
 # ============================================================== Library APIs (P1.3)
 
+
 async def test_get_my_playlists_excludes_fav_dir():
     """get_my_playlists 排除 dirid=201 (我喜欢, 独立成 Tab)."""
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k", str_musicid="1")
 
     async def fake_created(uin, **kw):
-        return SimpleNamespace(playlists=[
-            SimpleNamespace(id=2530, dirid=201, title="我喜欢", picurl="", desc="", songnum=308, listennum=0),
-            SimpleNamespace(id=8899, dirid=1, title="啊浪的歌单", picurl="x", desc="", songnum=24, listennum=0),
-            SimpleNamespace(id=1234, dirid=2, title="另一个", picurl="y", desc="", songnum=10, listennum=0),
-        ])
+        return SimpleNamespace(
+            playlists=[
+                SimpleNamespace(
+                    id=2530, dirid=201, title="我喜欢", picurl="", desc="", songnum=308, listennum=0
+                ),
+                SimpleNamespace(
+                    id=8899,
+                    dirid=1,
+                    title="啊浪的歌单",
+                    picurl="x",
+                    desc="",
+                    songnum=24,
+                    listennum=0,
+                ),
+                SimpleNamespace(
+                    id=1234, dirid=2, title="另一个", picurl="y", desc="", songnum=10, listennum=0
+                ),
+            ]
+        )
 
     svc._client = SimpleNamespace(
         user=SimpleNamespace(get_created_songlist=fake_created),
@@ -1181,10 +1212,12 @@ async def test_get_followed_singers_extracts_users():
     svc.credential = Credential(musicid=1, musickey="k", encrypt_uin="EUIN")
 
     async def fake_follow(euin, **kw):
-        return SimpleNamespace(users=[
-            SimpleNamespace(mid="s1", name="周杰伦", avatar_url="http://a.jpg"),
-            SimpleNamespace(mid="s2", name="林俊杰", avatar_url=""),
-        ])
+        return SimpleNamespace(
+            users=[
+                SimpleNamespace(mid="s1", name="周杰伦", avatar_url="http://a.jpg"),
+                SimpleNamespace(mid="s2", name="林俊杰", avatar_url=""),
+            ]
+        )
 
     svc._client = SimpleNamespace(
         user=SimpleNamespace(get_follow_singers=fake_follow),
@@ -1201,6 +1234,7 @@ async def test_get_followed_singers_extracts_users():
 
 
 # ============================================================== 详情拉取
+
 
 async def test_get_album_detail_combines_basic_info_and_songs():
     svc = QuaverService()

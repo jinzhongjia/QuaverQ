@@ -6,8 +6,8 @@ import asyncio
 
 from quaverq.bridge.mpris_controller import MprisController
 from quaverq.bridge.player_controller import PlayerController
-from quaverq.core.mpris import MprisCallbacks
 from quaverq.core.models import Singer, Song, SongUrl
+from quaverq.core.mpris import MprisCallbacks
 
 
 class _FakeAudioService:

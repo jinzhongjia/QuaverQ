@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from .models import Song
 
@@ -34,9 +35,7 @@ def _sanitize_trackid_segment(mid: str) -> str:
     return _TRACKID_SANITIZE.sub("_", mid or "unknown")
 
 
-def song_to_metadata(
-    song: Song, *, local_cover_uri: str | None = None
-) -> dict[str, Any]:
+def song_to_metadata(song: Song, *, local_cover_uri: str | None = None) -> dict[str, Any]:
     """把 QuaverQ 的 Song 转成 MPRIS metadata dict.
 
     artUrl 优先用本地 file:// (桌面媒体控件加载更可靠); 没本地时退到 cover_url.
@@ -83,6 +82,7 @@ def normalize_shuffle(mode: str | None) -> bool:
 
 # ---------------------------------------------------------------- 回调容器
 
+
 @dataclass
 class MprisCallbacks:
     """controller 注入给 MPRIS 的回调; 收到 D-Bus 调用时触发."""
@@ -99,6 +99,7 @@ class MprisCallbacks:
 
 
 # ---------------------------------------------------------------- D-Bus 接口
+
 
 # dbus-next 必须在使用时 import (避免无 D-Bus 环境时 import 失败)
 def _import_dbus():
@@ -146,23 +147,23 @@ def _build_interfaces(cb: MprisCallbacks):
             cb.quit()
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanQuit(self) -> "b":  # noqa: N802
+        def CanQuit(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanRaise(self) -> "b":  # noqa: N802
+        def CanRaise(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def HasTrackList(self) -> "b":  # noqa: N802
+        def HasTrackList(self) -> b:  # noqa: N802
             return False
 
         @dbus_property(access=PropertyAccess.READ)
-        def Identity(self) -> "s":  # noqa: N802
+        def Identity(self) -> s:  # noqa: N802
             return "QuaverQ"
 
         @dbus_property(access=PropertyAccess.READ)
-        def DesktopEntry(self) -> "s":  # noqa: N802
+        def DesktopEntry(self) -> s:  # noqa: N802
             return "quaverq"
 
         @dbus_property(access=PropertyAccess.READ)
@@ -209,33 +210,33 @@ def _build_interfaces(cb: MprisCallbacks):
             cb.prev()
 
         @method()
-        def Seek(self, offset: "x"):  # noqa: N802
+        def Seek(self, offset: x):  # noqa: N802
             next_position_us = max(0, self._position_us + int(offset))
             cb.seek(next_position_us // 1000)
 
         @method()
-        def SetPosition(self, _track_id: "o", position: "x"):  # noqa: N802
+        def SetPosition(self, _track_id: o, position: x):  # noqa: N802
             cb.seek(max(0, int(position) // 1000))
 
         @method()
-        def OpenUri(self, _uri: "s"):  # noqa: N802
+        def OpenUri(self, _uri: s):  # noqa: N802
             pass
 
         # 属性
         @dbus_property(access=PropertyAccess.READ)
-        def PlaybackStatus(self) -> "s":  # noqa: N802
+        def PlaybackStatus(self) -> s:  # noqa: N802
             return self._status
 
         @dbus_property(access=PropertyAccess.READ)
-        def LoopStatus(self) -> "s":  # noqa: N802
+        def LoopStatus(self) -> s:  # noqa: N802
             return self._loop_status
 
         @dbus_property(access=PropertyAccess.READ)
-        def Rate(self) -> "d":  # noqa: N802
+        def Rate(self) -> d:  # noqa: N802
             return 1.0
 
         @dbus_property(access=PropertyAccess.READ)
-        def Shuffle(self) -> "b":  # noqa: N802
+        def Shuffle(self) -> b:  # noqa: N802
             return self._shuffle
 
         @dbus_property(access=PropertyAccess.READ)
@@ -243,49 +244,47 @@ def _build_interfaces(cb: MprisCallbacks):
             return self._metadata
 
         @dbus_property(access=PropertyAccess.READ)
-        def Volume(self) -> "d":  # noqa: N802
+        def Volume(self) -> d:  # noqa: N802
             return self._volume
 
         @dbus_property(access=PropertyAccess.READ)
-        def Position(self) -> "x":  # noqa: N802
+        def Position(self) -> x:  # noqa: N802
             return self._position_us
 
         @dbus_property(access=PropertyAccess.READ)
-        def MinimumRate(self) -> "d":  # noqa: N802
+        def MinimumRate(self) -> d:  # noqa: N802
             return 1.0
 
         @dbus_property(access=PropertyAccess.READ)
-        def MaximumRate(self) -> "d":  # noqa: N802
+        def MaximumRate(self) -> d:  # noqa: N802
             return 1.0
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanGoNext(self) -> "b":  # noqa: N802
+        def CanGoNext(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanGoPrevious(self) -> "b":  # noqa: N802
+        def CanGoPrevious(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanPlay(self) -> "b":  # noqa: N802
+        def CanPlay(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanPause(self) -> "b":  # noqa: N802
+        def CanPause(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanSeek(self) -> "b":  # noqa: N802
+        def CanSeek(self) -> b:  # noqa: N802
             return True
 
         @dbus_property(access=PropertyAccess.READ)
-        def CanControl(self) -> "b":  # noqa: N802
+        def CanControl(self) -> b:  # noqa: N802
             return True
 
         # 外部 push
-        def update_metadata(
-            self, song: Song, *, local_cover_uri: str | None = None
-        ) -> None:
+        def update_metadata(self, song: Song, *, local_cover_uri: str | None = None) -> None:
             raw = song_to_metadata(song, local_cover_uri=local_cover_uri)
             self._metadata = {k: _wrap_variant(v, Variant) for k, v in raw.items()}
             self.emit_properties_changed({"Metadata": self._metadata})
@@ -342,6 +341,7 @@ def _wrap_variant(value: Any, Variant) -> Any:
 
 # ---------------------------------------------------------------- 高层 service
 
+
 class MprisService:
     """启动 / 维持 D-Bus 服务对象; controller 主动 push 元数据."""
 
@@ -377,14 +377,10 @@ class MprisService:
             self._player = None
             return False
 
-    def push_metadata(
-        self, song: Song, *, local_cover_uri: str | None = None
-    ) -> None:
+    def push_metadata(self, song: Song, *, local_cover_uri: str | None = None) -> None:
         if self._player is not None:
             try:
-                self._player.update_metadata(
-                    song, local_cover_uri=local_cover_uri
-                )
+                self._player.update_metadata(song, local_cover_uri=local_cover_uri)
             except Exception:
                 logger.exception("MPRIS 推 metadata 异常")
 
