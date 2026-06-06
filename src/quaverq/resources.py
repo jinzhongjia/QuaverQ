@@ -18,6 +18,17 @@ def project_root() -> Path:
 
 
 def assets_dir() -> Path:
+    """定位 ``assets/``，兼容源码与 Nuitka bundle 两种布局。
+
+    - 源码: ``<root>/src/quaverq/resources.py`` → ``<root>/assets``（parents[2]）。
+    - Nuitka bundle: ``<dist>/quaverq/resources.py`` → ``<dist>/assets``（parents[1]，
+      assets 与 quaverq/ 同级，由 ``--include-data-dir=assets=assets`` 放置）。
+    """
+    here = Path(__file__).resolve()
+    for base in (here.parents[2], here.parents[1]):
+        candidate = base / "assets"
+        if candidate.is_dir():
+            return candidate
     return project_root() / "assets"
 
 

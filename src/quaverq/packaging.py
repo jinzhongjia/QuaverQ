@@ -108,12 +108,14 @@ def linuxdeploy_command(
 ) -> list[str]:
     """组装 linuxdeploy 命令（不执行）。"""
     base = Path(appdir)
+    # 不用 linuxdeploy-plugin-qt：Nuitka 的 pyside6 插件已把 PySide6 自带的整套 Qt
+    # （平台插件 libqxcb、qml 模块、imageformats 等）打进 bundle 且 standalone 可跑；
+    # qt 插件会再去部署「系统」Qt（/usr/lib/qt6），引入多余的 sqldrivers 等并因系统缺
+    # libfbclient 之类依赖而整体失败。linuxdeploy 只负责部署非 Qt 系统库 + 封装 AppImage。
     return [
         linuxdeploy,
         "--appdir",
         str(base),
-        "--plugin",
-        "qt",
         f"--desktop-file={base / 'usr/share/applications' / (APP_ID + '.desktop')}",
         f"--icon-file={resources.icon_file()}",
         "--output",
@@ -152,7 +154,7 @@ def build_appimage(output_dir: str = "dist") -> int:
     rc = build("standalone")
     if rc != 0:
         return rc
-    dist = root / output_dir / "__main__.dist"
+    dist = root / output_dir / "quaverq.dist"
     appdir = root / output_dir / "AppDir"
     bindir = appdir / "usr/bin"
     bindir.mkdir(parents=True, exist_ok=True)
@@ -162,7 +164,10 @@ def build_appimage(output_dir: str = "dist") -> int:
         shutil.copy2(src, target)
     cmd = linuxdeploy_command(appdir)
     print("[appimage]", " ".join(shlex.quote(c) for c in cmd))
-    return subprocess.run(cmd, cwd=root / output_dir).returncode
+    # NO_STRIP: 新系统库 (Arch 等) 带 .relr.dyn 段, linuxdeploy 自带的旧 strip 不识别会报
+    # 'unknown type [0x13]' 而整体失败; 跳过 strip, 体积由 appimagetool 的 zstd 压缩兜底。
+    env = {**os.environ, "NO_STRIP": "1"}
+    return subprocess.run(cmd, cwd=root / output_dir, env=env).returncode
 
 
 _SMOKE_OK_MARKER = "QuaverQ started with QML"

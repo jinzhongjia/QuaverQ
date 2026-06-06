@@ -74,7 +74,9 @@ def test_appdir_layout_maps_desktop_icon_metainfo():
         assert src.is_file()
 
 
-def test_linuxdeploy_command_uses_qt_plugin():
+def test_linuxdeploy_command_skips_qt_plugin():
+    # Nuitka 的 pyside6 插件已把整套 Qt 打进 bundle（standalone 可跑），不再用
+    # linuxdeploy-plugin-qt（它会去部署系统 Qt 而引入 sqldrivers 等缺失依赖导致失败）。
     cmd = packaging.linuxdeploy_command("/tmp/AppDir")
-    assert "--plugin" in cmd and "qt" in cmd
+    assert "--plugin" not in cmd
     assert "appimage" in cmd
