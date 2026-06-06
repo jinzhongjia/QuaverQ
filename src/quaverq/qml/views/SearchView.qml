@@ -281,7 +281,7 @@ ColumnLayout {
                 visible: !root.isSongs
                 clip: true
 
-                readonly property int cols: width > 1080 ? 5 : width > 820 ? 4 : width > 560 ? 3 : 2
+                readonly property int cols: Math.max(2, Math.ceil(width / 180))
                 cellWidth: cardGrid.cols > 0 ? Math.floor(width / cardGrid.cols) : width
                 cellHeight: cellWidth + 44
                 model: root.serviceController ? root.serviceController.cardResults : null

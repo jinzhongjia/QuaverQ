@@ -538,7 +538,7 @@ ScrollView {
             GridLayout {
                 Layout.fillWidth: true
                 visible: section.hasCards
-                columns: root.availableWidth > 1080 ? 5 : root.availableWidth > 820 ? 4 : root.availableWidth > 560 ? 3 : 2
+                columns: Math.max(2, Math.ceil(root.availableWidth / 180))
                 columnSpacing: ThemeTokens.Spacing.s5
                 rowSpacing: ThemeTokens.Spacing.s5
 
