@@ -357,13 +357,36 @@ class QuaverService:
         if self._client is None:
             return True
         try:
-            return await self._client.login.check_expired()
+            expired = await self._client.login.check_expired()
         except Exception as exc:
             if is_credential_expired_error(exc):
                 logger.warning("check_expired 返回登录失效: %s", exc)
-                return True
+                return await self._try_refresh_credential()
             logger.warning("check_expired 失败: %s", exc)
             return None
+        if not expired:
+            return False
+        return await self._try_refresh_credential()
+
+    async def _try_refresh_credential(self) -> bool:
+        """登录凭据过期时尝试静默续命; 成功返回 False (未过期), 失败返回 True."""
+        if self._client is None:
+            return True
+        try:
+            new_cred = await self._client.login.refresh_credential()
+        except Exception as exc:
+            logger.warning("refresh_credential 失败: %s", exc)
+            return True
+        if new_cred is None or not getattr(new_cred, "musickey", None):
+            logger.warning("refresh_credential 返回空凭据, 视作失败")
+            return True
+        self._assign_credential(new_cred)
+        try:
+            await self.save_credential()
+        except Exception as exc:
+            logger.warning("刷新凭据后落盘失败: %s", exc)
+        logger.info("凭据已通过 refresh_credential 续命")
+        return False
 
     # ------------------------------------------------------------------
     # 搜索 (0.6 SearchByTypeResponse 含 song/singer/album/songlist 等 list)

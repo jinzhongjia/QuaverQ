@@ -13,7 +13,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `service.py` | **QQ 音乐服务层**（基于 `qqmusic-api-python` 0.6.1）。封装搜索、详情、首页、推荐、歌词、链接获取。`get_song_url` 走 bypass 路径自拼 `musicu.fcg`，避开默认 `ct=11` 触发的版本风控；`ct` 在启动时从白名单 `random.choice`，实例生命周期固定。识别凭据过期 (`CredentialExpiredError`)。 |
+| `service.py` | **QQ 音乐服务层**（基于 `qqmusic-api-python` 0.6.1）。封装搜索、详情、首页、推荐、歌词、链接获取。`get_song_url` 走 bypass 路径自拼 `musicu.fcg`，避开默认 `ct=11` 触发的版本风控；`ct` 在启动时从白名单 `random.choice`，实例生命周期固定。识别凭据过期 (`CredentialExpiredError`)。`probe_login_expired` 在检测到过期时会先尝试 `login.refresh_credential` 静默续命；成功则同步新凭据到内存 + 落盘 `credential.json`，失败再走旧 expired 流程。 |
 | `queue.py` | **播放队列 + 4 种播放模式**（`SEQUENCE` / `REPEAT_ALL` / `REPEAT_ONE` / `SHUFFLE`）。区分 `on_song_end()`（EOS 回调，遵守模式）和 `next()` / `prev()`（用户主动）；SHUFFLE 维护独立的索引置换列表。 |
 | `lyric.py` | **LRC / QRC 解析 + 同步定位**。LRC 行级、QRC 逐字（`[起始ms,时长ms](文字起始,时长)...`）。给定播放进度返回当前行 + 字内进度，驱动 karaoke 高亮；无逐字数据时回退逐行。 |
 | `mpris.py` | **MPRIS2 D-Bus 集成**（`org.mpris.MediaPlayer2.quaverq`）。dbus-next pure-python async，挂在 qasync / Qt 主事件循环。方法调用回调由 `bridge.MprisController` 注入，状态/元数据变化由 controller 主动推。 |
