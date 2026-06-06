@@ -672,7 +672,14 @@ class QuaverService:
             if url:
                 logger.info("命中 %s: %s", quality_label, song_obj.name)
                 return SongUrl(mid=song_obj.mid, url=url, quality=quality_label)
-        logger.warning("所有音质均不可下发: %s", song_obj.name)
+        # mid + media_mid 让我们能快速本地复现 (诊断脚本只需这两项即可还原 filename).
+        logger.warning(
+            "所有音质均不可下发: %s (mid=%s, media_mid=%s, pref=%s)",
+            song_obj.name,
+            song_obj.mid,
+            song_obj.media_mid or "",
+            quality_preference,
+        )
         return None
 
     async def _bypass_post(
@@ -766,13 +773,32 @@ class QuaverService:
             timeout=self._VKEY_REQUEST_TIMEOUT_SEC,
         )
         if not data:
+            logger.debug("vkey 空响应: mid=%s quality=%s filename=%s", mid, quality_label, filename)
             return None
 
         midurlinfo = data.get("midurlinfo") or []
         if not midurlinfo:
+            # vkey 接口未返回 midurlinfo, 一般是请求路径异常 (而非曲目不可下发)
+            logger.debug(
+                "vkey 缺 midurlinfo: mid=%s quality=%s filename=%s data_keys=%s",
+                mid,
+                quality_label,
+                filename,
+                sorted(data.keys()),
+            )
             return None
-        purl = midurlinfo[0].get("purl", "") or ""
+        entry = midurlinfo[0] if isinstance(midurlinfo[0], dict) else {}
+        purl = entry.get("purl", "") or ""
         if not purl:
+            # 区域/版权/会员限制时, vkey 不返回 errcode, 只把 purl 置空.
+            # DEBUG (而非 WARNING): 某些档失败是常态 (例如非 VIP 试 FLAC), 不应刷屏.
+            logger.debug(
+                "vkey purl 空: mid=%s quality=%s filename=%s entry=%s",
+                mid,
+                quality_label,
+                filename,
+                entry,
+            )
             return None
         # 返回真实 CDN https url：由 bridge 的 StreamProxy 用 curl_cffi 官方 TLS
         # 指纹 (impersonate) 拉流，经本机回环 http 喂给 FFmpeg。FFmpeg 自身的 TLS

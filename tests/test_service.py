@@ -481,6 +481,68 @@ async def test_try_bypass_url_uses_short_vkey_timeout():
     assert captured["timeout"] == svc._VKEY_REQUEST_TIMEOUT_SEC
 
 
+async def test_try_bypass_url_logs_diagnostics_on_empty_purl(caplog):
+    """purl="" 时打 DEBUG 日志带上 mid/quality/filename/midurlinfo[0] 字段, 方便复现.
+
+    背景: vkey 接口在版权/区域受限时不返回 errcode, 只返回 purl="", 当前
+    实现直接 return None 丢掉所有上下文, 导致诊断难度极大.
+    """
+    import logging
+
+    svc = QuaverService()
+
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"midurlinfo": [{"purl": "", "filename": "F000m0m0.flac"}]}
+
+    svc._bypass_post = fake_post
+    with caplog.at_level(logging.DEBUG, logger="quaverq.core.service"):
+        url = await svc._try_bypass_url("mid_unplayable", "FLAC", media_mid="m0")
+    assert url is None
+    diag = " ".join(rec.getMessage() for rec in caplog.records)
+    assert "mid_unplayable" in diag
+    assert "FLAC" in diag
+
+
+async def test_try_bypass_url_logs_diagnostics_on_missing_midurlinfo(caplog):
+    """midurlinfo 缺失/空时同样要打 DEBUG 日志带 mid+quality, 便于排查接口异常."""
+    import logging
+
+    svc = QuaverService()
+
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"sip": [], "msg": "区域版权限制"}
+
+    svc._bypass_post = fake_post
+    with caplog.at_level(logging.DEBUG, logger="quaverq.core.service"):
+        url = await svc._try_bypass_url("mid_blocked", "MP3_320")
+    assert url is None
+    diag = " ".join(rec.getMessage() for rec in caplog.records)
+    assert "mid_blocked" in diag
+    assert "MP3_320" in diag
+
+
+async def test_get_song_url_all_fail_warning_includes_identifiers(caplog):
+    """所有音质都失败时, WARNING 必须带 mid + media_mid, 不然没法定位是哪首歌."""
+    import logging
+
+    svc = QuaverService()
+    svc._ct_value = 2
+
+    async def fake_try(_mid, _q, **_kwargs):
+        return None
+
+    svc._try_bypass_url = fake_try
+    song = Song(mid="mid_xyz", name="Here I Am", media_mid="media_xyz")
+    with caplog.at_level(logging.WARNING, logger="quaverq.core.service"):
+        result = await svc.get_song_url(song)
+    assert result is None
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    combined = " ".join(warnings)
+    assert "Here I Am" in combined
+    assert "mid_xyz" in combined
+    assert "media_xyz" in combined
+
+
 # ============================================================== get_fav_albums (bypass)
 
 
