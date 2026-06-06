@@ -1,8 +1,9 @@
 """service.get_fav_songlist 契约 (我收藏的歌单).
 
-第一档 1.2: 走 _bypass_post music.musicasset.PlaylistFavRead/CgiGetPlaylistFavInfo,
-和 get_fav_albums 同款 v_list 兼容: 0/1 项时 QQ 返回 dict 而非 list, 库的 pydantic
-v2 jsonpath 直接挂; bypass + 手动 parse 避开.
+第一档 1.2: 走 0.6.1 库方法 ``client.user.get_fav_songlist`` 分页拉全部.
+- SongList 基类用 ``AliasChoices`` 识别服务端 ``tid``/``name``/``logo`` 字段, 不会挂
+- 服务端单页 cap=50, 必须循环 ``hasmore=1`` 翻页, 否则 113 项只能拿到 50
+- 库 ``ValidationError`` 时回退 ``_bypass_post`` + 手动 parse (复用 0/1 项 v_list dict 兜底)
 """
 
 from __future__ import annotations
@@ -17,129 +18,208 @@ from quaverq.core.models import Playlist
 from quaverq.core.service import CredentialExpiredError, QuaverService
 
 
-def _svc_with_bypass(payload: dict[str, Any] | None) -> QuaverService:
-    """构造一个 svc, 给定 _bypass_post 直接返回 payload."""
-    svc = QuaverService()
+def _resp(playlists: list[dict[str, Any]], *, hasmore: int, total: int) -> SimpleNamespace:
+    """模拟 UserFavSonglistResponse pydantic 对象 (库方法返回值)."""
+    items = [SimpleNamespace(**p) for p in playlists]
+    return SimpleNamespace(playlists=items, hasmore=hasmore, total=total)
+
+
+def _attach_library_mock(svc: QuaverService, pages: list[SimpleNamespace]) -> list[dict[str, Any]]:
+    """把分页响应按 page 顺序挂到 client.user.get_fav_songlist; 返回收到的请求记录."""
+    calls: list[dict[str, Any]] = []
+    pages_iter = iter(pages)
+
+    async def _get_fav_songlist(euin, page=1, num=10, *, credential=None):
+        calls.append({"euin": euin, "page": page, "num": num, "credential": credential})
+        try:
+            return next(pages_iter)
+        except StopIteration as exc:
+            raise AssertionError(f"页码 {page} 超出预设响应") from exc
+
     svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_fav_songlist=_get_fav_songlist),
         credential=Credential(musicid=1, musickey="k", str_musicid="1", encrypt_uin="EUIN_X"),
     )
     svc.credential = svc._client.credential
-
-    async def _fake_bypass(module, method, param, *, require_login=False):
-        # 必须带 euin / size / offset
-        assert param.get("uin") or param.get("euin"), "fav_songlist 请求要带 uin/euin"
-        assert "size" in param and "offset" in param
-        return payload or {}
-
-    svc._bypass_post = _fake_bypass  # type: ignore[assignment]
-    return svc
+    return calls
 
 
 async def test_get_fav_songlist_returns_empty_when_no_credential():
-    svc = QuaverService()  # 无 client / 无 cred
-    result = await svc.get_fav_songlist()
-    assert result == []
+    svc = QuaverService()
+    assert await svc.get_fav_songlist() == []
 
 
 async def test_get_fav_songlist_returns_empty_when_no_encrypt_uin():
     svc = QuaverService()
-    svc._client = SimpleNamespace(credential=Credential(musicid=1, musickey="k", str_musicid="1"))
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_fav_songlist=lambda *a, **k: None),
+        credential=Credential(musicid=1, musickey="k", str_musicid="1"),
+    )
     svc.credential = svc._client.credential
     assert await svc.get_fav_songlist() == []
 
 
-async def test_get_fav_songlist_parses_v_list_array():
-    """正常多个收藏歌单: v_list 是 list."""
-    payload = {
-        "v_list": [
-            {
-                "id": 9527,
-                "dirid": 201,
-                "title": "周杰伦精选",
-                "picurl": "https://example/p9527.jpg",
-                "songnum": 30,
-                "uin": "12345",
-                "nickname": "歌单作者A",
-            },
-            {
-                "id": 9528,
-                "title": "夏日清凉",
-                "picurl": "",
-                "songnum": 12,
-                "nickname": "歌单作者B",
-            },
+async def test_get_fav_songlist_parses_library_alias_fields():
+    """SongList 基类 AliasChoices 让 tid/name/logo 都映射到 id/title/picurl."""
+    svc = QuaverService()
+    _attach_library_mock(
+        svc,
+        [
+            _resp(
+                [
+                    {
+                        "id": 8317276554,
+                        "title": "停止联系，是我们做过最默契的事",
+                        "picurl": "http://qpic/p1.jpg",
+                        "songnum": 50,
+                        "nickname": "用户A",
+                    },
+                    {
+                        "id": 7709152142,
+                        "title": "欧美励志",
+                        "picurl": "http://qpic/p2.jpg",
+                        "songnum": 20,
+                        "nickname": "用户B",
+                    },
+                ],
+                hasmore=0,
+                total=2,
+            )
         ],
-        "total": 2,
-        "hasmore": 0,
-    }
-    svc = _svc_with_bypass(payload)
+    )
+
     result = await svc.get_fav_songlist()
     assert len(result) == 2
     assert all(isinstance(p, Playlist) for p in result)
-    assert result[0].pid == "9527"
-    assert result[0].name == "周杰伦精选"
-    assert result[0].cover_url == "https://example/p9527.jpg"
-    assert result[0].song_count == 30
-    assert result[0].creator == "歌单作者A"
-    assert result[1].pid == "9528"
+    assert result[0].pid == "8317276554"
+    assert result[0].name == "停止联系，是我们做过最默契的事"
+    assert result[0].cover_url == "http://qpic/p1.jpg"
+    assert result[0].creator == "用户A"
+    assert result[0].song_count == 50
 
 
-async def test_get_fav_songlist_handles_v_list_as_single_dict():
-    """边缘场景: 用户只收藏 1 个歌单时, QQ 直接返回 dict, 不能挂."""
-    payload = {
-        "v_list": {
-            "id": 7777,
-            "title": "孤独的一个",
-            "picurl": "https://example/p7.jpg",
-            "songnum": 5,
-            "nickname": "某用户",
-        }
-    }
-    svc = _svc_with_bypass(payload)
+async def test_get_fav_songlist_paginates_until_hasmore_zero():
+    """113 项总计, 单页 50: 必须翻 3 页 (50 + 50 + 13)."""
+    svc = QuaverService()
+    page1 = _resp(
+        [{"id": i, "title": f"P{i}", "picurl": "", "songnum": 1} for i in range(1, 51)],
+        hasmore=1,
+        total=113,
+    )
+    page2 = _resp(
+        [{"id": i, "title": f"P{i}", "picurl": "", "songnum": 1} for i in range(51, 101)],
+        hasmore=1,
+        total=113,
+    )
+    page3 = _resp(
+        [{"id": i, "title": f"P{i}", "picurl": "", "songnum": 1} for i in range(101, 114)],
+        hasmore=0,
+        total=113,
+    )
+    calls = _attach_library_mock(svc, [page1, page2, page3])
+
+    result = await svc.get_fav_songlist()
+
+    assert len(result) == 113
+    assert {p.pid for p in result} == {str(i) for i in range(1, 114)}
+    assert [c["page"] for c in calls] == [1, 2, 3]
+    assert all(c["num"] == 50 for c in calls), "页大小取上限 50 减少请求次数"
+    assert all(c["euin"] == "EUIN_X" for c in calls)
+
+
+async def test_get_fav_songlist_stops_on_empty_page_guard():
+    """防 server bug: 即使 hasmore=1 但返回空列表也要停, 否则死循环."""
+    svc = QuaverService()
+    _attach_library_mock(
+        svc,
+        [
+            _resp([{"id": 1, "title": "A"}], hasmore=1, total=10),
+            _resp([], hasmore=1, total=10),  # server 错误地说还有, 但实际给空
+        ],
+    )
     result = await svc.get_fav_songlist()
     assert len(result) == 1
-    assert result[0].pid == "7777"
-    assert result[0].name == "孤独的一个"
-
-
-async def test_get_fav_songlist_handles_empty_and_missing_v_list():
-    """0 项: v_list 为 [] 或字段缺失."""
-    svc1 = _svc_with_bypass({"v_list": []})
-    assert await svc1.get_fav_songlist() == []
-    svc2 = _svc_with_bypass({})
-    assert await svc2.get_fav_songlist() == []
 
 
 async def test_get_fav_songlist_raises_on_expired_credential():
-    """bypass 层报登录过期 → 上抛 CredentialExpiredError, 让 controller 走清缓存路径."""
+    """库方法抛过期错 → 上抛 CredentialExpiredError 让 controller 走清缓存路径."""
     svc = QuaverService()
+
+    async def _expired(*args, **kwargs):
+        raise CredentialExpiredError("登录已过期")
+
     svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_fav_songlist=_expired),
         credential=Credential(musicid=1, musickey="k", str_musicid="1", encrypt_uin="EUIN_X"),
     )
     svc.credential = svc._client.credential
-
-    async def _fake_bypass(*args, **kwargs):
-        raise CredentialExpiredError("登录已过期")
-
-    svc._bypass_post = _fake_bypass  # type: ignore[assignment]
 
     with pytest.raises(CredentialExpiredError):
         await svc.get_fav_songlist()
 
 
-async def test_get_fav_songlist_skips_items_without_id():
-    """脏数据防御: 没有 id/dissid 的条目直接跳过, 不爆破."""
-    payload = {
-        "v_list": [
-            {"id": 1, "title": "可用"},
-            {"title": "没有 id 的项"},
-            {"id": 0, "title": "id=0 视作脏"},
-        ]
-    }
-    svc = _svc_with_bypass(payload)
+async def test_get_fav_songlist_falls_back_to_bypass_on_validation_error(monkeypatch):
+    """库 pydantic 校验挂 (例如 0/1 项 v_list 是 dict) → 自动退 bypass + 手动 parse."""
+    from pydantic import ValidationError
+
+    svc = QuaverService()
+
+    async def _validation_fail(*args, **kwargs):
+        # 构造一个真实的 ValidationError (用 line_errors 列表)
+        raise ValidationError.from_exception_data("UserFavSonglistResponse", [])
+
+    svc._client = SimpleNamespace(
+        user=SimpleNamespace(get_fav_songlist=_validation_fail),
+        credential=Credential(musicid=1, musickey="k", str_musicid="1", encrypt_uin="EUIN_X"),
+    )
+    svc.credential = svc._client.credential
+
+    async def _fake_bypass(module, method, param, *, require_login=False):
+        return {
+            "v_list": {  # 单项时 dict
+                "tid": 6561218699,
+                "name": "影翼的新歌推荐",
+                "logo": "http://qpic/p.jpg",
+                "songnum": 30,
+                "nickname": "影翼",
+            }
+        }
+
+    monkeypatch.setattr(svc, "_bypass_post", _fake_bypass)
+
     result = await svc.get_fav_songlist()
     assert len(result) == 1
-    assert result[0].pid == "1"
+    assert result[0].pid == "6561218699"
+    assert result[0].name == "影翼的新歌推荐"
+    assert result[0].cover_url == "http://qpic/p.jpg"
+
+
+async def test_parse_fav_songlists_accepts_server_field_names():
+    """bypass parser 需要认服务端实际返回的 tid/name/logo 字段名."""
+    data = {
+        "v_list": [
+            {
+                "tid": 6561218699,
+                "name": "影翼的新歌推荐",
+                "logo": "http://qpic/p1.jpg",
+                "songnum": 30,
+                "nickname": "影翼",
+            },
+            {
+                "id": 7777,  # 老格式
+                "title": "老歌",
+                "picurl": "http://qpic/p2.jpg",
+                "songnum": 12,
+                "nickname": "某人",
+            },
+        ]
+    }
+    result = QuaverService._parse_fav_songlists(data)
+    assert len(result) == 2
+    assert result[0].pid == "6561218699"
+    assert result[0].name == "影翼的新歌推荐"
+    assert result[0].cover_url == "http://qpic/p1.jpg"
+    assert result[1].pid == "7777"
 
 
 if __name__ == "__main__":

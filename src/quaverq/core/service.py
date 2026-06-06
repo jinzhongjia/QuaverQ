@@ -1218,31 +1218,95 @@ class QuaverService:
             )
         return out
 
+    # 服务端 PlaylistFavRead 单页 cap = 50, 必须分页拉.
+    _FAV_SONGLIST_PAGE_SIZE = 50
+
     async def get_fav_songlist(self) -> list[Playlist]:
         """收藏的外部歌单 (区别于 ``get_my_playlists`` 的自建歌单).
 
-        和 ``get_fav_albums`` 同样的 0.6.1 坑: ``UserFavSonglistResponse`` 用 jsonpath
-        ``$.v_list`` 取列表, 用户只有 0/1 个收藏时 ``v_list`` 是 dict 而非 list, pydantic
-        v2 校验直接挂. 走 ``_bypass_post`` 拿原始 data 手动 parse 容错.
+        走 0.6.1 库方法 ``client.user.get_fav_songlist`` 分页拉到 ``hasmore=0``.
+        ``SongList`` 基类用 ``AliasChoices`` 识别服务端 ``tid``/``name``/``logo``
+        等字段名变体, pydantic 解析正常. ``v_list`` 在 0/1 项时变 dict 触发
+        ``ValidationError`` 时回退 ``_bypass_post``, 沿用 fav_albums 同款兜底.
         """
         cred = self._effective_credential()
         if cred is None or not cred.encrypt_uin:
             return []
+        try:
+            return await self._fetch_fav_songlist_via_library(cred)
+        except CredentialExpiredError:
+            raise
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            # 仅 pydantic 校验失败时退 bypass (例如 0/1 项 v_list 为 dict).
+            from pydantic import ValidationError
+
+            if not isinstance(exc, ValidationError):
+                logger.warning("get_fav_songlist 库方法失败: %s", exc)
+                return []
+            logger.warning("库 get_fav_songlist pydantic 校验失败, 退 bypass: %s", exc)
+            return await self._fetch_fav_songlist_via_bypass(cred)
+
+    async def _fetch_fav_songlist_via_library(self, cred: Credential) -> list[Playlist]:
+        out: list[Playlist] = []
+        page = 1
+        while True:
+            resp = await self.client.user.get_fav_songlist(
+                cred.encrypt_uin,
+                page=page,
+                num=self._FAV_SONGLIST_PAGE_SIZE,
+                credential=cred,
+            )
+            items = getattr(resp, "playlists", None) or []
+            if not items:
+                break
+            for item in items:
+                playlist = self._to_fav_playlist(item)
+                if playlist is not None:
+                    out.append(playlist)
+            if not getattr(resp, "hasmore", 0):
+                break
+            page += 1
+        return out
+
+    async def _fetch_fav_songlist_via_bypass(self, cred: Credential) -> list[Playlist]:
         data = await self._bypass_post(
             "music.musicasset.PlaylistFavRead",
             "CgiGetPlaylistFavInfo",
-            {"uin": cred.encrypt_uin, "offset": 0, "size": 200},
+            {"uin": cred.encrypt_uin, "offset": 0, "size": self._FAV_SONGLIST_PAGE_SIZE},
             require_login=True,
         )
         return self._parse_fav_songlists(data)
 
     @staticmethod
+    def _to_fav_playlist(raw: Any) -> Playlist | None:
+        """库 ``UserFavSonglistItem`` (pydantic) → 我们的 ``Playlist`` dataclass."""
+        pid = str(QuaverService._g(raw, "id", 0) or 0)
+        if not pid or pid == "0":
+            return None
+        return Playlist(
+            pid=pid,
+            name=QuaverService._g(raw, "title", "") or "",
+            cover_url=QuaverService._g(raw, "picurl", "") or "",
+            description=QuaverService._g(raw, "desc", "") or "",
+            creator=QuaverService._g(raw, "nickname", "") or "",
+            song_count=int(QuaverService._g(raw, "songnum", 0) or 0),
+            play_count=int(QuaverService._g(raw, "listennum", 0) or 0),
+        )
+
+    @staticmethod
     def _parse_fav_songlists(data: dict[str, Any] | None) -> list[Playlist]:
+        """bypass 兜底解析: 服务端实际返回 ``tid``/``name``/``logo`` 字段名 (非 id/title/picurl).
+
+        探针实测: ``v_list`` 项是 ``{"tid", "name", "logo", "songnum", "nickname", ...}``.
+        同时兼容老 ``id``/``title``/``picurl`` 键名以防服务端切换.
+        """
         raw = (data or {}).get("v_list")
         if isinstance(raw, dict):
             items = (
                 [raw]
-                if ("id" in raw or "dissid" in raw or "title" in raw)
+                if any(k in raw for k in ("tid", "id", "dissid", "name", "title"))
                 else [v for v in raw.values() if isinstance(v, dict)]
             )
         elif isinstance(raw, list):
@@ -1253,14 +1317,16 @@ class QuaverService:
         for p in items:
             if not isinstance(p, dict):
                 continue
-            pid = str(p.get("id", "") or p.get("dissid", "") or "")
+            pid = str(p.get("tid", "") or p.get("id", "") or p.get("dissid", "") or "")
             if not pid or pid == "0":
                 continue
             out.append(
                 Playlist(
                     pid=pid,
-                    name=str(p.get("title", "") or p.get("dissname", "") or ""),
-                    cover_url=str(p.get("picurl", "") or p.get("logo", "") or ""),
+                    name=str(
+                        p.get("name", "") or p.get("title", "") or p.get("dissname", "") or ""
+                    ),
+                    cover_url=str(p.get("logo", "") or p.get("picurl", "") or ""),
                     description=str(p.get("desc", "") or ""),
                     creator=str(p.get("nickname", "") or ""),
                     song_count=int(p.get("songnum", 0) or 0),
