@@ -8,7 +8,31 @@ LLM 约定：
 
 ## 项目使用的库
 
-<AGNET-TODO>
+### 运行时依赖 (`[project] dependencies`)
+
+- **`PySide6>=6.6`** — Qt for Python 官方绑定, 提供 QML (Qt Quick) UI + `QtMultimedia` (`QMediaPlayer`) 播放后端 + `QSystemTrayIcon` / `QMenu` 托盘 + `QQuickStyle` / `QQuickImageProvider` 等. 整个 GUI / 播放器 / 自绘标题栏的基石.
+- **`qasync>=0.27`** — `asyncio` ↔ Qt 事件循环桥. 启动期建 `qasync.QEventLoop`, QML 槽用 `@asyncSlot` 暴露异步函数. 不能换成 `asyncio.run`, 否则 Qt 信号 / GUI 线程会卡死 (见"asyncio 经 qasync 跑").
+- **`qqmusic-api-python>=0.6.1,<0.7`** — 第三方 QQ 音乐 API 封装 (搜索 / 歌单 / 歌手 / 歌词 / 排行榜 / 二维码登录 / 播放 URL 等). 暴露 `Client` / `Credential` / `SearchType` / `TabType` / `QRCodeLoginEvents` 等. 版本锁 `<0.7` 因 0.7 系列有破坏性变更.
+- **`curl-cffi>=0.15.0`** — 带浏览器 TLS 指纹的 HTTP 客户端 (`from curl_cffi import requests`), `qqmusic-api-python` 内部用它绕开 QQ 服务端的 JA3 指纹校验. 必须经 `ServiceController.start()` (含 `_start_lock`) 统一启停, 否则会泄漏后台线程导致退出卡死 (见"禁止重复 `start()`").
+- **`dbus-next>=0.2.3`** — 纯 Python 异步 D-Bus 实现, 用于 MPRIS2 (媒体键 / GNOME 媒体控件 / KDE 通知面板). 服务端通过 `__annotations__` 读取 D-Bus 签名字符串 (`"b"` / `"s"` / `"a{sv}"` 等), 不是 Python 类型注解, 不要"修正" (见 `src/quaverq/core/mpris.py` 与"禁止动 MPRIS D-Bus 注解形式").
+- **`tomli-w>=1.0`** — TOML 写入. 读侧用 Python 3.11+ 内置 `tomllib` (3.10 fallback 到 `tomli`), 写 `~/.config/quaverq/config.toml` 用 `tomli_w.dump`.
+
+### 开发依赖 (`[dependency-groups] dev`)
+
+- **`pytest>=8.0`** + **`pytest-asyncio>=0.24`** — 单元 / 契约测试框架, `asyncio_mode=auto` 让 `async def test_*` 自动跑. QQ API 调用统一用 `types.SimpleNamespace` mock 而非真请求; 文件 I/O 一律 `tmp_path` fixture, 不污染 `~/.config/quaverq/` 真实目录.
+- **`ruff>=0.6.0`** — Python lint + formatter 一体工具 (替代 flake8 + isort + black). 配置见 `pyproject.toml [tool.ruff]`, 规则集 F/E/W/I/B/UP/C4/SIM/RET/PIE, `line-length=100`, `target-version=py310`. 对 `src/quaverq/core/mpris.py` 有 per-file ignore (`F821`/`F722`/`UP037`) 放过 D-Bus 签名字符串.
+- **`nuitka>=4.1.2`** — Python → C 编译器, `standalone` 模式产出可独立分发的二进制 (见 `[tool.quaverq] nuitka_module_mode = "standalone"`). `build.py --appimage` 再套 linuxdeploy 打成 AppImage.
+- **`patchelf>=0.17.2.4`** — ELF `rpath` / interpreter 修补工具, Nuitka standalone 产物动态库依赖处理依赖它.
+
+### 构建与依赖管理
+
+- **`uv`** — 包 + 虚拟环境管理 (替代 `pip` + `venv` + `pip-tools`). 锁定文件 `uv.lock`, `[tool.uv] package = true` 表示本仓库自身亦作可安装包. 所有命令统一 `uv run ...` 进虚拟环境.
+- **`hatchling`** — PEP 517 构建后端, 配合 `[tool.hatch.build.targets.wheel] packages = ["src/quaverq"]` 指定 wheel 源.
+
+### Qt 自带工具 (随 PySide6 提供)
+
+- **`pyside6-qmllint`** — QML 静态检查器, lint 阶段强制 `--max-warnings=0`, 配置见 `.qmllint.ini`. ContextProperty 等已知合法用法用 inline `// qmllint disable <rule>` 精确抑制.
+- **Qt 模块**: `QtCore` / `QtGui` / `QtWidgets` / `QtQml` / `QtQuick` / `QtQuickControls2` / `QtMultimedia` / `QtSvg` 通过 PySide6 暴露, 无需单独依赖. QML 侧 `import QtQuick`, `QtQuick.Controls.Basic`, `QtQuick.Layouts`, `QtMultimedia`.
 
 ## 开发可用命令
 
