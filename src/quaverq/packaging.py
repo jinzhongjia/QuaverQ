@@ -43,6 +43,19 @@ _FORCE_INCLUDE_PACKAGES = (
     "dbus_next",
 )
 
+# PySide6 的 qml 插件会把整套 Qt 库都打进来；这些模块音乐播放器用不到，显式排除以瘦身
+# （仅 WebEngineCore 单个就 ~195MB）。只排"明确没用且重"的，不碰运行时真依赖：
+# Quick / QuickControls2* / Qml* / Multimedia / Svg / Network / DBus / OpenGL /
+# ShaderTools / WaylandClient / Quick(Layouts|Templates2|Shapes|Effects) 等。
+_EXCLUDE_QT_DLL_PATTERNS = (
+    "*WebEngine*", "*WebView*", "*WebChannel*",
+    "*Quick3D*", "*Qt63D*", "*Qt6Pdf*",
+    "*Charts*", "*DataVisualization*", "*Qt6Graphs*",
+    "*VirtualKeyboard*", "*Qt6Location*", "*Qt6Positioning*",
+    "*Qt6Scxml*", "*RemoteObjects*", "*Qt6Sensors*",
+    "*TextToSpeech*", "*SpatialAudio*", "*WaylandCompositor*",
+)
+
 
 def project_version() -> str:
     data = tomllib.loads(
@@ -71,6 +84,7 @@ def nuitka_command(
         f"--output-dir={output_dir}",
         "--enable-plugin=pyside6",
         "--include-qt-plugins=sensible,qml",  # QtQuick / QtMultimedia / Layouts 运行时
+        *(f"--noinclude-dlls={pattern}" for pattern in _EXCLUDE_QT_DLL_PATTERNS),
         "--include-package-data=quaverq",  # qml / Theme / qmldir
         "--include-package-data=curl_cffi",  # native _wrapper.so + libcurl
         f"--include-data-dir={root / 'assets'}=assets",

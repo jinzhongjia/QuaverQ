@@ -32,12 +32,13 @@ jobs:
       - name: Sync project (incl. build deps)
         run: uv sync --dev
 
-      - name: Fetch linuxdeploy + Qt plugin
+      - name: Fetch linuxdeploy
+        # 不需要 linuxdeploy-plugin-qt：Nuitka 的 pyside6 插件已把整套 Qt 打进 bundle，
+        # qt 插件反而会去部署系统 Qt（引入 sqldrivers 等缺失依赖而失败）。
         run: |
           base=https://github.com/linuxdeploy
           wget -q $base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
-          wget -q $base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage -O linuxdeploy-plugin-qt
-          chmod +x linuxdeploy linuxdeploy-plugin-qt
+          chmod +x linuxdeploy
           echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Build AppImage (Nuitka standalone + linuxdeploy)
@@ -50,12 +51,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QuaverQ-x86_64-AppImage
-          path: '*.AppImage'
+          path: 'dist/*.AppImage'
           if-no-files-found: error
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: '*.AppImage'
+          files: 'dist/*.AppImage'
           generate_release_notes: true

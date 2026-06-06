@@ -789,7 +789,7 @@ v1 仅 Linux。Windows / macOS 分发在 §1.3 已列为 deferred，对应工具
 |---|---|---|
 | 本地 dev | `uv run quaverq` | 直接跑 |
 | Bundle | **Nuitka** (`--standalone --enable-plugin=pyside6`) | `dist/quaverq/` 目录 |
-| 分发（Linux）| **AppImage** (`linuxdeploy` + `linuxdeploy-plugin-qt`) | 单文件 |
+| 分发（Linux）| **AppImage** (`linuxdeploy`；Qt 由 Nuitka pyside6 插件自带，不用 qt 插件) | 单文件 |
 | 分发（Windows，后续） | Nuitka `--onefile` + `--mingw64` 或 `pyinstaller` + Inno Setup / MSIX | `.exe` / `.msix` |
 | 分发（macOS，后续） | `pyinstaller` `.app` bundle + `create-dmg` + Apple notarization | `.dmg` |
 
