@@ -37,6 +37,8 @@ ApplicationWindow {
     readonly property var playerController: PlayerController
     readonly property var settingsController: SettingsController
     readonly property var systemTheme: SystemTheme
+    // 托盘可用时由 Python 置 true: 关闭改为隐藏到托盘而非退出
+    property bool closeToTray: false
     property bool queuePanelOpen: false
     property string currentRoute: "home"
     property string currentTopRoute: "home"
@@ -46,6 +48,13 @@ ApplicationWindow {
     property bool muteForPendingSeek: false
     readonly property int pendingSeekToleranceMs: 1000
     readonly property int pendingSeekMaxAttempts: 60
+
+    onClosing: function(close) {
+        if (root.closeToTray) {
+            close.accepted = false
+            root.hide()
+        }
+    }
 
     Binding {
         target: ThemeTokens.Theme

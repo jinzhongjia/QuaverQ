@@ -12,7 +12,7 @@ from PySide6.QtCore import QtMsgType, QUrl, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .bridge import (
     AppController,
@@ -85,6 +85,42 @@ def _raise_main_window(engine: QQmlApplicationEngine) -> None:
     request_activate = getattr(window, "requestActivate", None)
     if callable(request_activate):
         request_activate()
+
+
+def _setup_tray(
+    app: QApplication,
+    engine: QQmlApplicationEngine,
+    player_controller: PlayerController,
+) -> QSystemTrayIcon:
+    """系统托盘: 左键 / 「显示」恢复窗口, 「退出」才真正退出 app.
+
+    triggered 会带 checked 参数, 用 ``lambda *_`` 吸收.
+    """
+    tray = QSystemTrayIcon(QIcon(str(resources.icon_file())), app)
+    tray.setToolTip("QuaverQ")
+
+    menu = QMenu()
+    menu.addAction("显示 QuaverQ").triggered.connect(
+        lambda *_: _raise_main_window(engine)
+    )
+    menu.addSeparator()
+    menu.addAction("播放 / 暂停").triggered.connect(
+        lambda *_: player_controller.togglePlayPause()
+    )
+    menu.addAction("下一首").triggered.connect(lambda *_: player_controller.next())
+    menu.addAction("上一首").triggered.connect(lambda *_: player_controller.prev())
+    menu.addSeparator()
+    menu.addAction("退出 QuaverQ").triggered.connect(lambda *_: app.quit())
+    tray.setContextMenu(menu)
+    tray._menu = menu  # 持有引用, 防 QMenu 被 GC
+
+    def _on_activated(reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            _raise_main_window(engine)
+
+    tray.activated.connect(_on_activated)
+    tray.show()
+    return tray
 
 
 async def _load_initial_state(
@@ -201,6 +237,16 @@ def main() -> None:
     if not engine.rootObjects():
         logger.error("QML load failed: %s", qml_path)
         sys.exit(1)
+
+    # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
+    # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.
+    tray = None
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        app.setQuitOnLastWindowClosed(False)
+        engine.rootObjects()[0].setProperty("closeToTray", True)
+        tray = _setup_tray(app, engine, player_controller)
+    else:
+        logger.info("系统托盘不可用, 关闭窗口将退出程序")
 
     mpris_controller = MprisController(
         player_controller,
