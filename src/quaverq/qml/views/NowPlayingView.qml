@@ -19,10 +19,6 @@ Item {
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
         && currentSong.name.length > 0
-    readonly property int queueCount: root.playerController && root.playerController.queueModel
-        ? root.playerController.queueModel.count
-        : 0
-    readonly property int headerCoverSize: root.width >= 900 ? 112 : 88
 
     signal queueRequested()
 
@@ -36,6 +32,11 @@ Item {
         return songData.albumName || ""
     }
 
+    Rectangle {
+        anchors.fill: parent
+        color: ThemeTokens.Palette.background
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: ThemeTokens.Spacing.s6
@@ -43,17 +44,16 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(root.headerCoverSize, 96)
             spacing: ThemeTokens.Spacing.s5
 
             Components.AlbumArt {
-                Layout.preferredWidth: root.headerCoverSize
-                Layout.preferredHeight: root.headerCoverSize
+                Layout.preferredWidth: 72
+                Layout.preferredHeight: 72
                 Layout.alignment: Qt.AlignVCenter
                 active: root.hasSong
                 coverUrl: root.hasSong && root.currentSong.coverUrl ? root.currentSong.coverUrl : ""
                 coverController: root.coverController
-                iconSize: ThemeTokens.TypeScale.h1
+                iconSize: ThemeTokens.TypeScale.h2
             }
 
             ColumnLayout {
@@ -66,7 +66,7 @@ Item {
                     text: root.hasSong ? root.currentSong.name : qsTr("尚未播放")
                     color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
-                    font.weight: ThemeTokens.TypeScale.medium
+                    font.weight: ThemeTokens.TypeScale.bold
                     elide: Text.ElideRight
                 }
 
@@ -87,33 +87,12 @@ Item {
                 song: root.currentSong
             }
 
-            Button {
-                id: queueButton
-
-                Layout.preferredWidth: root.queueCount > 99 ? 96 : 84
-                Layout.preferredHeight: 38
+            Components.IconButton {
                 Layout.alignment: Qt.AlignVCenter
-                text: root.queueCount > 0 ? qsTr("待播 %1").arg(root.queueCount) : qsTr("待播")
-                Accessible.name: qsTr("打开待播列表")
+                text: qsTr("待播列表")
+                iconText: "☰"
+                iconColor: ThemeTokens.Palette.surfaceVariantText
                 onClicked: root.queueRequested()
-
-                contentItem: Label {
-                    text: queueButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.caption
-                    font.weight: ThemeTokens.TypeScale.medium
-                    elide: Text.ElideRight
-                }
-
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: queueButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : queueButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
-                    border.color: "transparent"
-                }
             }
         }
 

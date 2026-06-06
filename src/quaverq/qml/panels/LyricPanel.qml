@@ -20,9 +20,9 @@ Rectangle {
     readonly property color creditActiveColor: ThemeTokens.Theme.dark ? "#87909f" : "#7d8794"
     property int lastRevealedIndex: -1
 
-    radius: ThemeTokens.Spacing.radiusMd
-    color: ThemeTokens.Palette.surfaceElevated
-    border.color: ThemeTokens.Palette.outlineMuted
+    radius: root.compact ? ThemeTokens.Spacing.radiusMd : 0
+    color: root.compact ? ThemeTokens.Palette.surfaceElevated : "transparent"
+    border.color: root.compact ? ThemeTokens.Palette.outlineMuted : "transparent"
     clip: true
 
     function isCreditLine(text) {
@@ -196,14 +196,18 @@ Rectangle {
                             text: lyricDelegate.lineText
                             color: lyricDelegate.creditLine
                                 ? (lyricDelegate.activeLine ? root.creditActiveColor : root.creditLineColor)
-                                : (lyricDelegate.activeLine ? ThemeTokens.Palette.surfaceText : root.mutedLineColor)
+                                : (lyricDelegate.activeLine
+                                    ? (root.compact ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.primary)
+                                    : root.mutedLineColor)
                             horizontalAlignment: root.compact ? Text.AlignLeft : Text.AlignHCenter
                             font.pixelSize: lyricDelegate.activeLine
                                 ? (lyricDelegate.creditLine
                                     ? (root.compact ? ThemeTokens.TypeScale.caption : ThemeTokens.TypeScale.bodySm)
                                     : (root.compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h1))
                                 : (root.compact ? ThemeTokens.TypeScale.bodySm : ThemeTokens.TypeScale.body)
-                            font.weight: lyricDelegate.strongActive ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
+                            font.weight: lyricDelegate.strongActive
+                                ? (root.compact ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.bold)
+                                : ThemeTokens.TypeScale.regular
                             wrapMode: Text.WordWrap
                             maximumLineCount: root.compact ? 2 : (lyricDelegate.strongActive ? 3 : 2)
                             elide: Text.ElideRight

@@ -15,13 +15,11 @@ Item {
     property int imageSize: compact ? 96 : 512
     property int imageRevision: 0
     property int coverRadius: root.circular
-        ? Math.round(root.imageSize / 2)
+        ? Math.round(root.imageSize * 4)
         : compact
             ? ThemeTokens.Spacing.radiusSm
             : Math.max(ThemeTokens.Spacing.radiusSm, Math.min(6, Math.round(root.imageSize * 0.1)))
-    readonly property int placeholderRadius: root.circular
-        ? Math.round(Math.max(root.width, root.implicitWidth) / 2)
-        : compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
+    readonly property int placeholderRadius: compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
     readonly property bool coverCached: root.coverUrl.length > 0
         && root.coverController
         && root.imageRevision >= 0
@@ -73,7 +71,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: !root.hasImage
-        radius: root.placeholderRadius
+        radius: root.circular ? width / 2 : root.placeholderRadius
         color: root.active ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.albumSurface
     }
 
@@ -130,7 +128,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: !root.hasImage
-        radius: root.hasImage ? root.coverRadius : root.placeholderRadius
+        radius: root.circular ? width / 2 : (root.hasImage ? root.coverRadius : root.placeholderRadius)
         color: "transparent"
         border.color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outlineMuted
         border.width: 1
