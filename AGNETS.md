@@ -89,3 +89,65 @@ LLM 约定：
 - 与其他目录之间依赖的关系
 
 每次更新 src 下目录的代码时，检查 README.md 是否需要更新，保持文档与代码一致。
+
+## 项目 UI 风格
+
+### 设计参考
+
+- **QQ 音乐 PC 端**: 整体克隆 QQ 音乐桌面版视觉语言. 参考规范 / Token 详见 `.claude/skills/qq-music-design` (作为外部 skill 维护, 不复制到本仓库). 任何配色 / 间距 / 圆角拿捏不准时先翻这个 skill, 不要凭感觉填裸 hex.
+
+### 整体布局 (三段式)
+
+- **顶栏 (`headerBar`, height = `Spacing.headerHeight = 56`)**: 自绘无边框标题栏. 从左到右: 返回键 → 品牌 logo (28x28 圆角矩形 + ♪) + 标题 (≥920px 才显示文字) → `SearchField` (`maxWidth=500`, `fillWidth`) → 最小化 / 最大化 / 关闭按钮. 拖动靠 `DragHandler` + `startSystemMove()`, 不接系统装饰. 见 `qml/Main.qml`.
+- **主体 (RowLayout, `spacing=0`)**: 左 `Sidebar` (展开 240px / 紧凑 64px) + 右 `StackView contentStack` (路由切换走 push / clear, 不用 Loader); `StackView` 装 `views/HomeView`, `SearchView`, `LibraryView`, `DetailView`, `NowPlayingView`, `SettingsView`.
+- **底栏 (`PlayerBar`, height = `Spacing.playerBarHeight = 104`)**: 全宽常驻播放器, 封面 + 元信息 + 控件 + 进度 + 音量 + 队列 / 正在播放入口. 底部圆角与窗口圆角联动 (`bottomCornerRadius`).
+- **浮层**: `QueuePanel` (`Loader` 懒加载, 右抽屉 z=10, 宽 `min(360, root.width - 96)`), `LoginDialog` (二维码登录, z 默认), `Banner` (顶栏下警告条, z=970), `Snackbar` (居中提示, z=980), 窗口边框 / resize handle 分别 z=990 / z=1000.
+
+### 窗口 chrome (自绘 + 无系统装饰)
+
+- `flags: Qt.Window | Qt.FramelessWindowHint`, `color: "transparent"`: 整窗自绘. 默认尺寸 `1080x720` (`Spacing.windowWidth` / `windowHeight`), 最小 `760x640`.
+- **圆角 + 阴影边距**: 普通态 `windowShadowMarginBase=2` + `radius=Spacing.radiusSm=4`; 最大化 / 全屏 (`Window.Maximized` / `Window.FullScreen`) 自动归零去圆角. 边距区供未来加投影, 当前作"透明气垫"避免顶角硬切.
+- **边框层 (`windowBorderLayer`, z=990)**: `border.width=1`, 激活态 `Palette.windowBorder` / 失焦 `windowBorderInactive`, 仅描线不填色.
+- **Resize 八向**: `resizeLayer` (z=1000) 8 个 `MouseArea` (四角 + 四边), `resizeHandleSize=8`, 调 `root.startSystemResize(Qt.LeftEdge | ...)`. 最大化时整层 `enabled: false`.
+
+### 主题系统 (Theme singleton + Token 文件)
+
+`qml/Theme/` 下 5 个 `pragma Singleton`, 子组件只绑 token 名, 不写裸 hex / 裸数字:
+
+- **`Theme.qml`** — 模式开关. `mode` ∈ `{"system", "light", "dark"}`, `dark` 派生属性. 系统模式以 `SystemTheme` (`bridge/system_theme.py`, 走 xdg-desktop-portal `color-scheme`) 为准, Qt 自带 `styleHints.colorScheme` 在 GNOME/Wayland 上把 portal `prefer-dark` 错映射成 `Light`, 不可靠. `Main.qml` 用两个 `Binding` 把 `settingsController.themeMode` + `systemTheme.dark` 灌进来.
+- **`Palette.qml`** — 全部颜色 token. 亮色: 品牌 `#31c27c` + 白底 `#ffffff` + 侧栏 `#f5f5f7` + 文本 `#333333` / `#767676`; 深色: `#1b1c1f` 底 + `#1f2024` 侧栏 + `#f0f1f3` / `#9a9ca2` 文本. 分层 token 含 `background` / `surface` / `surfaceElevated` / `surfaceVariant` / `surfaceContainerHigh`, 交互态 `stateHover` / `statePressed` / `stateSelected` / `stateDisabled` / `focusRing` / `scrim`, 品牌色 `primary` / `primaryHover` / `primaryActive` / `primaryContainer` / `primaryText`, 次级 `accent` (空间音频蓝), 状态 `error` / `warning`. 换肤只动这一个文件.
+- **`Spacing.qml`** — 间距 + 圆角 + 命中区. 间距 4 阶幂级数: `s2=4`, `s3=8`, `s4=12`, `s5=16`, `s6=24`, `s7=32`, `s8=48`. 圆角五档: `radiusSm=4`, `radiusMd=8`, `radiusLg=12`, `radiusXl=16`, `radiusPill=20`. 命中区 `toolHitSize=44` (WCAG 触控目标).
+- **`TypeScale.qml`** — 字号 + 字重. 字号: `display=32` / `h1=23` / `h2=19` / `body=16` / `bodySm=14` / `caption=13`. 字重: `regular=Font.Normal` / `medium=Font.Medium` / `bold=Font.DemiBold` (用 DemiBold 而非 Bold, 避免在 Linux 默认字体上糊).
+- **`Motion.qml`** — 动效时长 + 缓动. 时长三档: `durFast=120` / `durMed=220` / `durSlow=320` ms. 缓动: `easeOut=OutCubic` / `easeIn=InCubic` / `easeStd=InOutCubic`.
+
+### 组件 / 视图分层
+
+- **`qml/components/`** — 通用复用组件: `Sidebar` / `PlayerBar` / `SearchField` / `SongRow` / `QueueRow` / `Card` / `AlbumArt` / `NavItem` / `IconButton` / `LikeButton` / `Snackbar` / `Banner`. 一律自定义 `background` / `contentItem`, 不依赖 Qt 默认 style 主题.
+- **`qml/views/`** — 整页视图: `HomeView` / `SearchView` / `LibraryView` / `DetailView` / `NowPlayingView` / `SettingsView`. 通过 `StackView` 切换, 走 `StackView.Immediate` (无切换动画, 避免延迟感).
+- **`qml/panels/`** — 抽屉式浮层: `QueuePanel` / `LyricPanel`.
+- **`qml/dialogs/`** — 模态对话框: `LoginDialog`.
+- **`qml/Theme/`** — 上述 5 个 singleton, 不放业务组件.
+
+### 交互 / 无障碍
+
+- **键盘**: 全局快捷键 — `Ctrl+F` 聚焦搜索, `Space` 播放 / 暂停, `Ctrl+←` / `Ctrl+→` 上 / 下首, `Esc` 退焦 / 关队列面板 / 返回上一级. 焦点搁 `shortcutFocusSink`, 不抢输入框焦点.
+- **焦点环**: 所有可聚焦组件 `activeFocus` 时套 2px `Palette.focusRing` (= `primary`) 描边, 配合 `Keys.onReturnPressed` / `onSpacePressed` 触发. 不依赖鼠标 hover.
+- **无障碍名**: 图标按钮 `Accessible.role: Button` + `Accessible.name: text`, 即 `IconButton.text` 不显示在视觉上但读屏会读. `Card` 的 name 拼 `title + 副标题`.
+- **命中区**: 工具按钮统一 `toolHitSize=44`, 即便视觉图标只有 16~20px. 列表行 ≥ 40px.
+
+### 控件库选择
+
+- **使用 `QtQuick.Controls.Basic`**, 不用 `Material` / `Fusion` / `Universal`. 原因: Basic 是无主题"光板", 子样式全靠自绘 `background` / `contentItem` 接管, 不会被系统 style 串色, 跨发行版表现一致. 由 `QQuickStyle.setStyle("Basic")` 在 `__main__.py` 启动期强制锁死.
+- **`pragma ComponentBehavior: Bound`** 写在 QML 文件首行, 配合 `Repeater` 的 `required property` 收紧绑定作用域, 让 qmllint 能查出错误的隐式 `id` 引用.
+
+### 响应式 (单一断点 920px)
+
+- 唯一断点 `width >= 920`: 顶栏品牌文字隐藏 / 显示; 侧栏 `compact: width < 920`, 240→64 px 折叠且只保留图标. 不做更细的栅格, 因 v1 仅桌面.
+
+### 国际化
+
+- 所有用户可见字符串走 `qsTr()`. 默认中文 (项目优先中文), 未来加 `.ts` / `.qm` 翻译时可直出. 视图路由 / 标题字典统一在 `Main.qml routeTitle()` 一处管理.
+
+### 图标 / 字符
+
+- v1 不引入字体图标库 (避免再带一份字体资产 / Nuitka 打包额外路径). 用 Unicode 符号代替: `←` 返回, `⌂` 发现, `⌕` 搜索, `♬` 资料库, `⚙` 设置, `▶` 播放, `♥` 我喜欢, `♪` 品牌 logo 占位. 字体级渲染保证清晰. 若未来切到矢量图标, 在 `IconButton.iconText` 替换或新增 `iconSource` 即可, 不影响命中区 / 焦点环.
