@@ -33,7 +33,6 @@ from qqmusic_api.models.login import QRCodeLoginEvents, QRLoginType
 from qqmusic_api.modules.search import SearchType
 from qqmusic_api.modules.singer import TabType
 
-from .cache import Cache
 from .lyric import parse_lrc
 from .models import (
     Album,
@@ -159,14 +158,13 @@ class QuaverService:
     """QQ 音乐 API 门面层 (0.6.1, 含 vkey bypass).
 
     用法:
-        svc = QuaverService(cache=cache)
+        svc = QuaverService()
         await svc.connect()
         svc.set_credential_sync(cached_cred)
         url = await svc.get_song_url(song, quality_preference="high")
     """
 
     credential: Credential | None = None
-    cache: Cache | None = None
     on_qrcode: Callable[[bytes, str, str], None] | None = None
     on_login_status: Callable[[str], None] | None = None
 
@@ -395,11 +393,6 @@ class QuaverService:
     async def get_album_detail(
         self, album_mid: str, *, song_limit: int = 100
     ) -> Album:
-        if self.cache is not None:
-            cached = self.cache.get_album(album_mid)
-            if cached is not None and cached.songs:
-                return cached
-
         # 0.6.1 client method 返回 Request 对象, 不是直接的 awaitable
         # asyncio.gather 不能用; 顺序 await
         detail_resp = await self.client.album.get_detail(album_mid)
@@ -437,19 +430,11 @@ class QuaverService:
             song_count=song_count or len(raw_songs),
             songs=[self._to_song(s) for s in raw_songs],
         )
-        if self.cache is not None and album.songs:
-            self.cache.put_album(album)
         return album
 
     async def get_playlist_detail(
         self, pid: str | int, *, song_limit: int = 300
     ) -> Playlist:
-        pid_str = str(pid)
-        if self.cache is not None:
-            cached = self.cache.get_playlist(pid_str)
-            if cached is not None and cached.songs:
-                return cached
-
         try:
             sid = int(pid)
         except (TypeError, ValueError):
@@ -478,18 +463,11 @@ class QuaverService:
                 self._to_song(s) for s in (getattr(resp, "songs", None) or [])
             ],
         )
-        if self.cache is not None and playlist.songs:
-            self.cache.put_playlist(playlist)
         return playlist
 
     async def get_artist_detail(
         self, singer_mid: str, *, hot_song_limit: int = 50
     ) -> ArtistDetail:
-        if self.cache is not None:
-            cached = self.cache.get_artist(singer_mid)
-            if cached is not None and cached.hot_songs:
-                return cached
-
         info_resp = await self.client.singer.get_info(singer_mid)
         tab_resp = await self.client.singer.get_tab_detail(
             singer_mid, TabType.SONG, 1, hot_song_limit
@@ -513,8 +491,6 @@ class QuaverService:
             description="",
             hot_songs=[self._to_song(sr) for sr in raw_songs],
         )
-        if self.cache is not None and artist.hot_songs:
-            self.cache.put_artist(artist)
         return artist
 
     @staticmethod

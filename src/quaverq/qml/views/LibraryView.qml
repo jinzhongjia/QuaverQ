@@ -65,7 +65,7 @@ ColumnLayout {
                     text: qsTr("资料库")
                     color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
-                    font.weight: ThemeTokens.TypeScale.medium
+                    font.weight: ThemeTokens.TypeScale.bold
                     elide: Text.ElideRight
                 }
 

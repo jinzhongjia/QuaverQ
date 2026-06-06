@@ -91,7 +91,7 @@ ColumnLayout {
                 text: qsTr("搜索")
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h1
-                font.weight: ThemeTokens.TypeScale.medium
+                font.weight: ThemeTokens.TypeScale.bold
             }
 
             Label {

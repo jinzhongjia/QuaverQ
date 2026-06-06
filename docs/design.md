@@ -100,7 +100,7 @@
 │                                │                                 │
 │   ┌────────────────────────────▼───────────────────────────┐    │
 │   │ Core (既有，无改动)                                      │    │
-│   │   service / library / queue / cache / cover_cache /     │    │
+│   │   service / queue / cover_cache /     │    │
 │   │   state / lyric / mpris / models                        │    │
 │   └────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
@@ -738,7 +738,7 @@ src/quaverq/
 │   ├── settings_controller.py   Q10 新增：QSettings / 音质 / 主题 / 缓存
 │   └── models.py                QAbstractListModel 族
 ├── core/                   保持
-│   ├── service / library / queue / cache / cover_cache /
+│   ├── service / queue / cover_cache /
 │   │   state / lyric / mpris / models
 │   └── platform/           deferred：Windows / macOS 支持前引入
 └── qml/                    新增
@@ -1019,7 +1019,7 @@ QT_QPA_PLATFORM=offscreen timeout 2s uv run quaverq
 已交付：
 - 封面缓存上限：`CoverCache.max_bytes` + `enforce_limit()` 按 mtime 最旧优先 LRU 淘汰，永不淘汰最新一条（单个封面大于上限时保留而非反复重下）；`get_path()` 命中按节流刷新访问时间（真 LRU 而非按下载时间），新下载后触发淘汰。`max_bytes <= 0` 表示不限，向后兼容。
 - 设置页可设上限：`SettingsController.coverCacheMaxBytes` / `setCoverCacheMaxBytes()` 持久化 `cache/coverMaxBytes`，默认 256 MB，预设 128MB–2GB / 无限制；启动构造时应用上限并淘汰一次（修剪旧的不限版本遗留）。
-- 孤儿缓存清理：`config.purge_orphan_caches()` 删除旧架构遗留的 `cache.db`(+`-wal`/`-shm`) 与 `CacheStorage/`、`WebKitCache/`，幂等且只动白名单；启动时清一次，设置页"清理"按钮一并清。**注**：SQLite 元数据缓存（`core/cache.py`）与核心 `Library` 当前从未接线（`service.cache` 恒 None、无 `.open()`），是早期架构遗留，故按孤儿清理而非为死代码建管理 UI。
+- 孤儿缓存清理：`config.purge_orphan_caches()` 删除旧架构遗留的 `cache.db`(+`-wal`/`-shm`) 与 `CacheStorage/`、`WebKitCache/`，幂等且只动白名单；启动时清一次，设置页"清理"按钮一并清。**注**：SQLite 元数据缓存（`core/cache.py`）与核心 `Library` 从未接线（`service.cache` 恒 None、无 `.open()`），是早期架构遗留——已作为死代码删除（移除 `core/cache.py`、`core/library.py` 及其测试，`service.py` 去掉 `cache` 字段与缓存分支）。喜欢同步走 `LibraryController` 直连 service，不依赖本地镜像。
 - 音频缓存预留：v1 不实装。后续音频缓存复用 `CoverCache` 的 `max_bytes` + `enforce_limit` LRU 模式，设置键命名空间预留 `cache/audioMaxBytes`，缓存目录 `~/.cache/quaverq/audio/`。
 
 验收：

@@ -63,7 +63,7 @@ ScrollView {
                     text: qsTr("发现")
                     color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h1
-                    font.weight: ThemeTokens.TypeScale.medium
+                    font.weight: ThemeTokens.TypeScale.bold
                     elide: Text.ElideRight
                 }
 

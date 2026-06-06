@@ -57,7 +57,7 @@ Dialog {
                     text: qsTr("登录 QQ 音乐")
                     color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h2
-                    font.weight: ThemeTokens.TypeScale.medium
+                    font.weight: ThemeTokens.TypeScale.bold
                     elide: Text.ElideRight
                 }
 
@@ -176,10 +176,12 @@ Dialog {
                 }
 
                 background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: retryButton.enabled
-                        ? ThemeTokens.Palette.primary
-                        : ThemeTokens.Palette.stateDisabled
+                    radius: ThemeTokens.Spacing.radiusPill
+                    color: !retryButton.enabled
+                        ? ThemeTokens.Palette.stateDisabled
+                        : retryButton.down ? ThemeTokens.Palette.primaryActive
+                        : retryButton.hovered ? ThemeTokens.Palette.primaryHover
+                        : ThemeTokens.Palette.primary
                 }
             }
         }

@@ -75,28 +75,6 @@ Item {
         color: root.active ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.albumSurface
     }
 
-    Rectangle {
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        width: Math.min(34, Math.max(4, parent.width * 0.1))
-        visible: !root.hasImage && !root.circular
-        radius: root.placeholderRadius
-        color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.accent
-    }
-
-    Rectangle {
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: Math.max(5, parent.width * 0.12)
-        anchors.bottomMargin: Math.max(5, parent.height * 0.12)
-        width: Math.max(8, parent.width * 0.24)
-        height: width
-        visible: !root.hasImage && !root.circular
-        radius: width / 2
-        color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.accent
-    }
-
     Label {
         anchors.centerIn: parent
         visible: !root.hasImage
