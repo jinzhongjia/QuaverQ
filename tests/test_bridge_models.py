@@ -87,6 +87,38 @@ def test_song_map_roundtrip():
     assert restored.id == song.id
 
 
+def test_set_songs_skips_reset_when_unchanged():
+    # SWR: 网络结果与缓存相同时不应整体重建 (否则列表闪烁)
+    model = SongListModel()
+    model.set_songs([_song()])
+    resets: list[int] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(1))
+
+    model.set_songs([_song()])  # 等价数据 -> 跳过
+    assert resets == []
+
+    model.set_songs([])  # 真的变了 -> 重建
+    assert resets == [1]
+
+
+def test_set_cards_skips_reset_when_unchanged():
+    model = CardListModel()
+    card = playlist_to_card(Playlist(pid="p1", name="每日歌单", creator="QuaverQ", song_count=30))
+    model.set_cards([card])
+    resets: list[int] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(1))
+
+    model.set_cards(
+        [playlist_to_card(Playlist(pid="p1", name="每日歌单", creator="QuaverQ", song_count=30))]
+    )  # 等价数据 -> 跳过
+    assert resets == []
+
+    model.set_cards(
+        [playlist_to_card(Playlist(pid="p2", name="别的", creator="QuaverQ", song_count=1))]
+    )  # 变了 -> 重建
+    assert resets == [1]
+
+
 def test_card_list_model_roles_and_helpers():
     model = CardListModel()
     cards = [

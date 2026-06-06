@@ -92,8 +92,7 @@ Rectangle {
             visible: !root.compact
             iconText: "♥"
             iconColor: ThemeTokens.Palette.primary
-            label: qsTr("我喜欢的音乐")
-            count: root.libraryController ? root.libraryController.likedCount : -1
+            label: qsTr("我喜欢")
             onActivated: root.routeRequested("library")
         }
 
@@ -204,7 +203,6 @@ Rectangle {
         property string iconText: ""
         property color iconColor: ThemeTokens.Palette.surfaceVariantText
         property string label: ""
-        property int count: -1
 
         signal activated()
 
@@ -250,13 +248,6 @@ Rectangle {
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
                 elide: Text.ElideRight
-            }
-
-            Label {
-                visible: fr.count >= 0
-                text: fr.count
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.caption
             }
         }
     }

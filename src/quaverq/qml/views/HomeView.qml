@@ -284,11 +284,9 @@ ScrollView {
             ? qsTr("登录后获取你的猜你喜欢")
             : section.hasPreview
                 ? section.singerText
-                : section.loading
-                    ? qsTr("正在加载...")
-                    : section.errorMessage.length > 0
-                        ? section.errorMessage
-                        : qsTr("暂无推荐")
+                : section.errorMessage.length > 0
+                    ? section.errorMessage
+                    : qsTr("暂无推荐")
 
         signal playRequested()
 
@@ -435,14 +433,6 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                visible: section.loading && !section.hasRows
-                text: qsTr("正在加载...")
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
-            }
-
-            Label {
-                Layout.fillWidth: true
                 visible: !section.loading && section.errorMessage.length > 0
                 text: section.errorMessage
                 color: ThemeTokens.Palette.error
@@ -507,14 +497,6 @@ ScrollView {
                 Layout.fillWidth: true
                 title: section.title
                 subtitle: section.subtitle
-            }
-
-            Label {
-                Layout.fillWidth: true
-                visible: section.loading && !section.hasRows
-                text: qsTr("正在加载...")
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
 
             Label {

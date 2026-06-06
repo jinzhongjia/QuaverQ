@@ -101,6 +101,24 @@ async def _load_initial_state(
     )
 
 
+async def _shutdown(mpris_controller: MprisController) -> None:
+    """关窗后清理 (run_forever 返回后, 趁 loop 未关 / QObject 仍存活时跑):
+    先停 MPRIS, 再取消并排空所有挂起任务.
+
+    用户在后台刷新完成前关窗时, refresh_* 等网络任务仍挂起; 不主动取消的话它们会在
+    loop.close() 时被 GC, finally 里 emit 信号撞上已析构的 C++ QObject -> RuntimeError.
+    """
+    try:
+        await mpris_controller.stop_async()
+    except Exception:
+        logger.debug("MPRIS 退出清理失败", exc_info=True)
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -189,8 +207,6 @@ def main() -> None:
         raise_window=lambda: _raise_main_window(engine),
         quit_app=app.quit,
     )
-    app.aboutToQuit.connect(lambda: loop.create_task(mpris_controller.stop_async()))
-
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
         loop.create_task(system_theme_watcher.start())
@@ -202,7 +218,9 @@ def main() -> None:
             )
         )
         loop.create_task(mpris_controller.start_async())
-        loop.run_forever()
+        loop.run_forever()  # qasync 在关窗 (app.quit) 时干净返回
+        # 关窗后趁 loop 未关 / QObject 仍存活: 停 MPRIS + 取消排空挂起任务, 干净退出
+        loop.run_until_complete(_shutdown(mpris_controller))
 
 
 if __name__ == "__main__":

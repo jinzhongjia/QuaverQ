@@ -151,8 +151,12 @@ class SongListModel(QAbstractListModel):
         }
 
     def set_songs(self, songs: list[Song]) -> None:
+        new_songs = list(songs)
+        if new_songs == self._songs:
+            # 数据未变 (SWR: 网络结果与缓存相同) -> 跳过 reset, 避免列表整体重建闪烁
+            return
         self.beginResetModel()
-        self._songs = list(songs)
+        self._songs = new_songs
         self.endResetModel()
         self.countChanged.emit()
 
@@ -301,8 +305,12 @@ class CardListModel(QAbstractListModel):
         }
 
     def set_cards(self, cards: list[Mapping[str, Any]]) -> None:
+        new_cards = [card_to_map(card) for card in cards]
+        if new_cards == self._cards:
+            # 数据未变 (SWR: 网络结果与缓存相同) -> 跳过 reset, 避免网格整体重建闪烁
+            return
         self.beginResetModel()
-        self._cards = [card_to_map(card) for card in cards]
+        self._cards = new_cards
         self.endResetModel()
         self.countChanged.emit()
 

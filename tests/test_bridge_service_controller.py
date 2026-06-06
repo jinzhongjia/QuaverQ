@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -14,6 +15,7 @@ from quaverq.core.service import CredentialExpiredError
 class _FakeService:
     def __init__(self) -> None:
         self.connected = False
+        self.connect_count = 0
         self.search_calls: list[tuple[str, int, int]] = []
         self.search_pages: dict[int, list[Song]] = {
             1: [
@@ -38,6 +40,7 @@ class _FakeService:
         }
 
     async def connect(self) -> None:
+        self.connect_count += 1
         self.connected = True
 
     async def disconnect(self) -> None:
@@ -279,6 +282,18 @@ def test_prime_credential_sync_without_credential_returns_false():
 
     assert controller.prime_credential_sync() is False
     assert controller.authed is False
+
+
+async def test_concurrent_start_connects_only_once():
+    # 乐观登录后 Sidebar 刷新与 _load_initial_state 会并发触发 start;
+    # 必须只 connect 一次, 否则泄漏第二个 Client -> 退出卡死.
+    service = _FakeAuthService()
+    service.credential = object()
+    controller = ServiceController(service=service)
+
+    await asyncio.gather(controller.start(), controller.start(), controller.start())
+
+    assert service.connect_count == 1
 
 
 async def test_get_song_url_requires_authenticated_service():

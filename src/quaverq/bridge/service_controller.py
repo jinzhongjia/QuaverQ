@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -70,6 +71,9 @@ class ServiceController(QObject):
         self._page_size = 30
         self._error_message = ""
         self._started = False
+        # 串行化 start(): 乐观登录后 Sidebar 刷新与 _load_initial_state 会并发触发 start,
+        # 没锁会双 connect()/probe -> 泄漏第二个 Client (curl_cffi 线程) -> 退出卡死.
+        self._start_lock = asyncio.Lock()
 
     @Property(QObject, notify=songResultsChanged)
     def songResults(self) -> SongListModel:
@@ -141,30 +145,33 @@ class ServiceController(QObject):
     async def start(self) -> None:
         if self._started:
             return
-        await self._service.connect()
-        get_cached = getattr(self._service, "_get_cached_credential", None)
-        set_credential = getattr(self._service, "set_credential", None)
-        if callable(get_cached) and callable(set_credential):
-            cached_credential = await get_cached()
-            if cached_credential is not None:
-                await set_credential(cached_credential)
-                probe_result = await self._probe_current_credential()
-                if probe_result is False:
-                    await self._expire_credential(
-                        "登录已过期，请重新扫码",
-                        remove_cache=True,
-                        emit_error=False,
-                    )
-                else:
-                    if probe_result is True:
-                        logger.info("loaded verified QQ Music credential")
-                    else:
-                        logger.info(
-                            "loaded cached QQ Music credential "
-                            "(credential probe unavailable)"
+        async with self._start_lock:
+            if self._started:  # 等锁期间别的调用已完成
+                return
+            await self._service.connect()
+            get_cached = getattr(self._service, "_get_cached_credential", None)
+            set_credential = getattr(self._service, "set_credential", None)
+            if callable(get_cached) and callable(set_credential):
+                cached_credential = await get_cached()
+                if cached_credential is not None:
+                    await set_credential(cached_credential)
+                    probe_result = await self._probe_current_credential()
+                    if probe_result is False:
+                        await self._expire_credential(
+                            "登录已过期，请重新扫码",
+                            remove_cache=True,
+                            emit_error=False,
                         )
-                    self.authStateChanged.emit()
-        self._started = True
+                    else:
+                        if probe_result is True:
+                            logger.info("loaded verified QQ Music credential")
+                        else:
+                            logger.info(
+                                "loaded cached QQ Music credential "
+                                "(credential probe unavailable)"
+                            )
+                        self.authStateChanged.emit()
+            self._started = True
 
     async def stop(self) -> None:
         if not self._started:
