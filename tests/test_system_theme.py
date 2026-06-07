@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+
+import pytest
+
 from quaverq.bridge import system_theme
 
 
@@ -28,6 +32,10 @@ def test_unwrap_variant_handles_nesting():
     assert system_theme.unwrap_variant(0) == 0
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="portal / dbus-next 仅 Linux 装",
+)
 async def test_start_times_out_when_portal_unresponsive():
     """portal 挂死时 start() 必须超时返回, 不能拖慢 engine.load() 之前的同步等待."""
     import asyncio
