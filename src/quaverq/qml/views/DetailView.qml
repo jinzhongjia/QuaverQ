@@ -15,12 +15,13 @@ ColumnLayout {
     property string detailTitle: qsTr("详情")
     property string detailSubtitle: ""
     property var coverController
-    property var detailController
+    // 工厂模式: 每个 DetailView 实例自持 controller (见 AGENTS.md 「栈式视图必须自持状态」契约).
+    property var detailControllerFactory
+    property var detailController: null
     property var playerController
     property var libraryController
     property var songDetailController
-    property bool completed: false
-    // 2.2: 歌手 tab 索引. 非 artist 时永远 0.
+    // 2.2: 歌手 tab 索引. 非 artist 时永远 0. 每个 DetailView 实例独立 (pop 回栈时保留).
     property int currentTab: 0
 
     readonly property string displayKind: root.detailController && root.detailController.kind.length > 0
@@ -44,6 +45,8 @@ ColumnLayout {
     signal backRequested()
     signal searchRequested(string keyword)
     signal detailRequested(string kind, string detailId, string title, string subtitle)
+    // 由 root.detailController.errorRaised 透传到 Main 的 globalSnackbar
+    signal errorRaised(string message)
 
     spacing: 0
 
@@ -80,18 +83,22 @@ ColumnLayout {
     }
 
     Component.onCompleted: {
-        root.completed = true
+        // 工厂模式: 创建本 View 专属的 controller, parent=root 让 Qt 接管销毁
+        if (root.detailControllerFactory) {
+            root.detailController = root.detailControllerFactory.create(root)
+        }
         root.loadDetail()
     }
 
-    onDetailIdChanged: {
-        if (root.completed) {
-            root.currentTab = 0  // 切详情时 tab 归零, 由 controller 重置 model
-            root.loadDetail()
+    onCurrentTabChanged: root._ensureSingerTabLoaded(root.currentTab)
+
+    // 透传 controller errorRaised 到 view 信号 (Main.qml globalSnackbar 接)
+    Connections {
+        target: root.detailController
+        function onErrorRaised(message) {
+            root.errorRaised(message)
         }
     }
-
-    onCurrentTabChanged: root._ensureSingerTabLoaded(root.currentTab)
 
     Rectangle {
         Layout.fillWidth: true

@@ -295,3 +295,49 @@ async def test_singer_tab_load_error_results_in_empty_but_loaded():
     assert ctrl.similarSingersLoading is False
     assert ctrl.similarSingersLoaded is True
     assert ctrl.similarSingersModel.count == 0
+
+
+# ============================================================== A. Factory 模式
+# 见 AGENTS.md「栈式视图必须自持状态」契约
+
+
+def test_factory_creates_independent_controllers():
+    """factory.create() 每次都返回新实例, 两个实例的 state 互相隔离."""
+    from quaverq.bridge.detail_controller import DetailControllerFactory
+
+    service = _FakeDetailService()
+    sc = ServiceController(service=service)  # type: ignore[arg-type]
+    factory = DetailControllerFactory(sc)
+
+    ctrl_a = factory.create(None)
+    ctrl_b = factory.create(None)
+
+    assert ctrl_a is not ctrl_b
+    assert isinstance(ctrl_a, DetailController)
+    assert isinstance(ctrl_b, DetailController)
+
+    # 隔离: 改 a 的 song model 不影响 b
+    ctrl_a._set_songs([Song(mid="x", name="X")])  # noqa: SLF001
+    assert ctrl_a.songModel.count == 1
+    assert ctrl_b.songModel.count == 0
+
+
+async def test_factory_created_controller_loads_detail_independently():
+    """两个并存 controller 加载不同详情, 互不覆写."""
+    from quaverq.bridge.detail_controller import DetailControllerFactory
+
+    service = _FakeDetailService()
+    sc = ServiceController(service=service)  # type: ignore[arg-type]
+    factory = DetailControllerFactory(sc)
+
+    ctrl_a = factory.create(None)
+    ctrl_b = factory.create(None)
+
+    await ctrl_a.load_detail_async("playlist", "p1")
+    await ctrl_b.load_detail_async("album", "a1")
+
+    # 各自加载完后, state 互不污染
+    assert ctrl_a.kind == "playlist"
+    assert ctrl_a.title == "百听不厌"
+    assert ctrl_b.kind == "album"
+    assert ctrl_b.title == "叶惠美"

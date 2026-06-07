@@ -33,7 +33,7 @@ ApplicationWindow {
     readonly property var appController: AppController
     readonly property var coverController: CoverController
     readonly property var homeController: HomeController
-    readonly property var detailController: DetailController
+    readonly property var detailControllerFactory: DetailControllerFactory
     readonly property var songDetailController: SongDetailController
     readonly property var serviceController: ServiceController
     readonly property var libraryController: LibraryController
@@ -712,7 +712,7 @@ ApplicationWindow {
 
         Views.DetailView {
             coverController: root.coverController
-            detailController: root.detailController
+            detailControllerFactory: root.detailControllerFactory
             playerController: root.playerController
             libraryController: root.libraryController
             songDetailController: root.songDetailController
@@ -722,6 +722,9 @@ ApplicationWindow {
             }
             onDetailRequested: function(kind, detailId, title, subtitle) {
                 root.pushDetail(kind, detailId, title, subtitle)
+            }
+            onErrorRaised: function(message) {
+                globalSnackbar.show(message, "error")
             }
         }
     }
@@ -826,10 +829,6 @@ ApplicationWindow {
     }
     Connections {
         target: root.libraryController
-        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
-    }
-    Connections {
-        target: root.detailController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
     }
     Connections {

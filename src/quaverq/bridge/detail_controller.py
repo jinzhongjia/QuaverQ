@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Property, QObject, Signal
+from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
 from quaverq.core.models import Album, ArtistDetail, Playlist, Song
@@ -418,3 +418,26 @@ class DetailController(QObject):
             return
         self._singer_albums_loading = value
         self.singerAlbumsLoadingChanged.emit()
+
+
+class DetailControllerFactory(QObject):
+    """Per-View DetailController 实例工厂 (见 AGENTS.md 「栈式视图必须自持状态」契约).
+
+    本工厂自身是单例 (持有 ``ServiceController``), 通过 ``setContextProperty`` 注入 QML.
+    每个 ``DetailView`` 在 ``Component.onCompleted`` 中调 ``create(self)`` 拿到独立的
+    ``DetailController`` 实例, 并以该 View 为 Qt parent —— StackView pop 销毁 View 时,
+    子 controller 自动 GC, 信号槽自动断开.
+    """
+
+    def __init__(
+        self,
+        service_controller: ServiceController,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._service_controller = service_controller
+
+    @Slot("QVariant", result="QVariant")
+    def create(self, owner: QObject | None = None) -> DetailController:
+        """实例化一个 DetailController. ``owner`` 应为请求方 QML view, 控制 GC 生命周期."""
+        return DetailController(self._service_controller, parent=owner)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .app_controller import AppController
 from .cover_provider import CoverController, CoverImageProvider
-from .detail_controller import DetailController
+from .detail_controller import DetailController, DetailControllerFactory
 from .home_controller import HomeController
 from .library_controller import LibraryController
 from .lyric_controller import LyricController
@@ -27,6 +27,7 @@ __all__ = [
     "CoverController",
     "CoverImageProvider",
     "DetailController",
+    "DetailControllerFactory",
     "HomeController",
     "LibraryController",
     "LyricController",
