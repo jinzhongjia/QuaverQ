@@ -80,6 +80,7 @@ ignore = [
 # 注解必须是字符串字面量 (如 "b", "s", "o", "as", "a{sv}"), 这些不是 Python 类型,
 # 会被 ruff 误报为未定义名 / 语法错误.
 "src/quaverq/core/mpris.py" = ["F821", "F722", "UP037"]
+"src/quaverq/core/lyric_dbus.py" = ["F821", "F722", "UP037"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["quaverq"]

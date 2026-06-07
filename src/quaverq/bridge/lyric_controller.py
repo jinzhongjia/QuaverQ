@@ -46,6 +46,7 @@ class LyricController(QObject):
         self._player_controller = player_controller
         self._lyric_model = LyricLineListModel(self)
         self._sync = LyricSync()
+        self._current_lyric: Lyric = Lyric(mid="")
         self._current_mid = ""
         self._active_index = -1
         self._loading = False
@@ -174,8 +175,14 @@ class LyricController(QObject):
             return
         self._set_lyric(lyric)
 
+    @property
+    def current_lyric(self) -> Lyric:
+        """当前已加载的 Lyric (供同进程消费者拿原始数据, 不上 QML)."""
+        return self._current_lyric
+
     def _set_lyric(self, lyric: Lyric) -> None:
         old_count = self._lyric_model.count
+        self._current_lyric = lyric
         self._sync.set_lyric(lyric)
         self._lyric_model.set_lines(lyric.lines)
         if self._lyric_model.count != old_count:

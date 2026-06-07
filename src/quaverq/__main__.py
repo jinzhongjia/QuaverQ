@@ -23,6 +23,7 @@ from .bridge import (
     HomeController,
     LibraryController,
     LyricController,
+    LyricsDBusController,
     MprisController,
     PlayerController,
     ServiceController,
@@ -140,9 +141,13 @@ async def _load_initial_state(
     )
 
 
-async def _shutdown(mpris_controller: MprisController, cover_cache: CoverCache) -> None:
+async def _shutdown(
+    mpris_controller: MprisController,
+    lyrics_dbus_controller: LyricsDBusController,
+    cover_cache: CoverCache,
+) -> None:
     """关窗后清理 (run_forever 返回后, 趁 loop 未关 / QObject 仍存活时跑):
-    关封面下载 session -> 停 MPRIS -> 取消并排空所有挂起任务.
+    关封面下载 session -> 停 MPRIS / Lyrics D-Bus -> 取消并排空所有挂起任务.
 
     - cover_cache.close(): 中断在途封面下载, 让下载线程秒退; 否则 loop.close() 会
       join 它们 (qasync 默认 executor shutdown(wait=True)), 在途下载多大就钝多久.
@@ -154,6 +159,10 @@ async def _shutdown(mpris_controller: MprisController, cover_cache: CoverCache) 
         await mpris_controller.stop_async()
     except Exception:
         logger.debug("MPRIS 退出清理失败", exc_info=True)
+    try:
+        await lyrics_dbus_controller.stop_async()
+    except Exception:
+        logger.debug("Lyrics D-Bus 退出清理失败", exc_info=True)
     pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     for task in pending:
         task.cancel()
@@ -276,6 +285,10 @@ def main() -> None:
         raise_window=lambda: _raise_main_window(engine),
         quit_app=app.quit,
     )
+    lyrics_dbus_controller = LyricsDBusController(
+        lyric_controller=lyric_controller,
+        player_controller=player_controller,
+    )
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
         loop.create_task(system_theme_watcher.start())
@@ -287,9 +300,10 @@ def main() -> None:
             )
         )
         loop.create_task(mpris_controller.start_async())
+        loop.create_task(lyrics_dbus_controller.start_async())
         loop.run_forever()  # qasync 在关窗 (app.quit) 时干净返回
-        # 关窗后趁 loop 未关 / QObject 仍存活: 关下载 session + 停 MPRIS + 取消排空挂起任务
-        loop.run_until_complete(_shutdown(mpris_controller, cover_cache))
+        # 关窗后趁 loop 未关 / QObject 仍存活: 关下载 session + 停 D-Bus 服务 + 取消排空挂起任务
+        loop.run_until_complete(_shutdown(mpris_controller, lyrics_dbus_controller, cover_cache))
 
 
 if __name__ == "__main__":

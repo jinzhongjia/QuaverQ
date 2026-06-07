@@ -8,6 +8,7 @@ from .detail_controller import DetailController, DetailControllerFactory
 from .home_controller import HomeController
 from .library_controller import LibraryController
 from .lyric_controller import LyricController
+from .lyric_dbus_controller import LyricsDBusController
 from .models import (
     CardListModel,
     LyricLineListModel,
@@ -31,6 +32,7 @@ __all__ = [
     "HomeController",
     "LibraryController",
     "LyricController",
+    "LyricsDBusController",
     "MprisController",
     "PlayerController",
     "ServiceController",

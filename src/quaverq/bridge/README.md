@@ -18,6 +18,7 @@
 | `lyric_controller.py` | `LyricController` | 同步歌词：跟随 `player_controller` 的进度更新 `activeIndex`，逐字 karaoke 高亮的进度也在这里算。 |
 | `settings_controller.py` | `SettingsController` | `QSettings` 持久化的偏好：主题模式、音质、封面缓存上限 + 一键清理、歌词字体（family / size / weight / italic）+ `resetLyricFont()` 一键复位；`availableLyricFonts` 用 `QFontDatabase.WritingSystem.SimplifiedChinese` 枚举系统中支持 CJK / UTF-8 的字体族。QSettings 文件落 `CONFIG_DIR/settings.ini`（与 `state.json` 同目录）。 |
 | `mpris_controller.py` | `MprisController` | 把 `PlayerController` 的状态/元数据推到 `core.mpris.MprisService`，从 D-Bus 收到的方法调用回灌到播放器。 |
+| `lyric_dbus_controller.py` | `LyricsDBusController` | 把 `LyricController` 当前歌词 + `PlayerController.positionMs` 推到 `core.lyric_dbus.LyricsService`（`org.quaverq.Lyrics1`）。`active_word` 由 controller 内部用 `compute_active_word` + 当前行 words + 实时 position 算出；用 `_last_active` 去重避免 PositionMs tick 内字未变也重复 push。纯输出, 不接收 D-Bus 入站调用。 |
 | `cover_provider.py` | `CoverController` + `CoverImageProvider` | `image://covers/<url>\|<size>\|<radius>` 的图片提供者；圆角裁剪、并发上限 6、磁盘命中秒级返回、未命中异步下载。 |
 
 ## 适配器与基础设施
