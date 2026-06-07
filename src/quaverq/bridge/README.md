@@ -16,7 +16,7 @@
 | `song_detail_controller.py` | `SongDetailController` | 歌曲详情 popup 状态：currentSong + similarSongsModel + relatedPlaylistsModel + **songInfo (dict, 2.4 加入)** + visible，由 SongRow 右键 / 菜单键触发 `open(song)` 异步并发拉相似/相关/歌曲附加信息。`load_generation` 防 race，关闭时保留旧 model 内容不闪空。 |
 | `player_controller.py` | `PlayerController` | 播放器：包装 `QMediaPlayer` + `core.queue.PlayQueue`。控制四种播放模式、音质偏好、进度/音量、退出快照保存（`session_state`）。`play_songs_async(songs, idx, source=...)` 可给队列打来源标签 (e.g. `"daily"`)；队列自然耗尽时发 `queueExhausted(source)`，外部 `append_to_queue(songs)` 追加后自动续播。 |
 | `lyric_controller.py` | `LyricController` | 同步歌词：跟随 `player_controller` 的进度更新 `activeIndex`，逐字 karaoke 高亮的进度也在这里算。 |
-| `settings_controller.py` | `SettingsController` | `QSettings` 持久化的偏好：主题模式、音质、封面缓存上限 + 一键清理。 |
+| `settings_controller.py` | `SettingsController` | `QSettings` 持久化的偏好：主题模式、音质、封面缓存上限 + 一键清理、歌词字体（family / size / weight / italic）+ `resetLyricFont()` 一键复位；`availableLyricFonts` 用 `QFontDatabase.WritingSystem.SimplifiedChinese` 枚举系统中支持 CJK / UTF-8 的字体族。QSettings 文件落 `CONFIG_DIR/settings.ini`（与 `state.json` 同目录）。 |
 | `mpris_controller.py` | `MprisController` | 把 `PlayerController` 的状态/元数据推到 `core.mpris.MprisService`，从 D-Bus 收到的方法调用回灌到播放器。 |
 | `cover_provider.py` | `CoverController` + `CoverImageProvider` | `image://covers/<url>\|<size>\|<radius>` 的图片提供者；圆角裁剪、并发上限 6、磁盘命中秒级返回、未命中异步下载。 |
 

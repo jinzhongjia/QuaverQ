@@ -4,7 +4,7 @@
 
 | 组件 | 作用 |
 | --- | --- |
-| `LyricPanel.qml` | **同步歌词面板**。绑 `lyricController` 的 `lines` / `activeIndex` / `positionMs`：当前行居中高亮，已过 / 未到的行用 `mutedLineColor` 弱化；版权信息行（"作词/作曲/编曲..."）淡到 `creditLineColor`。逐字 karaoke：从 `LyricLine.words` 拼 `RichText` 的 `<font color>` 段，`sungCount` 只在跨字时变以避免每帧重排。`compact` 用于嵌入侧栏抽屉、非 compact 用于「正在播放」全屏页。 |
+| `LyricPanel.qml` | **同步歌词面板**。绑 `lyricController` 的 `lines` / `activeIndex` / `positionMs`：当前行居中高亮，已过 / 未到的行用 `mutedLineColor` 弱化；版权信息行（"作词/作曲/编曲..."）淡到 `creditLineColor`。逐字 karaoke：从 `LyricLine.words` 拼 `RichText` 的 `<font color>` 段，`sungCount` 只在跨字时变以避免每帧重排。`compact` 用于嵌入侧栏抽屉、非 compact 用于「正在播放」全屏页。可选 `settingsController` 注入后，主歌词 / karaoke / 翻译三类行的 `font.family / pixelSize / weight / italic` 都从 SettingsController.lyricFont* 读取并按视觉层次比例缩放；不注入时回退到默认值。 |
 | `QueuePanel.qml` | **播放队列面板**。绑 `queueModel`（`SongListModel`）+ `currentIndex`，逐项渲染 [`QueueRow`](../components/README.md)；提供「定位到当前」、「清空队列」、「从队列移除」操作；行点击跳转该首播放。 |
 
 ## 约定
