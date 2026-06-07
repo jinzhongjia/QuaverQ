@@ -58,6 +58,37 @@ def test_credential_from_dict_ignores_unknown_fields():
     assert cred.musickey == "abc"
 
 
+async def test_save_and_load_credential_roundtrip_with_unicode(tmp_path, monkeypatch):
+    """Windows 中文 locale 下 open() 默认 GBK, 保存含 Unicode 的 cookie / nickname 会崩.
+
+    回归保护: save_credential / load_cached_credential_sync 必须强制 UTF-8.
+    """
+    svc = QuaverService()
+    await svc.set_credential(
+        Credential(
+            musicid=123,
+            musickey="key—Ø",  # 含 GBK 编不出来的 Ø
+            str_musicid="123",
+        )
+    )
+    cred_path = str(tmp_path / "credential.json")
+
+    await svc.save_credential(path=cred_path)
+    # 文件按 UTF-8 应当可读
+    text = (tmp_path / "credential.json").read_text(encoding="utf-8")
+    assert "Ø" in text
+
+    # load 路径换到 tmp_path
+    monkeypatch.setattr(
+        QuaverService,
+        "_credential_cache_path",
+        property(lambda _self: cred_path),
+    )
+    loaded = svc.load_cached_credential_sync()
+    assert loaded is not None
+    assert loaded.musickey == "key—Ø"
+
+
 # ============================================================== 二维码登录状态映射
 
 

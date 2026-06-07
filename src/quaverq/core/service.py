@@ -1663,7 +1663,8 @@ class QuaverService:
         if not os.path.exists(path):
             return None
         try:
-            with open(path) as f:
+            # 显式 UTF-8: Windows 中文 locale 默认 GBK, 与 save() 写入端必须一致.
+            with open(path, encoding="utf-8") as f:
                 return _credential_from_dict(json.load(f))
         except Exception as exc:
             logger.warning("读取缓存凭据失败: %s", exc)
@@ -1678,7 +1679,8 @@ class QuaverService:
             return
         save_path = path or self._credential_cache_path
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, "w") as f:
+        # 显式 UTF-8: cookie / nickname 可能含 Unicode, Windows 默认 GBK 会编不出来.
+        with open(save_path, "w", encoding="utf-8") as f:
             json.dump(_credential_to_dict(cred), f, ensure_ascii=False)
         logger.info("凭据已保存到 %s", save_path)
 

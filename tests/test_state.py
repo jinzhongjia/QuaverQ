@@ -206,6 +206,72 @@ def test_clear_removes_file(state_path: Path):
     assert not state_path.exists()
 
 
+# ============================================================== Windows 编码回归
+
+
+def test_save_unicode_song_title_does_not_crash_on_windows_locale(state_path: Path, monkeypatch):
+    """Windows 中文 locale 下 open() 默认 GBK, 写包含非 GBK 字符的 JSON 会 UnicodeEncodeError.
+
+    复现 Joey by Concrete Blonde 这类含 ``\\xd8`` (Ø) 等字符在 Windows 上保存崩溃的 bug;
+    state.py 必须强制 ``encoding="utf-8"`` 写文件, 不依赖系统 locale.
+    """
+    songs = [
+        Song(
+            mid="m0",
+            name="Ø-Joey",  # GBK 编不出来的 Ø
+            singers=[Singer(mid="s0", name="Concrete Blonde")],
+            album_name="Recollection",
+            duration=248,
+        )
+    ]
+    q = PlayQueue(mode=PlayMode.SEQUENCE)
+    q.push(songs, play_now=True)
+
+    s = SessionState(state_path)
+    s.save(q, position_ms=12000, volume=0.8)
+
+    # 不抛 + 文件按 UTF-8 解析能拿回原文 (再次确认是真 UTF-8, 不是 GBK 写成功的 happy path)
+    raw = state_path.read_bytes()
+    assert b"\xc3\x98" in raw  # UTF-8 编码的 Ø
+    parsed = json.loads(raw.decode("utf-8"))
+    assert parsed["queue"][0]["name"] == "Ø-Joey"
+
+
+def test_restore_unicode_song_title_does_not_crash_on_windows_locale(
+    state_path: Path,
+):
+    """读 state.json 也必须 UTF-8: 在 Linux / macOS 写的快照含中文/Unicode,
+    在 Windows 上 (默认 GBK) 读必须能成功解码."""
+    state_path.write_bytes(
+        json.dumps(
+            {
+                "queue": [
+                    {
+                        "mid": "m0",
+                        "name": "青花 — Ø",
+                        "singers": [{"mid": "s0", "name": "七元"}],
+                        "album_name": "青花",
+                        "duration": 228,
+                    }
+                ],
+                "current_index": 0,
+                "position_ms": 0,
+                "play_mode": "SEQUENCE",
+                "volume": 0.8,
+                "source": "",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+
+    snap = SessionState(state_path).restore()
+    assert snap is not None
+    assert snap.songs[0].name == "青花 — Ø"
+
+
+# ============================================================== clear
+
+
 def test_clear_missing_file_does_not_raise(state_path: Path):
     s = SessionState(state_path)
     s.clear()  # 文件不存在不抛错

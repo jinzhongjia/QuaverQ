@@ -83,7 +83,9 @@ class SessionState:
                 "source": queue.source,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.path, "w") as f:
+            # encoding 必须显式 UTF-8: Windows 中文 locale 默认 GBK, 含 Ø / Unicode 标题
+            # (如 Concrete Blonde 的 ``Joey``) 会 UnicodeEncodeError 让快照保存失败.
+            with open(self.path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
             logger.info("会话快照已保存: %d 首, mode=%s", len(queue.songs), queue.mode.name)
         except Exception as exc:
@@ -94,7 +96,8 @@ class SessionState:
         if not self.path.exists():
             return None
         try:
-            with open(self.path) as f:
+            # 同 save: 必须显式 UTF-8, 否则在 Windows 上读 Linux 写的快照会 UnicodeDecodeError.
+            with open(self.path, encoding="utf-8") as f:
                 d = json.load(f)
         except Exception as exc:
             logger.warning("读取会话快照失败: %s", exc)
