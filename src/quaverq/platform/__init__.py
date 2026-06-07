@@ -36,7 +36,21 @@ class _NullPlatform:
     def system_theme(self) -> Any | None:
         return None
 
-    def media_session(self, player_controller: Any) -> Any | None:
+    def media_session(
+        self,
+        player_controller: Any,
+        *,
+        raise_window: Any = None,
+        quit_app: Any = None,
+    ) -> Any | None:
+        return None
+
+    def lyric_publisher(
+        self,
+        *,
+        lyric_controller: Any,
+        player_controller: Any,
+    ) -> Any | None:
         return None
 
 

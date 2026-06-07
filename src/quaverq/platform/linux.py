@@ -27,7 +27,30 @@ class LinuxPlatform:
 
         return SystemThemeWatcher()
 
-    def media_session(self, player_controller: Any) -> Any:
+    def media_session(
+        self,
+        player_controller: Any,
+        *,
+        raise_window: Any = None,
+        quit_app: Any = None,
+    ) -> Any:
         from ..bridge.mpris_controller import MprisController
 
-        return MprisController(player_controller)
+        return MprisController(
+            player_controller,
+            raise_window=raise_window,
+            quit_app=quit_app,
+        )
+
+    def lyric_publisher(
+        self,
+        *,
+        lyric_controller: Any,
+        player_controller: Any,
+    ) -> Any:
+        from ..bridge.lyric_dbus_controller import LyricsDBusController
+
+        return LyricsDBusController(
+            lyric_controller=lyric_controller,
+            player_controller=player_controller,
+        )

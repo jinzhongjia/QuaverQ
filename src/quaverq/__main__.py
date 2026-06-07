@@ -23,20 +23,17 @@ from .bridge import (
     HomeController,
     LibraryController,
     LyricController,
-    LyricsDBusController,
-    MprisController,
     PlayerController,
     ServiceController,
     SettingsController,
     SongDetailController,
 )
 from .bridge.stream_proxy import StreamProxy
-from .bridge.system_theme import SystemThemeWatcher
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
 from .core.cover_cache import CoverCache
 from .core.home_cache import HomeCache
-from .core.single_instance import SingleInstanceGuard
 from .core.state import SessionState
+from .platform import get_platform
 
 logger = logging.getLogger("quaverq")
 
@@ -142,8 +139,8 @@ async def _load_initial_state(
 
 
 async def _shutdown(
-    mpris_controller: MprisController,
-    lyrics_dbus_controller: LyricsDBusController,
+    mpris_controller: object | None,
+    lyrics_dbus_controller: object | None,
     cover_cache: CoverCache,
 ) -> None:
     """关窗后清理 (run_forever 返回后, 趁 loop 未关 / QObject 仍存活时跑):
@@ -153,16 +150,19 @@ async def _shutdown(
       join 它们 (qasync 默认 executor shutdown(wait=True)), 在途下载多大就钝多久.
     - 取消挂起任务: 用户在后台刷新完成前关窗时, refresh_* 等任务仍挂起; 不主动取消的话
       它们会在 loop.close() 时被 GC, finally 里 emit 信号撞上已析构的 C++ QObject。
+    - mpris / lyrics 为 None: 当前平台无 D-Bus 实现 (Windows / macOS), 直接跳.
     """
     cover_cache.close()
-    try:
-        await mpris_controller.stop_async()
-    except Exception:
-        logger.debug("MPRIS 退出清理失败", exc_info=True)
-    try:
-        await lyrics_dbus_controller.stop_async()
-    except Exception:
-        logger.debug("Lyrics D-Bus 退出清理失败", exc_info=True)
+    if mpris_controller is not None:
+        try:
+            await mpris_controller.stop_async()
+        except Exception:
+            logger.debug("MPRIS 退出清理失败", exc_info=True)
+    if lyrics_dbus_controller is not None:
+        try:
+            await lyrics_dbus_controller.stop_async()
+        except Exception:
+            logger.debug("Lyrics D-Bus 退出清理失败", exc_info=True)
     pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     for task in pending:
         task.cancel()
@@ -201,15 +201,22 @@ def main() -> None:
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
-    # 单实例闸门: 占住 lock name -> 第一实例; 占不到 -> 通知已有实例前置窗口后退出.
-    # bus 连接挂在 qasync loop 上, guard 引用必须存活到 app 退出, 否则名字会被释放.
-    instance_guard = SingleInstanceGuard()
-    if not loop.run_until_complete(instance_guard.acquire()):
-        loop.run_until_complete(instance_guard.notify_existing_raise())
-        instance_guard.release()
-        logger.info("QuaverQ 已在运行, 已请求现有窗口前置, 本实例退出")
-        sys.exit(0)
-    app.aboutToQuit.connect(instance_guard.release)
+    # 平台抽象层 (PAL): 单实例 / 系统主题 / 媒体会话 / 歌词外发四项能力按平台派发,
+    # 当前平台不支持时 (Windows / macOS) 返回 None, 走"降级到无对应集成"路径.
+    pal = get_platform()
+
+    # 单实例闸门: 占住 lock -> 第一实例; 占不到 -> 通知已有实例前置窗口后退出.
+    # bus / mutex 连接由 guard 持有, 引用必须存活到 app 退出, 否则名字 / 锁会被释放.
+    instance_guard = pal.single_instance()
+    if instance_guard is not None:
+        if not loop.run_until_complete(instance_guard.acquire()):
+            loop.run_until_complete(instance_guard.notify_existing_raise())
+            instance_guard.release()
+            logger.info("QuaverQ 已在运行, 已请求现有窗口前置, 本实例退出")
+            sys.exit(0)
+        app.aboutToQuit.connect(instance_guard.release)
+    else:
+        logger.info("当前平台 (%s) 暂无单实例守卫, 允许多开", pal.name)
 
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
@@ -219,7 +226,9 @@ def main() -> None:
         cover_cache=cover_cache,
         orphan_cleanup=purge_orphan_caches,
     )
-    system_theme_watcher = SystemThemeWatcher()
+    # 系统主题: Linux 走 freedesktop portal; Windows / macOS 暂返回 None.
+    # QML 端 (Main.qml) 已 null-guard systemTheme, None 时退化为"跟随 Qt palette".
+    system_theme_watcher = pal.system_theme()
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
     detail_controller_factory = DetailControllerFactory(service_controller)
@@ -280,18 +289,21 @@ def main() -> None:
     else:
         logger.info("系统托盘不可用, 关闭窗口将退出程序")
 
-    mpris_controller = MprisController(
+    # 媒体会话 (Linux: MPRIS2; Windows/macOS: TODO Stage 3/4) + 歌词外发 (Linux: D-Bus).
+    # None 时 _shutdown / start 钩子都已 None-guard, 应用功能不受影响.
+    mpris_controller = pal.media_session(
         player_controller,
         raise_window=lambda: _raise_main_window(engine),
         quit_app=app.quit,
     )
-    lyrics_dbus_controller = LyricsDBusController(
+    lyrics_dbus_controller = pal.lyric_publisher(
         lyric_controller=lyric_controller,
         player_controller=player_controller,
     )
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
-        loop.create_task(system_theme_watcher.start())
+        if system_theme_watcher is not None:
+            loop.create_task(system_theme_watcher.start())
         loop.create_task(
             _load_initial_state(
                 home_controller,
@@ -299,8 +311,10 @@ def main() -> None:
                 lyric_controller,
             )
         )
-        loop.create_task(mpris_controller.start_async())
-        loop.create_task(lyrics_dbus_controller.start_async())
+        if mpris_controller is not None:
+            loop.create_task(mpris_controller.start_async())
+        if lyrics_dbus_controller is not None:
+            loop.create_task(lyrics_dbus_controller.start_async())
         loop.run_forever()  # qasync 在关窗 (app.quit) 时干净返回
         # 关窗后趁 loop 未关 / QObject 仍存活: 关下载 session + 停 D-Bus 服务 + 取消排空挂起任务
         loop.run_until_complete(_shutdown(mpris_controller, lyrics_dbus_controller, cover_cache))

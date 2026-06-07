@@ -68,7 +68,7 @@ def test_linux_adapter_provides_system_theme():
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux only")
 def test_linux_adapter_provides_media_session():
-    """LinuxPlatform.media_session(player) 返回 MprisController (Linux MPRIS2 实现)."""
+    """LinuxPlatform.media_session(player, raise_window=, quit_app=) 返回 MprisController."""
     from PySide6.QtWidgets import QApplication
 
     from quaverq.bridge.mpris_controller import MprisController
@@ -76,10 +76,29 @@ def test_linux_adapter_provides_media_session():
 
     _ = QApplication.instance() or QApplication([])
     pal = get_platform()
-    # PAL 不持有 player_controller; 调用方传入 fake 即可 (此处只测工厂返回类型)
     fake_player = _FakePlayerController()
-    mpris = pal.media_session(fake_player)
+    mpris = pal.media_session(
+        fake_player,
+        raise_window=lambda: None,
+        quit_app=lambda: None,
+    )
     assert isinstance(mpris, MprisController)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux only")
+def test_linux_adapter_provides_lyric_publisher():
+    """LinuxPlatform.lyric_publisher(...) 返回 LyricsDBusController (D-Bus 歌词外发)."""
+    from PySide6.QtWidgets import QApplication
+
+    from quaverq.bridge.lyric_dbus_controller import LyricsDBusController
+    from quaverq.platform import get_platform
+
+    _ = QApplication.instance() or QApplication([])
+    pal = get_platform()
+    fake_player = _FakePlayerController()
+    fake_lyric = _FakeLyricController()
+    pub = pal.lyric_publisher(lyric_controller=fake_lyric, player_controller=fake_player)
+    assert isinstance(pub, LyricsDBusController)
 
 
 # ============================================================== Windows / macOS (stub)
@@ -94,7 +113,8 @@ def test_windows_adapter_returns_none_for_all_capabilities():
     assert pal.name == "windows"
     assert pal.single_instance() is None
     assert pal.system_theme() is None
-    assert pal.media_session(object()) is None
+    assert pal.media_session(object(), raise_window=lambda: None, quit_app=lambda: None) is None
+    assert pal.lyric_publisher(lyric_controller=object(), player_controller=object()) is None
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS only")
@@ -105,7 +125,8 @@ def test_macos_adapter_returns_none_for_all_capabilities():
     assert pal.name == "macos"
     assert pal.single_instance() is None
     assert pal.system_theme() is None
-    assert pal.media_session(object()) is None
+    assert pal.media_session(object(), raise_window=lambda: None, quit_app=lambda: None) is None
+    assert pal.lyric_publisher(lyric_controller=object(), player_controller=object()) is None
 
 
 # ============================================================== Protocol 契约
@@ -124,12 +145,16 @@ def test_platform_adapter_protocol_accepts_stub():
         def system_theme(self):
             return None
 
-        def media_session(self, player_controller):
+        def media_session(self, player_controller, *, raise_window=None, quit_app=None):
+            return None
+
+        def lyric_publisher(self, *, lyric_controller, player_controller):
             return None
 
     stub: PlatformAdapter = StubAdapter()  # 类型检查: Protocol 结构鸭子
     assert stub.name == "stub"
     assert stub.single_instance() is None
+    assert stub.lyric_publisher(lyric_controller=None, player_controller=None) is None
 
 
 # ============================================================== helpers
@@ -162,3 +187,19 @@ class _FakePlayerController:
     def next(self) -> None: ...
     def prev(self) -> None: ...
     def seek(self, _us: int) -> None: ...
+
+
+class _FakeLyricController:
+    """模拟 LyricController, 给 LyricsDBusController 构造时的最少接口."""
+
+    def __init__(self) -> None:
+        from PySide6.QtCore import QObject, Signal
+
+        from quaverq.core.models import Lyric
+
+        class _Sig(QObject):
+            lyricChanged = Signal()
+
+        self._holder = _Sig()
+        self.lyricChanged = self._holder.lyricChanged
+        self.current_lyric = Lyric(lines=[])

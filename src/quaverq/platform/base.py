@@ -60,11 +60,33 @@ class PlatformAdapter(Protocol):
         """
         ...
 
-    def media_session(self, player_controller: Any) -> Any | None:
+    def media_session(
+        self,
+        player_controller: Any,
+        *,
+        raise_window: Any = None,
+        quit_app: Any = None,
+    ) -> Any | None:
         """返回媒体会话控制器 (Linux: MprisController; Windows: SMTC; macOS: NowPlayingInfoCenter).
 
         实现负责把 player_controller 的 signal 接到平台 API 上, 暴露
         ``async start_async() / stop_async()`` 方法给 __main__.py 的启动 / 退出钩子.
+        ``raise_window`` / ``quit_app`` 是无参回调, 用于平台层"前置窗口" / "退出应用"
+        语义的本地反馈 (例如 MPRIS Raise / Quit 接口转回主窗口).
+
         不支持时返回 None, 调用方退化到"无媒体键 / Now Playing 集成".
+        """
+        ...
+
+    def lyric_publisher(
+        self,
+        *,
+        lyric_controller: Any,
+        player_controller: Any,
+    ) -> Any | None:
+        """返回歌词外发控制器 (Linux: LyricsDBusController, org.quaverq.Lyrics1 D-Bus).
+
+        让外部消费者 (如桌面歌词、第三方插件) 拿到当前歌词 + 实时高亮位置.
+        Windows / macOS 暂无对等机制, 返回 None.
         """
         ...
