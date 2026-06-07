@@ -104,8 +104,13 @@ class SingleInstanceGuard:
         except Exception:
             logger.exception("单实例守卫: 通知已有实例 Raise 失败")
 
-    async def release(self) -> None:
-        """断开 bus 连接释放名字; 二次调用幂等."""
+    def release(self) -> None:
+        """断开 bus 连接释放名字; 二次调用幂等.
+
+        ``MessageBus.disconnect()`` 是同步关 socket, 没有 await 点; 故 release 本身
+        声明为普通函数, 以便在 ``aboutToQuit`` 这种 loop 已经停转的时机直接调用 ——
+        若声明为 async, 用 ``loop.create_task`` 调度出去的 coroutine 永远不会被 driven.
+        """
         if self._bus is None:
             return
         try:
