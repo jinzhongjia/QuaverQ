@@ -105,13 +105,19 @@ def test_linux_adapter_provides_lyric_publisher():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
-def test_windows_adapter_returns_none_for_all_capabilities():
-    """Windows stub 阶段: 所有能力返回 None (降级模式, 应用功能不受影响)."""
+def test_windows_adapter_capabilities_after_stage3a():
+    """Stage 3a 后: single_instance 真实现 (Mutex); 其余仍 None (Stage 3b/3c 填).
+
+    详细单实例契约测试见 test_platform_windows_single_instance.py.
+    """
     from quaverq.platform import get_platform
+    from quaverq.platform._windows_single_instance import WindowsSingleInstance
 
     pal = get_platform()
     assert pal.name == "windows"
-    assert pal.single_instance() is None
+    guard = pal.single_instance()
+    assert isinstance(guard, WindowsSingleInstance)
+    guard.release()  # cleanup; 不持有 mutex
     assert pal.system_theme() is None
     assert pal.media_session(object(), raise_window=lambda: None, quit_app=lambda: None) is None
     assert pal.lyric_publisher(lyric_controller=object(), player_controller=object()) is None

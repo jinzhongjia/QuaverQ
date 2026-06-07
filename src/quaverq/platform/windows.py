@@ -1,10 +1,12 @@
-"""Windows 平台适配器 (Stage 1 stub).
+"""Windows 平台适配器.
 
-当前所有能力返回 None —— 让应用至少能在 Windows 上启动到主界面,
-媒体键 / 单实例 / 系统主题暂不工作. Stage 3 会用真实实现填充:
-- single_instance: 命名 Mutex (pywin32 win32event.CreateMutex)
-- system_theme: 注册表 HKCU\\...\\AppsUseLightTheme + WM_SETTINGCHANGE
+已实现:
+- single_instance: 命名 Mutex (ctypes CreateMutexW, 见 _windows_single_instance.py)
+
+待实现 (Stage 3b/3c):
+- system_theme: 注册表 HKCU\\...\\AppsUseLightTheme + 轮询 / WM_SETTINGCHANGE
 - media_session: SMTC (Windows.Media.SystemMediaTransportControls, 经 winrt)
+- lyric_publisher: 暂无对应机制 (Linux D-Bus 的等价物在 Windows 上没有标准, 长尾)
 """
 
 from __future__ import annotations
@@ -13,12 +15,14 @@ from typing import Any
 
 
 class WindowsPlatform:
-    """Windows 平台门面 (降级 stub)."""
+    """Windows 平台门面."""
 
     name = "windows"
 
     def single_instance(self) -> Any | None:
-        return None
+        from ._windows_single_instance import WindowsSingleInstance
+
+        return WindowsSingleInstance()
 
     def system_theme(self) -> Any | None:
         return None
