@@ -142,6 +142,30 @@ def test_apply_snapshot_to_queue(state_path: Path):
     assert new_q.mode == PlayMode.SHUFFLE
 
 
+def test_save_restore_preserves_queue_source(state_path: Path):
+    """source 标签 (如 "daily") 必须跨重启保留, 否则猜你喜欢卡片认不出当前播放曲."""
+    s = SessionState(state_path)
+    q = _make_queue(3)
+    q.source = "daily"
+    s.save(q, position_ms=0)
+
+    snap = s.restore()
+    assert snap.source == "daily"
+    new_q = PlayQueue()
+    snap.apply_to(new_q)
+    assert new_q.source == "daily"
+
+
+def test_restore_missing_source_defaults_to_empty(state_path: Path):
+    """旧版 state.json 没有 source 字段时, 恢复为空 (非 daily 队列)."""
+    state_path.write_text(
+        json.dumps({"queue": [], "current_index": -1, "position_ms": 0, "play_mode": "SEQUENCE"})
+    )
+    snap = SessionState(state_path).restore()
+    assert snap is not None
+    assert snap.source == ""
+
+
 def test_apply_empty_snapshot_does_not_crash(state_path: Path):
     s = SessionState(state_path)
     s.save(PlayQueue(), position_ms=0)

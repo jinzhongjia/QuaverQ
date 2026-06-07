@@ -119,7 +119,6 @@ ScrollView {
             loading: root.dailyLoading
             requiresLogin: root.homeController ? root.homeController.dailyRequiresLogin : false
             errorMessage: root.homeController ? root.homeController.dailyErrorMessage : ""
-            queueCount: root.homeController ? root.homeController.dailyModel.count : 0
             onPlayRequested: {
                 if (root.homeController && root.homeController.dailyRequiresLogin) {
                     root.loginRequested()
@@ -269,7 +268,6 @@ ScrollView {
         property bool loading: false
         property bool requiresLogin: false
         property string errorMessage: ""
-        property int queueCount: 0
         readonly property bool hasPreview: section.previewSong
             && section.previewSong.name !== undefined
             && section.previewSong.name.length > 0
@@ -339,14 +337,6 @@ ScrollView {
                     elide: Text.ElideRight
                 }
 
-                Label {
-                    Layout.fillWidth: true
-                    visible: section.hasPreview && section.queueCount > 1
-                    text: qsTr("今日队列 · %1 首").arg(section.queueCount)
-                    color: ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.caption
-                    elide: Text.ElideRight
-                }
             }
 
             Components.AlbumArt {
