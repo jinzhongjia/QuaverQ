@@ -65,6 +65,9 @@ class PlayerController(QObject):
     pauseRequested = Signal()
     stopRequested = Signal()
     seekRequested = Signal(int)
+    queueSourceChanged = Signal()
+    # 队列自然播完信号: 参数为 source 标识 (e.g. "daily"), 由订阅方决定是否续接
+    queueExhausted = Signal(str)
 
     def __init__(
         self,
@@ -131,6 +134,10 @@ class PlayerController(QObject):
     def queueModel(self) -> SongListModel:
         return self._queue_model
 
+    @Property(str, notify=queueSourceChanged)
+    def queueSource(self) -> str:
+        return self._queue.source
+
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
         return self._loading
@@ -156,9 +163,19 @@ class PlayerController(QObject):
     async def playFromModel(self, model: QObject, row: int) -> None:
         await self.play_from_model_async(model, row)
 
-    async def play_from_model_async(self, model: QObject, row: int) -> None:
+    @asyncSlot(QObject, int, str)
+    async def playSourceFromModel(self, model: QObject, row: int, source: str) -> None:
+        await self.play_from_model_async(model, row, source=source)
+
+    async def play_from_model_async(
+        self,
+        model: QObject,
+        row: int,
+        *,
+        source: str = "",
+    ) -> None:
         songs = self._songs_from_model(model)
-        await self.play_songs_async(songs, row)
+        await self.play_songs_async(songs, row, source=source)
 
     @asyncSlot(int)
     async def playQueueIndex(self, index: int) -> None:
@@ -174,7 +191,13 @@ class PlayerController(QObject):
         self._emit_current_changed()
         await self._load_current(play_when_ready=True)
 
-    async def play_songs_async(self, songs: list[Song], start_index: int) -> None:
+    async def play_songs_async(
+        self,
+        songs: list[Song],
+        start_index: int,
+        *,
+        source: str = "",
+    ) -> None:
         if not songs or not (0 <= start_index < len(songs)):
             message = "无法播放：队列数据不完整"
             self._set_error_message(message)
@@ -188,18 +211,56 @@ class PlayerController(QObject):
             and current_song.mid == requested_song.mid
             and self._queue.current_index == start_index
             and len(self._queue.songs) == len(songs)
+            and self._queue.source == source
         ):
             return
-        self._queue.push(songs, play_now=True, start_index=start_index)
+        previous_source = self._queue.source
+        self._queue.push(songs, play_now=True, start_index=start_index, source=source)
         self._sync_queue_model()
+        if previous_source != self._queue.source:
+            self.queueSourceChanged.emit()
         self._emit_current_changed()
         await self._load_current(play_when_ready=True)
+
+    @Slot("QVariantList")
+    def appendToQueue(self, songs_data: Any) -> None:
+        """QML/Python 端追加歌曲到当前队列; 自动去重."""
+        items = songs_data if isinstance(songs_data, list) else []
+        songs = [song_from_map(item) for item in items if isinstance(item, Mapping)]
+        self.append_to_queue(songs)
+
+    def append_to_queue(self, songs: list[Song]) -> list[Song]:
+        """追加歌曲到当前队列, 返回真正加入的那些 (已去重).
+
+        若播放器因为队列空而停下 (current_index 越界), 自动跳到第一首新加曲并续播.
+        """
+        if not songs:
+            return []
+        was_exhausted = (
+            not self._queue.songs
+            or self._queue.current_index < 0
+            or self._queue.current_index >= len(self._queue.songs)
+        )
+        added = self._queue.append(songs)
+        if not added:
+            return added
+        self._sync_queue_model()
+        if was_exhausted:
+            # 跳到第一首新加曲并续播 (handleEndOfMedia 走完整批后续接的场景)
+            self._queue.current_index = len(self._queue.songs) - len(added)
+            self._emit_current_changed()
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return added
+            loop.create_task(self._load_current(play_when_ready=True))
+        return added
 
     @asyncSlot()
     async def next(self) -> None:  # noqa: A003
         song = self._queue.next()
         if song is None:
-            self.stop()
+            self._handle_queue_exhausted()
             return
         self._emit_current_changed()
         await self._load_current(play_when_ready=True)
@@ -216,10 +277,24 @@ class PlayerController(QObject):
     async def handleEndOfMedia(self) -> None:
         song = self._queue.on_song_end()
         if song is None:
-            self.stop()
+            self._handle_queue_exhausted()
             return
         self._emit_current_changed()
         await self._load_current(play_when_ready=True)
+
+    def _handle_queue_exhausted(self) -> None:
+        """队列自然耗尽: 停下当前播放; 若 source 设置则广播以触发外部续接 (e.g. 猜你喜欢续取下一批).
+
+        source 设置时 current_index 推过末尾, 让 appendToQueue 识别为耗尽状态自动续播第一首新加曲.
+        无 source 时保留 current_index 在最后一首, 与历史 stop() 行为一致.
+        """
+        source = self._queue.source
+        if source and self._queue.songs:
+            self._queue.current_index = len(self._queue.songs)
+            self._emit_current_changed()
+        self.stop()
+        if source:
+            self.queueExhausted.emit(source)
 
     @Slot()
     def play(self) -> None:

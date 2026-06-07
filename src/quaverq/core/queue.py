@@ -41,6 +41,8 @@ class PlayQueue:
     current_index: int = -1
     mode: PlayMode = PlayMode.SEQUENCE
     rng: random.Random = field(default_factory=random.Random)
+    # 队列来源标识 (e.g. "daily" 表示猜你喜欢自动续接); 默认 "" 不参与自动续接.
+    source: str = ""
 
     # 私有: SHUFFLE 模式下的下一首索引轮次 (打乱后剩余可播的索引列表)
     _shuffle_remaining: list[int] = field(default_factory=list, init=False, repr=False)
@@ -64,12 +66,15 @@ class PlayQueue:
         *,
         play_now: bool = False,
         start_index: int = 0,
+        source: str = "",
     ) -> Song | None:
         """替换整个队列.
 
         play_now=True: 把 current 设到 start_index 并返回那首歌 (调用方负责真播放).
         play_now=False: 替换 list, current 拉回 index 0 (但不强制播放).
+        source: 标记队列来源, 触发自动续接 (e.g. "daily" 猜你喜欢播完取下一批).
         """
+        self.source = source
         self.songs = list(songs)
         if not self.songs:
             self.current_index = -1
@@ -106,8 +111,29 @@ class PlayQueue:
     def clear(self) -> None:
         self.songs = []
         self.current_index = -1
+        self.source = ""
         self._shuffle_remaining = []
         self._shuffle_history = []
+
+    def append(self, songs: list[Song]) -> list[Song]:
+        """在队列末尾追加歌曲, 去重已存在的 mid; 返回真正被加入的歌. 不改 current."""
+        if not songs:
+            return []
+        existing = {s.mid for s in self.songs if s.mid}
+        added: list[Song] = []
+        for song in songs:
+            if not song.mid or song.mid in existing:
+                continue
+            existing.add(song.mid)
+            self.songs.append(song)
+            added.append(song)
+        # SHUFFLE 模式下, 把新索引并入剩余池 (位置打乱)
+        if added and self.mode == PlayMode.SHUFFLE:
+            new_start = len(self.songs) - len(added)
+            new_indices = list(range(new_start, len(self.songs)))
+            self.rng.shuffle(new_indices)
+            self._shuffle_remaining.extend(new_indices)
+        return added
 
     def jump_to(self, index: int) -> Song | None:
         """直接跳到指定索引; 失败返 None."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from PySide6.QtCore import Property, QObject, Signal
 from qasync import asyncSlot
@@ -23,6 +23,9 @@ from .models import (
 )
 from .service_controller import ServiceController
 
+if TYPE_CHECKING:
+    from .player_controller import PlayerController
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -32,6 +35,7 @@ class HomeController(QObject):
     """QML-facing home/discovery state."""
 
     dailyModelChanged = Signal()
+    dailyPreviewSongChanged = Signal()
     playlistModelChanged = Signal()
     newSongModelChanged = Signal()
     topModelChanged = Signal()
@@ -42,15 +46,19 @@ class HomeController(QObject):
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
 
+    DAILY_SOURCE = "daily"
+
     def __init__(
         self,
         service_controller: ServiceController,
         home_cache: HomeCache | None = None,
+        player_controller: PlayerController | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
         self._home_cache = home_cache
+        self._player_controller = player_controller
         self._daily_model = SongListModel(self)
         self._playlist_model = CardListModel(self)
         self._new_song_model = SongListModel(self)
@@ -58,9 +66,15 @@ class HomeController(QObject):
         self._loading_sections: set[str] = set()
         self._section_errors: dict[str, str] = {}
         self._daily_refresh_task: asyncio.Task[None] | None = None
+        self._daily_extend_task: asyncio.Task[None] | None = None
         self._daily_requires_login = False
         self._error_message = ""
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
+        if self._player_controller is not None:
+            self._player_controller.currentSongChanged.connect(
+                self._handle_player_current_song_changed
+            )
+            self._player_controller.queueExhausted.connect(self._handle_queue_exhausted)
 
     # ---------------------------------------------------------------- SWR 缓存
     def prime_public_from_cache(self) -> None:
@@ -88,6 +102,7 @@ class HomeController(QObject):
             self._set_daily_requires_login(False)
             self._daily_model.set_songs(snapshot.daily)
             self.dailyModelChanged.emit()
+            self.dailyPreviewSongChanged.emit()
 
     def _persist(self, **sections: object) -> None:
         if self._home_cache is not None:
@@ -97,12 +112,33 @@ class HomeController(QObject):
     def dailyModel(self) -> SongListModel:
         return self._daily_model
 
-    @Property("QVariant", notify=dailyModelChanged)
+    @Property("QVariant", notify=dailyPreviewSongChanged)
     def dailyPreviewSong(self) -> dict[str, Any]:
+        """预览卡片显示的歌: 优先返回当前正在播放的猜你喜欢曲目, 否则回退到列表首曲."""
         songs = self._daily_model.songs()
         if not songs:
             return {}
+        playing = self._current_daily_song(songs)
+        if playing is not None:
+            return song_to_map(playing)
         return song_to_map(songs[0])
+
+    def _current_daily_song(self, songs: list[Song]) -> Song | None:
+        """若当前播放队列来自猜你喜欢且当前曲目仍在 daily 列表中, 返回该曲; 否则 None."""
+        if self._player_controller is None:
+            return None
+        if getattr(self._player_controller, "_queue", None) is None:
+            return None
+        queue = self._player_controller._queue  # noqa: SLF001
+        if queue.source != self.DAILY_SOURCE:
+            return None
+        current = queue.current()
+        if current is None or not current.mid:
+            return None
+        mids = {song.mid for song in songs}
+        if current.mid not in mids:
+            return None
+        return current
 
     @Property(QObject, notify=playlistModelChanged)
     def playlistModel(self) -> CardListModel:
@@ -213,6 +249,7 @@ class HomeController(QObject):
             if songs is not None:
                 self._daily_model.set_songs(songs)
                 self.dailyModelChanged.emit()
+                self.dailyPreviewSongChanged.emit()
                 self._persist(daily=songs, account_key=self._service_controller.account_key())
         finally:
             if self._daily_refresh_task is current_task:
@@ -307,6 +344,7 @@ class HomeController(QObject):
         self._set_daily_requires_login(True)
         self._daily_model.clear()
         self.dailyModelChanged.emit()
+        self.dailyPreviewSongChanged.emit()
         if self._home_cache is not None:
             self._home_cache.clear_private()
 
@@ -347,3 +385,54 @@ class HomeController(QObject):
             return
         self._error_message = value
         self.errorMessageChanged.emit()
+
+    # -------------------------------------------------- 与播放器联动 (猜你喜欢续接)
+    def _handle_player_current_song_changed(self) -> None:
+        """播放器当前曲切换时, 让猜你喜欢卡片重新计算 dailyPreviewSong."""
+        self.dailyPreviewSongChanged.emit()
+
+    def _handle_queue_exhausted(self, source: str) -> None:
+        """播放器队列自然耗尽: 若来源是猜你喜欢, 续取下一批并追加到队列."""
+        if source != self.DAILY_SOURCE:
+            return
+        if not self._service_controller.authed:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._daily_extend_task is not None and not self._daily_extend_task.done():
+            return
+        self._daily_extend_task = loop.create_task(self.extend_daily_async())
+
+    async def extend_daily_async(self) -> list[Song]:
+        """续取一批猜你喜欢, 去重后追加到 player 队列 + dailyModel; 返回追加歌曲."""
+        if self._player_controller is None:
+            return []
+        if not self._service_controller.authed:
+            return []
+        try:
+            fetched: list[Song] = await self._service_controller.call_service(
+                lambda service: service.get_daily_recommend_songs(limit=30),
+                operation_name="daily recommend songs (extend)",
+            )
+        except Exception as exc:
+            message = log_bridge_error(logger, "extend daily failed", exc)
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+            return []
+        if not fetched:
+            return []
+        existing_mids = {song.mid for song in self._daily_model.songs() if song.mid}
+        fresh = [song for song in fetched if song.mid and song.mid not in existing_mids]
+        if not fresh:
+            return []
+        added = self._player_controller.append_to_queue(fresh)
+        if not added:
+            return []
+        merged = [*self._daily_model.songs(), *added]
+        self._daily_model.set_songs(merged)
+        self.dailyModelChanged.emit()
+        self.dailyPreviewSongChanged.emit()
+        self._persist(daily=merged, account_key=self._service_controller.account_key())
+        return added

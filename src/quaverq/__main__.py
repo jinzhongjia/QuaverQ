@@ -206,7 +206,6 @@ def main() -> None:
     system_theme_watcher = SystemThemeWatcher()
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
-    home_controller = HomeController(service_controller, home_cache=home_cache)
     detail_controller_factory = DetailControllerFactory(service_controller)
     song_detail_controller = SongDetailController(service_controller)
     library_controller = LibraryController(service_controller, home_cache=home_cache)
@@ -217,6 +216,11 @@ def main() -> None:
         settings_controller=settings_controller,
         session_state=SessionState(CONFIG_DIR / "state.json"),
         stream_proxy=stream_proxy,
+    )
+    home_controller = HomeController(
+        service_controller,
+        home_cache=home_cache,
+        player_controller=player_controller,
     )
     lyric_controller = LyricController(service_controller, player_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)

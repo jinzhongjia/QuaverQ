@@ -205,6 +205,46 @@ def test_set_mode_takes_effect_for_next_on_song_end():
     assert q.on_song_end().mid == "m0"  # 现在循环回 m0
 
 
+def test_push_records_source_for_auto_extend():
+    """push 接受 source kwarg, 用于后续 queueExhausted 续接 (e.g. 猜你喜欢续取下一批)."""
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, source="daily")
+    assert q.source == "daily"
+    q.push(_make_songs(2), play_now=True)
+    assert q.source == ""
+
+
+def test_clear_resets_source():
+    q = PlayQueue()
+    q.push(_make_songs(2), play_now=True, source="daily")
+    q.clear()
+    assert q.source == ""
+    assert len(q) == 0
+
+
+def test_append_extends_queue_skipping_duplicates_and_preserves_current():
+    q = PlayQueue()
+    q.push(_make_songs(2), play_now=True, source="daily")
+    assert q.current().mid == "m0"
+    extra = [Song(mid="m1", name="dup"), Song(mid="m100", name="x"), Song(mid="m101", name="y")]
+    added = q.append(extra)
+    assert [s.mid for s in added] == ["m100", "m101"]
+    assert [s.mid for s in q.songs] == ["m0", "m1", "m100", "m101"]
+    assert q.current_index == 0  # 未被搬动
+    assert q.source == "daily"
+
+
+def test_append_after_exhausted_keeps_index_past_end():
+    """exhausted 后 (current_index 越界) append, 由 PlayerController 决定续播, queue 仅扩长 list."""
+    q = PlayQueue()
+    q.push(_make_songs(2), play_now=True, source="daily")
+    q.current_index = 2  # 模拟 exhausted (越界)
+    added = q.append([Song(mid="m9", name="z")])
+    assert [s.mid for s in added] == ["m9"]
+    assert len(q) == 3
+    assert q.current_index == 2  # PlayQueue.append 不动 index
+
+
 def test_set_mode_shuffle_regenerates_order():
     """切到 shuffle 后, 后续 on_song_end 走打乱序; 不保留旧 sequence."""
     q = PlayQueue(mode=PlayMode.SEQUENCE, rng=random.Random(0))
