@@ -11,6 +11,7 @@ freedesktop ``org.freedesktop.appearance / color-scheme`` 约定：
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
@@ -60,40 +61,45 @@ class SystemThemeWatcher(QObject):
         self._dark = value
         self.darkChanged.emit()
 
-    async def start(self) -> None:
+    async def start(self, timeout: float = 1.0) -> None:
         # 直接 bus.call，不 introspect：portal 对象里有含连字符的非法 D-Bus 成员名
         # (如 power-saver-enabled)，dbus-next introspect 会因严格校验整体抛错。
+        # timeout 兜底: 调用方一般用 loop.run_until_complete 在 engine.load() 前同步等,
+        # portal 偶发挂死不能拖慢启动 —— 超时直接落默认浅色, 后续 SignalChanged 仍能跟随.
         try:
             from dbus_next import BusType, Message, MessageType
             from dbus_next.aio import MessageBus
 
-            self._bus = await MessageBus(bus_type=BusType.SESSION).connect()
-            reply = await self._bus.call(
-                Message(
-                    destination=_PORTAL_DEST,
-                    path=_PORTAL_PATH,
-                    interface=_PORTAL_IFACE,
-                    member="Read",
-                    signature="ss",
-                    body=[_APPEARANCE_NS, _COLOR_SCHEME_KEY],
+            async def _do_start() -> None:
+                self._bus = await MessageBus(bus_type=BusType.SESSION).connect()
+                reply = await self._bus.call(
+                    Message(
+                        destination=_PORTAL_DEST,
+                        path=_PORTAL_PATH,
+                        interface=_PORTAL_IFACE,
+                        member="Read",
+                        signature="ss",
+                        body=[_APPEARANCE_NS, _COLOR_SCHEME_KEY],
+                    )
                 )
-            )
-            if reply.message_type == MessageType.METHOD_RETURN and reply.body:
-                self._set_dark(color_scheme_is_dark(unwrap_variant(reply.body[0])))
-            await self._bus.call(
-                Message(
-                    destination="org.freedesktop.DBus",
-                    path="/org/freedesktop/DBus",
-                    interface="org.freedesktop.DBus",
-                    member="AddMatch",
-                    signature="s",
-                    body=[
-                        f"type='signal',sender='{_PORTAL_DEST}',"
-                        f"interface='{_PORTAL_IFACE}',member='SettingChanged'"
-                    ],
+                if reply.message_type == MessageType.METHOD_RETURN and reply.body:
+                    self._set_dark(color_scheme_is_dark(unwrap_variant(reply.body[0])))
+                await self._bus.call(
+                    Message(
+                        destination="org.freedesktop.DBus",
+                        path="/org/freedesktop/DBus",
+                        interface="org.freedesktop.DBus",
+                        member="AddMatch",
+                        signature="s",
+                        body=[
+                            f"type='signal',sender='{_PORTAL_DEST}',"
+                            f"interface='{_PORTAL_IFACE}',member='SettingChanged'"
+                        ],
+                    )
                 )
-            )
-            self._bus.add_message_handler(self._on_message)
+                self._bus.add_message_handler(self._on_message)
+
+            await asyncio.wait_for(_do_start(), timeout=timeout)
             logger.info("系统主题跟随 portal color-scheme: dark=%s", self._dark)
         except Exception as exc:
             logger.warning("portal color-scheme 不可用，跟随系统回退默认浅色: %s", exc)

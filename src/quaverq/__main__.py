@@ -45,8 +45,13 @@ def _open_settings_ini() -> QSettings:
 
 
 def _should_suppress_qt_message(message: str) -> bool:
-    return message.startswith("QSocketNotifier: Invalid socket ") and message.endswith(
-        " and type 'Read', disabling..."
+    return (
+        (
+            message.startswith("QSocketNotifier: Invalid socket ")
+            and message.endswith(" and type 'Read', disabling...")
+        )
+        or "Could not register app ID" in message
+        or "Could not update timestamps for skipped samples" in message
     )
 
 
@@ -228,7 +233,11 @@ def main() -> None:
     )
     # 系统主题: Linux 走 freedesktop portal; Windows / macOS 暂返回 None.
     # QML 端 (Main.qml) 已 null-guard systemTheme, None 时退化为"跟随 Qt palette".
+    # 注意: start() 必须在 engine.load() 之前用 run_until_complete 同步等完,
+    # 否则首帧按 _dark=False 渲染浅色, portal 回包后翻深色 -> 视觉上"白闪一下".
     system_theme_watcher = pal.system_theme()
+    if system_theme_watcher is not None:
+        loop.run_until_complete(system_theme_watcher.start())
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller)
     detail_controller_factory = DetailControllerFactory(service_controller)
@@ -302,8 +311,6 @@ def main() -> None:
     )
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
-        if system_theme_watcher is not None:
-            loop.create_task(system_theme_watcher.start())
         loop.create_task(
             _load_initial_state(
                 home_controller,

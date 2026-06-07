@@ -374,7 +374,7 @@ Dialog {
                     Label {
                         Layout.fillWidth: true
                         visible: root.hasIntro
-                        text: root.songInfo.intro
+                        text: root.hasIntro ? root.songInfo.intro : ""
                         color: ThemeTokens.Palette.surfaceVariantText
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         wrapMode: Text.WordWrap
