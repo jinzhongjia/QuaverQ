@@ -20,6 +20,8 @@ ColumnLayout {
     property var libraryController
     property var songDetailController
     property bool completed: false
+    // 2.2: 歌手 tab 索引. 非 artist 时永远 0.
+    property int currentTab: 0
 
     readonly property string displayKind: root.detailController && root.detailController.kind.length > 0
         ? root.detailController.kind
@@ -69,15 +71,27 @@ ColumnLayout {
         )
     }
 
+    // 2.2: 切到歌手 tab 时按需触发后端拉取
+    function _ensureSingerTabLoaded(tabIndex) {
+        if (!root.detailController || root.displayKind !== "artist") return
+        if (tabIndex === 1) root.detailController.loadSingerSongs()
+        else if (tabIndex === 2) root.detailController.loadSingerAlbums()
+        else if (tabIndex === 3) root.detailController.loadSimilarSingers()
+    }
+
     Component.onCompleted: {
         root.completed = true
         root.loadDetail()
     }
 
     onDetailIdChanged: {
-        if (root.completed)
+        if (root.completed) {
+            root.currentTab = 0  // 切详情时 tab 归零, 由 controller 重置 model
             root.loadDetail()
+        }
     }
+
+    onCurrentTabChanged: root._ensureSingerTabLoaded(root.currentTab)
 
     Rectangle {
         Layout.fillWidth: true
@@ -230,12 +244,15 @@ ColumnLayout {
             }
         }
 
+        // ===== Section header / Tab bar =====
+        // 非 artist: 显示原有的标题 + 计数; artist: 显示 4 个 tab
         RowLayout {
             Layout.fillWidth: true
             spacing: ThemeTokens.Spacing.s4
+            visible: root.displayKind !== "artist"
 
             Label {
-                text: root.displayKind === "artist" ? qsTr("热门歌曲") : qsTr("曲目")
+                text: qsTr("曲目")
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
                 font.weight: ThemeTokens.TypeScale.bold
@@ -252,90 +269,286 @@ ColumnLayout {
             }
         }
 
-        Item {
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: ThemeTokens.Spacing.s6
+            visible: root.displayKind === "artist"
+
+            Repeater {
+                model: [qsTr("热门歌曲"), qsTr("全部歌曲"), qsTr("全部专辑"), qsTr("相似歌手")]
+
+                delegate: Item {
+                    id: tabItem
+
+                    required property int index
+                    required property string modelData
+                    readonly property bool current: root.currentTab === tabItem.index
+
+                    Layout.preferredHeight: 38
+                    implicitWidth: tabLabel.implicitWidth
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: tabItem.modelData
+                    activeFocusOnTab: true
+
+                    HoverHandler { id: tabHover }
+                    TapHandler { onTapped: root.currentTab = tabItem.index }
+                    Keys.onReturnPressed: root.currentTab = tabItem.index
+                    Keys.onSpacePressed: root.currentTab = tabItem.index
+
+                    Label {
+                        id: tabLabel
+                        anchors.top: parent.top
+                        anchors.topMargin: ThemeTokens.Spacing.s2
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: tabItem.modelData
+                        color: tabItem.current
+                            ? ThemeTokens.Palette.primary
+                            : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
+                        font.pixelSize: ThemeTokens.TypeScale.body
+                        font.weight: tabItem.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
+                    }
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: tabLabel.implicitWidth
+                        height: 2
+                        radius: 1
+                        visible: tabItem.current
+                        color: ThemeTokens.Palette.primary
+                    }
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
+        // ===== 内容区: 非 artist 走 songList; artist 走 4-page StackLayout =====
+        StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            currentIndex: root.displayKind === "artist" ? root.currentTab : 0
 
-            ListView {
-                id: songList
-
-                anchors.fill: parent
-                clip: true
-                spacing: ThemeTokens.Spacing.s2
+            // ----- Page 0: 热门歌曲 (artist) / 曲目 (其它) — 复用 detailController.songModel -----
+            SongListPage {
                 model: root.detailController ? root.detailController.songModel : null
-                boundsBehavior: Flickable.StopAtBounds
-                reuseItems: true
-
-                delegate: Components.SongRow {
-                    width: ListView.view.width
-                    libraryController: root.libraryController
-                    coverController: root.coverController
-                    songDetailController: root.songDetailController
-                    selected: root.playerController
-                        && root.playerController.currentSong
-                        && root.playerController.currentSong.mid === song.mid
-                    onActivated: function(songData, row) {
-                        if (root.playerController && root.detailController)
-                            root.playerController.playFromModel(root.detailController.songModel, row)
-                    }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        root.detailRequested(kind, detailId, title, subtitle)
-                    }
+                emptyText: root.displayKind === "artist" ? qsTr("暂无热门歌曲") : qsTr("暂无曲目")
+                loading: root.loading
+                hasItems: root.hasSongs
+                showRetry: root.errorMessage.length > 0
+                onPlayRequested: function(row) {
+                    if (root.playerController && root.detailController)
+                        root.playerController.playFromModel(root.detailController.songModel, row)
                 }
-
-                ScrollBar.vertical: ScrollBar {}
+                onRetryClicked: root.loadDetail()
             }
 
-            ColumnLayout {
-                anchors.centerIn: parent
-                visible: !root.loading && !root.hasSongs
-                spacing: ThemeTokens.Spacing.s3
-
-                Label {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: root.errorMessage.length > 0
-                        ? qsTr("详情加载失败")
-                        : qsTr("暂无曲目")
-                    color: ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.body
-                }
-
-                Button {
-                    id: retryButton
-
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 112
-                    Layout.preferredHeight: 36
-                    visible: root.errorMessage.length > 0
-                    text: qsTr("重试")
-                    Accessible.name: text
-                    onClicked: root.loadDetail()
-
-                    contentItem: Label {
-                        text: retryButton.text
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        color: ThemeTokens.Palette.surfaceText
-                        font.pixelSize: ThemeTokens.TypeScale.caption
-                        font.weight: ThemeTokens.TypeScale.medium
-                    }
-
-                    background: Rectangle {
-                        radius: ThemeTokens.Spacing.radiusMd
-                        color: retryButton.down
-                            ? ThemeTokens.Palette.statePressed
-                            : retryButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
-                    }
+            // ----- Page 1-3 仅 artist 时实际有内容 -----
+            SongListPage {
+                visible: root.displayKind === "artist"
+                model: root.detailController ? root.detailController.singerSongsModel : null
+                emptyText: qsTr("暂无歌曲")
+                loading: root.detailController ? root.detailController.singerSongsLoading : false
+                hasItems: root.detailController
+                    && root.detailController.singerSongsModel
+                    && root.detailController.singerSongsModel.count > 0
+                showRetry: false
+                onPlayRequested: function(row) {
+                    if (root.playerController && root.detailController)
+                        root.playerController.playFromModel(root.detailController.singerSongsModel, row)
                 }
             }
+
+            CardGridPage {
+                visible: root.displayKind === "artist"
+                model: root.detailController ? root.detailController.singerAlbumsModel : null
+                emptyText: qsTr("暂无专辑")
+                kindFallback: "album"
+                loading: root.detailController ? root.detailController.singerAlbumsLoading : false
+                hasItems: root.detailController
+                    && root.detailController.singerAlbumsModel
+                    && root.detailController.singerAlbumsModel.count > 0
+                onCardRequested: function(kind, detailId, title, subtitle) {
+                    root.detailRequested(kind, detailId, title, subtitle)
+                }
+            }
+
+            CardGridPage {
+                visible: root.displayKind === "artist"
+                model: root.detailController ? root.detailController.similarSingersModel : null
+                emptyText: qsTr("暂无相似歌手")
+                kindFallback: "artist"
+                circular: true
+                loading: root.detailController ? root.detailController.similarSingersLoading : false
+                hasItems: root.detailController
+                    && root.detailController.similarSingersModel
+                    && root.detailController.similarSingersModel.count > 0
+                onCardRequested: function(kind, detailId, title, subtitle) {
+                    root.detailRequested(kind, detailId, title, subtitle)
+                }
+            }
+        }
+    }
+
+    // ===== Page 组件 =====
+
+    component SongListPage: Item {
+        id: songPage
+
+        property var model
+        property string emptyText: qsTr("暂无内容")
+        property bool loading: false
+        property bool hasItems: false
+        property bool showRetry: false
+
+        signal playRequested(int row)
+        signal retryClicked()
+
+        ListView {
+            anchors.fill: parent
+            clip: true
+            spacing: ThemeTokens.Spacing.s2
+            model: songPage.model
+            boundsBehavior: Flickable.StopAtBounds
+            reuseItems: true
+
+            delegate: Components.SongRow {
+                width: ListView.view.width
+                libraryController: root.libraryController
+                coverController: root.coverController
+                songDetailController: root.songDetailController
+                selected: root.playerController
+                    && root.playerController.currentSong
+                    && root.playerController.currentSong.mid === song.mid
+                onActivated: function(songData, row) {
+                    songPage.playRequested(row)
+                }
+                onNavigationRequested: function(kind, detailId, title, subtitle) {
+                    root.detailRequested(kind, detailId, title, subtitle)
+                }
+            }
+
+            ScrollBar.vertical: ScrollBar {}
+        }
+
+        // loading
+        BusyIndicator {
+            anchors.centerIn: parent
+            running: songPage.loading && !songPage.hasItems
+            visible: running
+            implicitWidth: 40
+            implicitHeight: 40
+        }
+
+        // empty
+        ColumnLayout {
+            anchors.centerIn: parent
+            visible: !songPage.loading && !songPage.hasItems
+            spacing: ThemeTokens.Spacing.s3
 
             Label {
-                anchors.centerIn: parent
-                visible: root.loading && !root.hasSongs
-                text: qsTr("正在加载详情")
+                Layout.alignment: Qt.AlignHCenter
+                text: songPage.emptyText
                 color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body
             }
+
+            Button {
+                id: emptyRetryButton
+
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 112
+                Layout.preferredHeight: 36
+                visible: songPage.showRetry
+                text: qsTr("重试")
+                Accessible.name: text
+                onClicked: songPage.retryClicked()
+
+                contentItem: Label {
+                    text: emptyRetryButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: ThemeTokens.Palette.surfaceText
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    font.weight: ThemeTokens.TypeScale.medium
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: emptyRetryButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : emptyRetryButton.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                }
+            }
+        }
+    }
+
+    component CardGridPage: Item {
+        id: gridPage
+
+        property var model
+        property string emptyText: qsTr("暂无内容")
+        property string kindFallback: "playlist"
+        property bool circular: false
+        property bool loading: false
+        property bool hasItems: false
+
+        signal cardRequested(string kind, string detailId, string title, string subtitle)
+
+        GridView {
+            anchors.fill: parent
+            clip: true
+            cellWidth: 168
+            cellHeight: 220
+            model: gridPage.model
+            boundsBehavior: Flickable.StopAtBounds
+            reuseItems: true
+
+            delegate: Item {
+                id: cardCell
+
+                required property string kind
+                required property string cardId
+                required property string title
+                required property string subtitle
+                required property string coverUrl
+                required property string meta
+
+                width: GridView.view.cellWidth
+                height: GridView.view.cellHeight
+
+                Components.Card {
+                    width: parent.width - ThemeTokens.Spacing.s3
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    circular: gridPage.circular
+                    title: cardCell.title
+                    subtitle: cardCell.subtitle
+                    coverUrl: cardCell.coverUrl
+                    meta: cardCell.meta
+                    coverController: root.coverController
+                    onActivated: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                    onPlayRequested: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                }
+            }
+
+            ScrollBar.vertical: ScrollBar {}
+        }
+
+        BusyIndicator {
+            anchors.centerIn: parent
+            running: gridPage.loading && !gridPage.hasItems
+            visible: running
+            implicitWidth: 40
+            implicitHeight: 40
+        }
+
+        Label {
+            anchors.centerIn: parent
+            visible: !gridPage.loading && !gridPage.hasItems
+            text: gridPage.emptyText
+            color: ThemeTokens.Palette.surfaceVariantText
+            font.pixelSize: ThemeTokens.TypeScale.body
         }
     }
 }

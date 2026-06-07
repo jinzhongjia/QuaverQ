@@ -506,6 +506,82 @@ class QuaverService:
         )
         return playlist
 
+    # ------------------------------------------------------------------
+    # 歌手 tab 数据 (第二档 2.2)
+    # ------------------------------------------------------------------
+
+    async def get_similar_singers(self, singer_mid: str, *, limit: int = 10) -> list[Singer]:
+        """相似歌手 (歌手详情页 tab). 公开接口, 凭据过期类异常透传."""
+        if not singer_mid:
+            return []
+        try:
+            resp = await self.client.singer.get_similar(singer_mid, number=limit)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_similar_singers 失败 (mid=%s): %s", singer_mid, exc)
+            return []
+        out: list[Singer] = []
+        for s in getattr(resp, "singerlist", None) or []:
+            mid = getattr(s, "mid", "") or ""
+            if not mid:
+                continue
+            out.append(
+                Singer(
+                    mid=mid,
+                    name=getattr(s, "name", "") or "",
+                    avatar_url=getattr(s, "singer_pic", "") or "",
+                )
+            )
+        return out
+
+    async def get_singer_songs(
+        self, singer_mid: str, *, limit: int = 50, page: int = 1
+    ) -> list[Song]:
+        """歌手全部歌曲 (分页). 返回的是完整 Song pydantic, 走 _to_song."""
+        if not singer_mid:
+            return []
+        try:
+            resp = await self.client.singer.get_songs_list(singer_mid, num=limit, page=page)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_singer_songs 失败 (mid=%s): %s", singer_mid, exc)
+            return []
+        return [self._to_song(s) for s in (getattr(resp, "song_list", None) or [])]
+
+    async def get_singer_albums(
+        self, singer_mid: str, *, limit: int = 50, page: int = 1
+    ) -> list[Album]:
+        """歌手全部专辑 (分页). AlbumBrief 字段: time_public/total_num/singer_name (单字符串)."""
+        if not singer_mid:
+            return []
+        try:
+            resp = await self.client.singer.get_album_list(singer_mid, num=limit, page=page)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_singer_albums 失败 (mid=%s): %s", singer_mid, exc)
+            return []
+        out: list[Album] = []
+        for a in getattr(resp, "album_list", None) or []:
+            mid = getattr(a, "mid", "") or ""
+            if not mid:
+                continue
+            singer_name = getattr(a, "singer_name", "") or ""
+            singers = [Singer(mid="", name=singer_name)] if singer_name else []
+            out.append(
+                Album(
+                    mid=mid,
+                    name=getattr(a, "name", "") or "",
+                    singers=singers,
+                    cover_url=_cover_url(mid, 300),
+                    publish_date=getattr(a, "time_public", "") or "",
+                    song_count=int(getattr(a, "total_num", 0) or 0),
+                )
+            )
+        return out
+
     async def get_artist_detail(self, singer_mid: str, *, hot_song_limit: int = 50) -> ArtistDetail:
         info_resp = await self.client.singer.get_info(singer_mid)
         tab_resp = await self.client.singer.get_tab_detail(
