@@ -1,20 +1,43 @@
 (() => {
-  const REPO = "jinzhongjia/quaverq";
-  const API = `https://api.github.com/repos/${REPO}/releases/latest`;
-  const LATEST_ASSET_URL = `https://github.com/${REPO}/releases/latest/download/QuaverQ-x86_64.AppImage`;
-  const CACHE_KEY = "quaverq:latest-release";
-  const CACHE_TTL_MS = 10 * 60 * 1000;
+  const VERSION_URL = "/version.json";
+  const FALLBACK_DOWNLOAD = "/download";
 
   const $badge = document.getElementById("version-badge");
   const $mini = document.getElementById("version-mini");
+  const $releaseMeta = document.getElementById("release-meta");
   const $downloadBtns = document.querySelectorAll("#download-btn, #download-btn-2");
 
-  function applyVersion(tagName, assetUrl) {
-    const label = tagName ? `最新版本 ${tagName}` : "最新版本";
-    if ($badge) $badge.textContent = label;
-    if ($mini) $mini.textContent = tagName || "latest";
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return null;
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0;
+    let n = bytes;
+    while (n >= 1024 && i < units.length - 1) {
+      n /= 1024;
+      i += 1;
+    }
+    return `${n.toFixed(n >= 100 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function applyVersion(meta) {
+    const version = meta && meta.version ? meta.version : null;
+    const url = meta && meta.url ? meta.url : FALLBACK_DOWNLOAD;
+
+    if ($badge) {
+      $badge.textContent = version ? `最新版本 ${version}` : "最新版本";
+    }
+    if ($mini) {
+      $mini.textContent = version || "latest";
+    }
+    if ($releaseMeta) {
+      const parts = ["AppImage", "x86_64"];
+      const size = meta && formatBytes(meta.size);
+      if (size) parts.push(size);
+      if (meta && meta.released_at) parts.push(meta.released_at);
+      $releaseMeta.textContent = parts.join(" · ");
+    }
     $downloadBtns.forEach((btn) => {
-      btn.setAttribute("href", assetUrl);
+      btn.setAttribute("href", url);
     });
   }
 
@@ -22,54 +45,19 @@
     if ($badge) $badge.textContent = "最新版本";
     if ($mini) $mini.textContent = "latest";
     $downloadBtns.forEach((btn) => {
-      btn.setAttribute("href", LATEST_ASSET_URL);
+      btn.setAttribute("href", FALLBACK_DOWNLOAD);
     });
-  }
-
-  function pickAssetUrl(release) {
-    if (!release || !Array.isArray(release.assets)) return LATEST_ASSET_URL;
-    const appImage = release.assets.find((a) => a.name && a.name.endsWith(".AppImage"));
-    return appImage ? appImage.browser_download_url : LATEST_ASSET_URL;
-  }
-
-  function readCache() {
-    try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return null;
-      if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
-      return parsed.data;
-    } catch {
-      return null;
-    }
-  }
-
-  function writeCache(data) {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
-    } catch {
-      /* quota / privacy mode — ignore */
-    }
   }
 
   async function load() {
     applyFallback();
-    const cached = readCache();
-    if (cached) {
-      applyVersion(cached.tag_name, pickAssetUrl(cached));
-    }
     try {
-      const res = await fetch(API, {
-        headers: { Accept: "application/vnd.github+json" },
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+      const res = await fetch(VERSION_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(`version.json ${res.status}`);
       const data = await res.json();
-      writeCache({ tag_name: data.tag_name, assets: data.assets });
-      applyVersion(data.tag_name, pickAssetUrl(data));
+      applyVersion(data);
     } catch (err) {
-      console.warn("[QuaverQ] 拉取最新版本失败，使用 latest 直链兜底:", err);
+      console.warn("[QuaverQ] 拉取 version.json 失败，使用 /download 兜底:", err);
     }
   }
 

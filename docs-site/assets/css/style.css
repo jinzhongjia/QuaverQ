@@ -229,6 +229,11 @@ a:hover { color: var(--color-brand-hover); }
   width: 100%;
 }
 
+.btn-lg {
+  padding: 14px 28px;
+  font-size: 16px;
+}
+
 /* ========== Sections ========== */
 .section { padding: var(--space-12) 0; }
 .section-alt { background: var(--color-bg-alt); }
@@ -289,13 +294,11 @@ a:hover { color: var(--color-brand-hover); }
 .feature-card h3 { margin: 0 0 var(--space-2); font-size: 17px; font-weight: 600; }
 .feature-card p { margin: 0; color: var(--color-text-muted); font-size: 14px; line-height: 1.6; }
 
-/* ========== Download Grid ========== */
-.download-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-5);
+/* ========== Download ========== */
+.download-single {
+  display: flex;
+  justify-content: center;
 }
-@media (max-width: 760px) { .download-grid { grid-template-columns: 1fr; } }
 
 .download-card {
   padding: var(--space-6);
@@ -305,6 +308,12 @@ a:hover { color: var(--color-brand-hover); }
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.download-card-hero {
+  width: 100%;
+  max-width: 560px;
+  box-shadow: var(--shadow-md);
 }
 
 .download-card-header {
@@ -388,6 +397,15 @@ code:not(.code-block code) {
 .faq-item p { margin: var(--space-3) 0 0; }
 .faq-item ul { margin: var(--space-3) 0 0; padding-left: var(--space-5); }
 .faq-item li { margin-bottom: var(--space-1); }
+
+/* ========== Contact ========== */
+.contact-block {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.contact-block .btn { margin-top: var(--space-2); }
 
 /* ========== Footer ========== */
 .site-footer {
