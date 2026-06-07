@@ -737,6 +737,7 @@ ApplicationWindow {
             playerController: root.playerController
             libraryController: root.libraryController
             lyricController: root.lyricController
+            settingsController: root.settingsController
             onQueueRequested: root.queuePanelOpen = true
         }
     }

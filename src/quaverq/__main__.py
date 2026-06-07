@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import qasync
-from PySide6.QtCore import QtMsgType, QUrl, qInstallMessageHandler
+from PySide6.QtCore import QSettings, QtMsgType, QUrl, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -38,6 +38,12 @@ from .core.single_instance import SingleInstanceGuard
 from .core.state import SessionState
 
 logger = logging.getLogger("quaverq")
+
+
+def _open_settings_ini() -> QSettings:
+    """所有用户设置统一落在 CONFIG_DIR/settings.ini, 与 state.json / config.toml 同目录."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return QSettings(str(CONFIG_DIR / "settings.ini"), QSettings.Format.IniFormat)
 
 
 def _should_suppress_qt_message(message: str) -> bool:
@@ -200,6 +206,7 @@ def main() -> None:
     cover_cache = CoverCache(CACHE_DIR / "covers")
     home_cache = HomeCache(CACHE_DIR / "home.json")
     settings_controller = SettingsController(
+        settings=_open_settings_ini(),
         cover_cache=cover_cache,
         orphan_cleanup=purge_orphan_caches,
     )

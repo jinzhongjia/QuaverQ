@@ -9,8 +9,35 @@ Rectangle {
     id: root
 
     property var lyricController
+    property var settingsController
     property bool compact: true
     property bool hasSong: false
+
+    // 用户可配置歌词字体: 没有 settingsController 时回退到默认值, 保证 LyricPanel 可独立预览.
+    readonly property string lyricFontFamily: root.settingsController ? root.settingsController.lyricFontFamily : ""
+    readonly property int lyricFontBaseSize: root.settingsController ? root.settingsController.lyricFontSize : 22
+    readonly property string lyricFontWeightKey: root.settingsController ? root.settingsController.lyricFontWeight : "medium"
+    readonly property bool lyricFontItalic: root.settingsController ? root.settingsController.lyricFontItalic : false
+
+    // 基准为 active 行像素值, 其余行按视觉层次比例缩放, 对齐原 h1/body/bodySm/caption 关系.
+    readonly property int lyricActiveSize: root.lyricFontBaseSize
+    readonly property int lyricCompactActiveSize: Math.max(12, Math.round(root.lyricFontBaseSize * 0.73))
+    readonly property int lyricInactiveSize: Math.max(12, Math.round(root.lyricFontBaseSize * 0.70))
+    readonly property int lyricCompactInactiveSize: Math.max(11, Math.round(root.lyricFontBaseSize * 0.64))
+    readonly property int lyricCreditSize: Math.max(11, Math.round(root.lyricFontBaseSize * 0.64))
+    readonly property int lyricCompactCreditSize: Math.max(10, Math.round(root.lyricFontBaseSize * 0.59))
+    readonly property int lyricTranslationSize: Math.max(11, Math.round(root.lyricFontBaseSize * 0.64))
+    readonly property int lyricCompactTranslationSize: Math.max(10, Math.round(root.lyricFontBaseSize * 0.59))
+
+    readonly property int lyricStrongWeight: root.lyricFontWeightKey === "bold"
+        ? ThemeTokens.TypeScale.bold
+        : (root.lyricFontWeightKey === "regular" ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.bold)
+    readonly property int lyricNormalWeight: root.lyricFontWeightKey === "bold"
+        ? ThemeTokens.TypeScale.medium
+        : (root.lyricFontWeightKey === "regular" ? ThemeTokens.TypeScale.regular : ThemeTokens.TypeScale.medium)
+    readonly property int lyricMutedWeight: root.lyricFontWeightKey === "bold"
+        ? ThemeTokens.TypeScale.regular
+        : ThemeTokens.TypeScale.regular
     readonly property int lineCount: root.lyricController ? root.lyricController.lineCount : 0
     readonly property int activeIndex: root.lyricController ? root.lyricController.activeIndex : -1
     readonly property bool loading: root.lyricController ? root.lyricController.loading : false
@@ -236,14 +263,16 @@ Rectangle {
                                     ? (root.compact ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.primary)
                                     : root.mutedLineColor)
                             horizontalAlignment: root.compact ? Text.AlignLeft : Text.AlignHCenter
+                            font.family: root.lyricFontFamily.length > 0 ? root.lyricFontFamily : lyricText.font.family
+                            font.italic: root.lyricFontItalic
                             font.pixelSize: lyricDelegate.activeLine
                                 ? (lyricDelegate.creditLine
-                                    ? (root.compact ? ThemeTokens.TypeScale.caption : ThemeTokens.TypeScale.bodySm)
-                                    : (root.compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h1))
-                                : (root.compact ? ThemeTokens.TypeScale.bodySm : ThemeTokens.TypeScale.body)
+                                    ? (root.compact ? root.lyricCompactCreditSize : root.lyricCreditSize)
+                                    : (root.compact ? root.lyricCompactActiveSize : root.lyricActiveSize))
+                                : (root.compact ? root.lyricCompactInactiveSize : root.lyricInactiveSize)
                             font.weight: lyricDelegate.strongActive
-                                ? (root.compact ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.bold)
-                                : ThemeTokens.TypeScale.regular
+                                ? (root.compact ? root.lyricNormalWeight : root.lyricStrongWeight)
+                                : root.lyricMutedWeight
                             wrapMode: Text.WordWrap
                             maximumLineCount: root.compact ? 2 : (lyricDelegate.strongActive ? 3 : 2)
                             elide: Text.ElideRight
@@ -260,8 +289,10 @@ Rectangle {
                                 : ""
                             textFormat: Text.RichText
                             horizontalAlignment: Text.AlignHCenter
-                            font.pixelSize: ThemeTokens.TypeScale.h1
-                            font.weight: ThemeTokens.TypeScale.bold
+                            font.family: root.lyricFontFamily.length > 0 ? root.lyricFontFamily : karaokeText.font.family
+                            font.italic: root.lyricFontItalic
+                            font.pixelSize: root.compact ? root.lyricCompactActiveSize : root.lyricActiveSize
+                            font.weight: root.lyricStrongWeight
                             wrapMode: Text.WordWrap
                             maximumLineCount: 3
                             elide: Text.ElideRight
@@ -275,7 +306,9 @@ Rectangle {
                             text: lyricDelegate.translation
                             color: lyricDelegate.strongActive ? ThemeTokens.Palette.primary : root.mutedLineColor
                             horizontalAlignment: root.compact ? Text.AlignLeft : Text.AlignHCenter
-                            font.pixelSize: root.compact ? ThemeTokens.TypeScale.caption : ThemeTokens.TypeScale.bodySm
+                            font.family: root.lyricFontFamily.length > 0 ? root.lyricFontFamily : translationText.font.family
+                            font.italic: root.lyricFontItalic
+                            font.pixelSize: root.compact ? root.lyricCompactTranslationSize : root.lyricTranslationSize
                             wrapMode: Text.WordWrap
                             maximumLineCount: 2
                             elide: Text.ElideRight

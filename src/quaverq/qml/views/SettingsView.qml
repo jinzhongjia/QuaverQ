@@ -43,6 +43,21 @@ ScrollView {
         }
     }
 
+    function weightLabel(value) {
+        switch (value) {
+        case "regular":
+            return qsTr("常规")
+        case "bold":
+            return qsTr("加粗")
+        default:
+            return qsTr("中等")
+        }
+    }
+
+    function fontFamilyLabel(value) {
+        return (value && value.length > 0) ? value : qsTr("系统默认")
+    }
+
     function cacheCapLabel(bytes) {
         if (!bytes || bytes <= 0)
             return qsTr("无限制")
@@ -140,6 +155,74 @@ ScrollView {
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setThemeMode(value)
+                }
+            }
+        }
+
+        SettingsSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            title: qsTr("歌词")
+
+            FontPickerRow {
+                Layout.fillWidth: true
+                title: qsTr("字体")
+                families: root.settingsController ? root.settingsController.availableLyricFonts : []
+                currentValue: root.settingsController ? root.settingsController.lyricFontFamily : ""
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setLyricFontFamily(value)
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("字号")
+                value: root.settingsController ? (root.settingsController.lyricFontSize + " px") : "22 px"
+                model: ["14 px", "16 px", "18 px", "20 px", "22 px", "24 px", "26 px", "28 px", "32 px", "36 px", "40 px"]
+                values: ["14", "16", "18", "20", "22", "24", "26", "28", "32", "36", "40"]
+                currentValue: root.settingsController ? String(root.settingsController.lyricFontSize) : "22"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setLyricFontSize(parseInt(value))
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("字重")
+                value: root.weightLabel(root.settingsController ? root.settingsController.lyricFontWeight : "medium")
+                model: [qsTr("常规"), qsTr("中等"), qsTr("加粗")]
+                values: ["regular", "medium", "bold"]
+                currentValue: root.settingsController ? root.settingsController.lyricFontWeight : "medium"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setLyricFontWeight(value)
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("斜体")
+                value: (root.settingsController && root.settingsController.lyricFontItalic) ? qsTr("开") : qsTr("关")
+                model: [qsTr("关"), qsTr("开")]
+                values: ["off", "on"]
+                currentValue: (root.settingsController && root.settingsController.lyricFontItalic) ? "on" : "off"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setLyricFontItalic(value === "on")
+                }
+            }
+
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("重置歌词字体")
+                value: qsTr("恢复字体 / 字号 / 字重 / 斜体到默认值")
+                actionText: qsTr("重置")
+                onActionRequested: {
+                    if (root.settingsController)
+                        root.settingsController.resetLyricFont()
                 }
             }
         }
@@ -308,11 +391,13 @@ ScrollView {
         property var model: []
         property var values: []
         property string currentValue: ""
+        property int popupMaxHeight: 0  // >0 时给下拉列表设上限, 避免长列表撑出窗口
+        property int comboWidth: 142
 
         signal valueRequested(string value)
 
         actionText: ""
-        rightReservedWidth: 154
+        rightReservedWidth: row.comboWidth + 12
 
         ComboBox {
             id: combo
@@ -320,7 +405,7 @@ ScrollView {
             anchors.right: parent.right
             anchors.rightMargin: ThemeTokens.Spacing.s3
             anchors.verticalCenter: parent.verticalCenter
-            width: 142
+            width: row.comboWidth
             height: 36
             model: row.model
             currentIndex: Math.max(0, row.values.indexOf(row.currentValue))
@@ -361,7 +446,9 @@ ScrollView {
             popup: Popup {
                 y: combo.height + 4
                 width: combo.width
-                implicitHeight: listView.contentHeight + ThemeTokens.Spacing.s2
+                implicitHeight: row.popupMaxHeight > 0
+                    ? Math.min(listView.contentHeight, row.popupMaxHeight) + ThemeTokens.Spacing.s2
+                    : listView.contentHeight + ThemeTokens.Spacing.s2
                 padding: ThemeTokens.Spacing.s2
 
                 contentItem: ListView {
@@ -371,6 +458,7 @@ ScrollView {
                     implicitHeight: contentHeight
                     model: combo.popup.visible ? combo.delegateModel : null
                     currentIndex: combo.highlightedIndex
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 }
 
                 background: Rectangle {
@@ -404,6 +492,181 @@ ScrollView {
                     color: comboDelegate.highlighted
                         ? ThemeTokens.Palette.stateHover
                         : comboDelegate.index === combo.currentIndex ? ThemeTokens.Palette.primaryContainer : "transparent"
+                }
+            }
+        }
+    }
+
+    // 带搜索框的字体选择器: families 长达 80+ 项, 普通 ComboBox 不便定位.
+    component FontPickerRow: SettingsRow {
+        id: pickerRow
+
+        property var families: []
+        property string currentValue: ""
+        readonly property int triggerWidth: 200
+        readonly property int popupHeight: 360
+
+        signal valueRequested(string value)
+
+        actionText: ""
+        rightReservedWidth: pickerRow.triggerWidth + 12
+        value: pickerRow.currentValue.length > 0 ? pickerRow.currentValue : qsTr("系统默认")
+
+        function refilter(query) {
+            filteredModel.clear()
+            filteredModel.append({ label: qsTr("系统默认"), value: "" })
+            var q = String(query || "").toLowerCase().trim()
+            var fams = pickerRow.families || []
+            for (var i = 0; i < fams.length; ++i) {
+                var name = fams[i]
+                if (q.length === 0 || name.toLowerCase().indexOf(q) >= 0)
+                    filteredModel.append({ label: name, value: name })
+            }
+        }
+
+        ListModel {
+            id: filteredModel
+        }
+
+        Button {
+            id: trigger
+
+            anchors.right: parent.right
+            anchors.rightMargin: ThemeTokens.Spacing.s3
+            anchors.verticalCenter: parent.verticalCenter
+            width: pickerRow.triggerWidth
+            height: 36
+            text: pickerRow.currentValue.length > 0 ? pickerRow.currentValue : qsTr("系统默认")
+            Accessible.name: pickerRow.title
+            onClicked: {
+                searchField.text = ""
+                pickerRow.refilter("")
+                fontPopup.open()
+                searchField.forceActiveFocus()
+            }
+
+            contentItem: RowLayout {
+                spacing: 0
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: ThemeTokens.Spacing.s3
+                    text: trigger.text
+                    color: ThemeTokens.Palette.surfaceText
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.rightMargin: ThemeTokens.Spacing.s3
+                    text: fontPopup.visible ? "⌃" : "⌄"
+                    color: ThemeTokens.Palette.surfaceVariantText
+                    font.pixelSize: ThemeTokens.TypeScale.body
+                }
+            }
+
+            background: Rectangle {
+                radius: ThemeTokens.Spacing.radiusMd
+                color: trigger.down || fontPopup.visible
+                    ? ThemeTokens.Palette.statePressed
+                    : trigger.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
+                border.color: trigger.activeFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
+            }
+        }
+
+        Popup {
+            id: fontPopup
+
+            x: trigger.x + trigger.width - width
+            y: trigger.y + trigger.height + 4
+            width: trigger.width
+            implicitHeight: pickerRow.popupHeight
+            padding: ThemeTokens.Spacing.s2
+
+            background: Rectangle {
+                radius: ThemeTokens.Spacing.radiusMd
+                color: ThemeTokens.Palette.surfaceElevated
+                border.color: ThemeTokens.Palette.outlineMuted
+            }
+
+            contentItem: ColumnLayout {
+                spacing: ThemeTokens.Spacing.s2
+
+                TextField {
+                    id: searchField
+
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("搜索字体…")
+                    color: ThemeTokens.Palette.surfaceText
+                    placeholderTextColor: ThemeTokens.Palette.surfaceVariantText
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                    selectByMouse: true
+                    onTextChanged: pickerRow.refilter(text)
+                    Keys.onEscapePressed: fontPopup.close()
+
+                    background: Rectangle {
+                        radius: ThemeTokens.Spacing.radiusSm
+                        color: ThemeTokens.Palette.surface
+                        border.color: searchField.activeFocus
+                            ? ThemeTokens.Palette.focusRing
+                            : ThemeTokens.Palette.outlineMuted
+                    }
+                }
+
+                ListView {
+                    id: pickerList
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    model: filteredModel
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    delegate: ItemDelegate {
+                        id: pickerDelegate
+
+                        required property int index
+                        required property string label
+                        required property string value
+
+                        width: ListView.view ? ListView.view.width : pickerRow.triggerWidth
+                        height: 32
+                        text: pickerDelegate.label
+                        highlighted: pickerDelegate.value === pickerRow.currentValue
+                        onClicked: {
+                            pickerRow.valueRequested(pickerDelegate.value)
+                            fontPopup.close()
+                        }
+
+                        contentItem: Label {
+                            text: pickerDelegate.label
+                            color: ThemeTokens.Palette.surfaceText
+                            verticalAlignment: Text.AlignVCenter
+                            font.pixelSize: ThemeTokens.TypeScale.bodySm
+                            font.family: pickerDelegate.value.length > 0
+                                ? pickerDelegate.value
+                                : pickerDelegate.font.family
+                            elide: Text.ElideRight
+                        }
+
+                        background: Rectangle {
+                            radius: ThemeTokens.Spacing.radiusSm
+                            color: pickerDelegate.highlighted
+                                ? ThemeTokens.Palette.primaryContainer
+                                : pickerDelegate.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                        }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: filteredModel.count === 0
+                        text: qsTr("无匹配字体")
+                        color: ThemeTokens.Palette.surfaceVariantText
+                        font.pixelSize: ThemeTokens.TypeScale.bodySm
+                    }
                 }
             }
         }

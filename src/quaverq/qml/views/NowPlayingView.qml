@@ -15,6 +15,7 @@ Item {
     property var playerController
     property var libraryController
     property var lyricController
+    property var settingsController
     readonly property var currentSong: root.playerController ? root.playerController.currentSong : ({})
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -102,6 +103,7 @@ Item {
             compact: false
             hasSong: root.hasSong
             lyricController: root.lyricController
+            settingsController: root.settingsController
         }
     }
 }
