@@ -144,18 +144,16 @@ class _FakePlayerController:
         class _Sig(QObject):
             currentSongChanged = Signal()
             playbackStateChanged = Signal()
-            positionChanged = Signal()
+            positionMsChanged = Signal()
             volumeChanged = Signal()
-            shuffleChanged = Signal()
-            repeatModeChanged = Signal()
+            modeChanged = Signal()
 
         self._holder = _Sig()
         self.currentSongChanged = self._holder.currentSongChanged
         self.playbackStateChanged = self._holder.playbackStateChanged
-        self.positionChanged = self._holder.positionChanged
+        self.positionMsChanged = self._holder.positionMsChanged
         self.volumeChanged = self._holder.volumeChanged
-        self.shuffleChanged = self._holder.shuffleChanged
-        self.repeatModeChanged = self._holder.repeatModeChanged
+        self.modeChanged = self._holder.modeChanged
 
     def togglePlayPause(self) -> None: ...
     def play(self) -> None: ...
