@@ -19,6 +19,7 @@ QuaverQ 的 Python 包根目录。包含应用入口、配置/资源/诊断/打�
 | --- | --- |
 | [`core/`](core/README.md) | **业务核心层**——无 Qt 依赖的纯 Python。数据模型、QQ 音乐 API 封装、播放队列、LRC/QRC 歌词、MPRIS2 服务、磁盘缓存、会话快照。可在没有 GUI 的情况下被 pytest 直接覆盖。 |
 | [`bridge/`](bridge/README.md) | **Python ↔ QML 桥接层**——`QObject` 控制器、`QAbstractListModel` 适配器、`QQuickImageProvider`，把 `core/` 的能力翻译成 QML 能直接绑定的 `Property` / `Signal` / `Slot`。 |
+| [`platform/`](platform/README.md) | **平台抽象层 (PAL)**——`get_platform()` 按 `sys.platform` 派发，统一暴露单实例守卫、系统主题、媒体会话三项跨平台能力的工厂；不支持的能力返回 `None`（降级），让 `__main__.py` 不直接 import `dbus_next` / `winreg` / `pyobjc`。 |
 | [`qml/`](qml/README.md) | **Qt Quick UI**——`Main.qml` 主窗口 + 三栏布局，加上 `Theme/`（设计 token singleton）、`components/`（可复用组件）、`views/`（页面）、`panels/`（抽屉式面板）、`dialogs/`（弹窗）。 |
 
 ## 启动流程速览
