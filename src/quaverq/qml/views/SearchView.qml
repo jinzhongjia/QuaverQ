@@ -13,6 +13,7 @@ ColumnLayout {
     property var playerController
     property var libraryController
     property var coverController
+    property var songDetailController
     property string routeName: "search"
 
     signal detailRequested(string kind, string detailId, string title, string subtitle)
@@ -195,9 +196,13 @@ ColumnLayout {
                     width: ListView.view.width
                     libraryController: root.libraryController
                     coverController: root.coverController
+                    songDetailController: root.songDetailController
                     onActivated: function(songData, row) {
                         if (root.playerController)
                             root.playerController.playFromModel(root.serviceController.songResults, row)
+                    }
+                    onNavigationRequested: function(kind, detailId, title, subtitle) {
+                        root.detailRequested(kind, detailId, title, subtitle)
                     }
                 }
 

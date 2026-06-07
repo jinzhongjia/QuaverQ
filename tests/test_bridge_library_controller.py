@@ -35,6 +35,7 @@ class _FakeLibraryService:
                 song_count=11,
             )
         ]
+        self.fav_songlists = [Playlist(pid="fp1", name="夏日清凉", creator="陌生人", song_count=18)]
         self.singers = [Singer(mid="ar1", name="周杰伦")]
 
     async def set_credential(self, credential) -> None:
@@ -64,6 +65,9 @@ class _FakeLibraryService:
 
     async def get_fav_albums(self) -> list[Album]:
         return self.albums
+
+    async def get_fav_songlist(self) -> list[Playlist]:
+        return self.fav_songlists
 
     async def get_followed_singers(self) -> list[Singer]:
         return self.singers
@@ -192,6 +196,34 @@ async def test_refresh_my_playlists_populates_card_model():
     assert controller.playlistModel.count == 1
     assert controller.playlistModel.cardAt(0)["kind"] == "playlist"
     assert controller.playlistModel.cardAt(0)["title"] == "我的歌单"
+
+
+async def test_refresh_fav_songlists_populates_card_model():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_fav_songlists_async()
+
+    assert controller.favPlaylistModel.count == 1
+    card = controller.favPlaylistModel.cardAt(0)
+    assert card["kind"] == "playlist"
+    assert card["title"] == "夏日清凉"
+    assert card["subtitle"] == "陌生人"
+
+
+async def test_refresh_fav_songlists_clears_when_logged_out():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_fav_songlists_async()
+    assert controller.favPlaylistModel.count == 1
+
+    service.is_authenticated = False
+    service_controller.authStateChanged.emit()
+
+    assert controller.favPlaylistModel.count == 0
 
 
 async def test_refresh_fav_albums_populates_card_model():

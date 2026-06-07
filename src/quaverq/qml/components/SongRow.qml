@@ -14,14 +14,32 @@ Rectangle {
     required property int index
     property var libraryController
     property var coverController
+    property var songDetailController
     property bool selected: false
     readonly property string coverUrl: root.song && root.song.coverUrl ? root.song.coverUrl : ""
+    readonly property var firstSinger: {
+        if (!root.song || !root.song.singers || root.song.singers.length === 0)
+            return null
+        return root.song.singers[0]
+    }
+    readonly property bool hasArtistNav: !!(root.firstSinger
+        && root.firstSinger.mid
+        && root.firstSinger.mid.length > 0)
+    readonly property bool hasAlbumNav: !!(root.song
+        && root.song.albumMid
+        && root.song.albumMid.length > 0)
+    readonly property bool isLiked: !!(root.libraryController
+        && root.song
+        && root.song.mid
+        && root.libraryController.isLiked(root.song.mid))
 
     readonly property string accessibleText: root.albumName
         ? qsTr("%1, %2, %3").arg(root.name).arg(root.singers).arg(root.albumName)
         : qsTr("%1, %2").arg(root.name).arg(root.singers)
 
     signal activated(var songData, int row)
+    // 菜单里"查看歌手 / 查看专辑"的导航请求, 各 view 接到 detailRequested 上 → 走 root.pushDetail
+    signal navigationRequested(string kind, string detailId, string title, string subtitle)
 
     implicitHeight: 64
     radius: ThemeTokens.Spacing.radiusMd
@@ -45,6 +63,129 @@ Rectangle {
 
     Keys.onReturnPressed: root.activated(root.song, root.index)
     Keys.onSpacePressed: root.activated(root.song, root.index)
+
+    component StyledMenuItem: MenuItem {
+        id: mi
+
+        implicitWidth: 180
+        implicitHeight: 36
+        leftPadding: ThemeTokens.Spacing.s4
+        rightPadding: ThemeTokens.Spacing.s5
+        topPadding: 0
+        bottomPadding: 0
+
+        contentItem: Label {
+            text: mi.text
+            color: mi.enabled
+                ? ThemeTokens.Palette.surfaceText
+                : ThemeTokens.Palette.surfaceVariantText
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+
+        background: Rectangle {
+            radius: ThemeTokens.Spacing.radiusSm
+            color: mi.highlighted
+                ? ThemeTokens.Palette.stateHover
+                : "transparent"
+        }
+    }
+
+    component StyledMenuSeparator: MenuSeparator {
+        padding: ThemeTokens.Spacing.s2
+        topPadding: ThemeTokens.Spacing.s2
+        bottomPadding: ThemeTokens.Spacing.s2
+
+        contentItem: Rectangle {
+            implicitHeight: 1
+            color: ThemeTokens.Palette.outlineMuted
+        }
+    }
+
+    Menu {
+        id: contextMenu
+        modal: false
+        dim: false
+        padding: ThemeTokens.Spacing.s2
+
+        background: Rectangle {
+            implicitWidth: 180
+            radius: ThemeTokens.Spacing.radiusMd
+            color: ThemeTokens.Palette.surfaceElevated
+            border.color: ThemeTokens.Palette.outline
+
+            // 落影 (轻投影提升感)
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -1
+                radius: parent.radius + 1
+                color: "transparent"
+                border.color: Qt.rgba(0, 0, 0, 0.06)
+                z: -1
+            }
+        }
+
+        StyledMenuItem {
+            text: qsTr("播放")
+            onTriggered: root.activated(root.song, root.index)
+        }
+
+        StyledMenuSeparator {}
+
+        StyledMenuItem {
+            text: root.isLiked ? qsTr("取消收藏") : qsTr("收藏")
+            enabled: !!(root.libraryController
+                && root.libraryController.authed
+                && root.song
+                && root.song.mid)
+            onTriggered: {
+                if (root.libraryController)
+                    root.libraryController.toggleLike(root.song)
+            }
+        }
+
+        StyledMenuItem {
+            text: qsTr("查看歌手")
+            enabled: root.hasArtistNav
+            onTriggered: {
+                if (root.firstSinger) {
+                    root.navigationRequested(
+                        "artist",
+                        root.firstSinger.mid,
+                        root.firstSinger.name || "",
+                        ""
+                    )
+                }
+            }
+        }
+
+        StyledMenuItem {
+            text: qsTr("查看专辑")
+            enabled: root.hasAlbumNav
+            onTriggered: {
+                if (root.song) {
+                    root.navigationRequested(
+                        "album",
+                        root.song.albumMid,
+                        root.song.albumName || "",
+                        ""
+                    )
+                }
+            }
+        }
+
+        StyledMenuSeparator {}
+
+        StyledMenuItem {
+            text: qsTr("歌曲详情")
+            enabled: !!root.songDetailController
+            onTriggered: {
+                if (root.songDetailController)
+                    root.songDetailController.open(root.song)
+            }
+        }
+    }
 
     Rectangle {
         anchors.left: parent.left
@@ -128,6 +269,22 @@ Rectangle {
             color: ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
+        }
+
+        IconButton {
+            id: moreButton
+
+            Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+            Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+            text: qsTr("更多操作")
+            iconText: "⋯"
+            iconSize: ThemeTokens.TypeScale.h2
+            onClicked: {
+                // 把菜单挂在按钮下方左对齐, 跟主流播放器一致
+                contextMenu.x = moreButton.x + moreButton.width - contextMenu.width
+                contextMenu.y = moreButton.y + moreButton.height
+                contextMenu.open()
+            }
         }
     }
 }

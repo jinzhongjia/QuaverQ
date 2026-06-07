@@ -32,6 +32,7 @@ class LibraryController(QObject):
 
     likedModelChanged = Signal()
     playlistModelChanged = Signal()
+    favPlaylistModelChanged = Signal()
     albumModelChanged = Signal()
     artistModelChanged = Signal()
     likedCountChanged = Signal()
@@ -53,6 +54,7 @@ class LibraryController(QObject):
         self._home_cache = home_cache
         self._liked_model = SongListModel(self)
         self._playlist_model = CardListModel(self)
+        self._fav_playlist_model = CardListModel(self)
         self._album_model = CardListModel(self)
         self._artist_model = CardListModel(self)
         self._liked_mids: set[str] = set()
@@ -76,6 +78,10 @@ class LibraryController(QObject):
     @Property(QObject, notify=playlistModelChanged)
     def playlistModel(self) -> CardListModel:
         return self._playlist_model
+
+    @Property(QObject, notify=favPlaylistModelChanged)
+    def favPlaylistModel(self) -> CardListModel:
+        return self._fav_playlist_model
 
     @Property(QObject, notify=albumModelChanged)
     def albumModel(self) -> CardListModel:
@@ -161,6 +167,32 @@ class LibraryController(QObject):
                 my_playlists=self._playlist_model.cards(),
                 account_key=self._service_controller.account_key(),
             )
+
+    @asyncSlot()
+    async def refreshFavSonglists(self) -> None:
+        await self.refresh_fav_songlists_async()
+
+    async def refresh_fav_songlists_async(self) -> None:
+        self._set_error_message("")
+        if not self.authed:
+            self._fav_playlist_model.clear()
+            return
+
+        self._set_loading(True)
+        try:
+            playlists = await self._service_controller.call_service(
+                lambda service: service.get_fav_songlist(),
+                operation_name="get fav songlists",
+            )
+        except Exception as exc:
+            message = log_bridge_error(logger, "refresh fav songlists failed", exc)
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+            return
+        finally:
+            self._set_loading(False)
+
+        self._fav_playlist_model.set_cards([playlist_to_card(item) for item in playlists])
 
     @asyncSlot()
     async def refreshFavAlbums(self) -> None:
@@ -266,6 +298,7 @@ class LibraryController(QObject):
         if not self.authed:
             self._set_liked_songs([])
             self._playlist_model.clear()
+            self._fav_playlist_model.clear()
             self._album_model.clear()
             self._artist_model.clear()
             if self._home_cache is not None:

@@ -21,26 +21,19 @@ Rectangle {
     border.color: ThemeTokens.Palette.outlineMuted
     focus: visible
 
+    // 仅在面板首次打开时滚到当前曲. 之后**不**再 hook currentIndex / visible 变化, 否则:
+    //   - 播放器内部任何 _emit_current_changed (next/prev/playQueueIndex/setQueue ...) 都会
+    //     触发 onCurrentIndexChanged, 把用户滚开的视图强行拉回当前曲.
+    //   - onVisibleChanged 与 Loader 的 active 重新挂载冗余.
+    // 用户想看当前曲: 关掉面板再打开 (每次打开是新挂载, Component.onCompleted 重跑).
     function revealCurrentItem() {
-        forceActiveFocus()
         if (root.currentIndex >= 0)
             queueList.positionViewAtIndex(root.currentIndex, ListView.Contain)
     }
 
     Component.onCompleted: {
-        if (visible)
-            revealCurrentItem()
-    }
-
-    onVisibleChanged: {
-        if (visible) {
-            revealCurrentItem()
-        }
-    }
-
-    onCurrentIndexChanged: {
-        if (visible && root.currentIndex >= 0)
-            revealCurrentItem()
+        // 等 ListView 完成首次 layout 再定位, 避免 positionViewAtIndex 在 height==0 时无效
+        Qt.callLater(revealCurrentItem)
     }
 
     Keys.onEscapePressed: root.closeRequested()
@@ -128,7 +121,9 @@ Rectangle {
                 clip: true
                 spacing: ThemeTokens.Spacing.s2
                 model: root.queueModel
-                currentIndex: root.currentIndex
+                // 不绑 currentIndex 给 ListView 自己: 用户向上滚动时 Qt 会把当前 item 锁回可见区
+                // (highlight follow 策略). 高亮由 delegate 的 current 自己判断, ListView 不需要知道.
+                // 显式滚动到当前用 positionViewAtIndex (revealCurrentItem).
                 boundsBehavior: Flickable.StopAtBounds
                 reuseItems: true
 

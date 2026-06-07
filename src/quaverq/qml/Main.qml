@@ -33,7 +33,8 @@ ApplicationWindow {
     readonly property var appController: AppController
     readonly property var coverController: CoverController
     readonly property var homeController: HomeController
-    readonly property var detailController: DetailController
+    readonly property var detailControllerFactory: DetailControllerFactory
+    readonly property var songDetailController: SongDetailController
     readonly property var serviceController: ServiceController
     readonly property var libraryController: LibraryController
     readonly property var lyricController: LyricController
@@ -663,6 +664,7 @@ ApplicationWindow {
             homeController: root.homeController
             libraryController: root.libraryController
             playerController: root.playerController
+            songDetailController: root.songDetailController
             onLoginRequested: loginDialog.open()
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
@@ -682,6 +684,7 @@ ApplicationWindow {
             playerController: root.playerController
             libraryController: root.libraryController
             coverController: root.coverController
+            songDetailController: root.songDetailController
             onDetailRequested: function(kind, detailId, title, subtitle) {
                 root.pushDetail(kind, detailId, title, subtitle)
             }
@@ -696,6 +699,7 @@ ApplicationWindow {
             coverController: root.coverController
             libraryController: root.libraryController
             playerController: root.playerController
+            songDetailController: root.songDetailController
             onLoginRequested: loginDialog.open()
             onDetailRequested: function(kind, detailId, title, subtitle) {
                 root.pushDetail(kind, detailId, title, subtitle)
@@ -708,12 +712,19 @@ ApplicationWindow {
 
         Views.DetailView {
             coverController: root.coverController
-            detailController: root.detailController
+            detailControllerFactory: root.detailControllerFactory
             playerController: root.playerController
             libraryController: root.libraryController
+            songDetailController: root.songDetailController
             onBackRequested: root.goBack()
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
+            }
+            onDetailRequested: function(kind, detailId, title, subtitle) {
+                root.pushDetail(kind, detailId, title, subtitle)
+            }
+            onErrorRaised: function(message) {
+                globalSnackbar.show(message, "error")
             }
         }
     }
@@ -774,6 +785,18 @@ ApplicationWindow {
         appController: root.appController
     }
 
+    Dialogs.SongDetailDialog {
+        id: songDetailDialog
+
+        songDetailController: root.songDetailController
+        coverController: root.coverController
+        libraryController: root.libraryController
+        playerController: root.playerController
+        onDetailRequested: function(kind, detailId, title, subtitle) {
+            root.pushDetail(kind, detailId, title, subtitle)
+        }
+    }
+
     Components.Banner {
         id: globalBanner
 
@@ -806,10 +829,6 @@ ApplicationWindow {
     }
     Connections {
         target: root.libraryController
-        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
-    }
-    Connections {
-        target: root.detailController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
     }
     Connections {

@@ -41,8 +41,10 @@ from .models import (
     Lyric,
     LyricLine,
     Playlist,
+    ProducerGroup,
     Singer,
     Song,
+    SongInfo,
     SongUrl,
     TopList,
 )
@@ -177,6 +179,8 @@ class QuaverService:
     # 实例级内存 cache: 短期 ad-hoc 数据 (recommend 等) 不适合 SQLite TTL 表
     # key → (timestamp, value); 重启失效
     _memo: dict[str, tuple[float, Any]] = field(default_factory=dict, init=False, repr=False)
+    # 续命锁: 防并发刷新触发 refresh_token rotation (Gemini Code Review PR#1)
+    _refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     # 内存 cache 默认 TTL: 推荐数据每天/每小时换换, 10 分钟够
     _MEMO_TTL_SEC = 600
@@ -185,8 +189,9 @@ class QuaverService:
     # bypass / 反风控
     # ------------------------------------------------------------------
 
-    # 合法 ct 候选池 (排除 findings.md 列出的风控值 1/3/4/11/18/23/27/46)
+    # 合法 ct 候选池 (排除 findings.md 列出的风控值 1/3/4/11/18/19/23/27/46)
     # 反风控原则: 1) 不固定一个值 2) 避开"客户端热门"值
+    # ct=19: 2026-06-07 实测被加入风控黑名单, CDN 直接返 403 (Lego Server)
     _SAFE_CT_VALUES = (
         2,
         5,
@@ -201,7 +206,6 @@ class QuaverService:
         15,
         16,
         17,
-        19,
         20,
         21,
         22,
@@ -357,13 +361,50 @@ class QuaverService:
         if self._client is None:
             return True
         try:
-            return await self._client.login.check_expired()
+            expired = await self._client.login.check_expired()
         except Exception as exc:
             if is_credential_expired_error(exc):
                 logger.warning("check_expired 返回登录失效: %s", exc)
-                return True
+                return await self._try_refresh_credential()
             logger.warning("check_expired 失败: %s", exc)
             return None
+        if not expired:
+            return False
+        return await self._try_refresh_credential()
+
+    async def _try_refresh_credential(self) -> bool:
+        """登录凭据过期时尝试静默续命; 成功返回 False (未过期), 失败返回 True.
+
+        并发安全: refresh_token 通常一次性 (rotation), 多协程同时刷新会让第二次拿到
+        失效 token, 整条续命链断裂. 用 `_refresh_lock` + 双重检查避免重复刷新.
+        """
+        if self._client is None:
+            return True
+        before = self._effective_credential()
+        before_key = getattr(before, "musickey", None) if before else None
+
+        async with self._refresh_lock:
+            current = self._effective_credential()
+            current_key = getattr(current, "musickey", None) if current else None
+            if current_key and current_key != before_key:
+                # 等锁期间已被其他协程刷新成功, 直接复用结果
+                return False
+
+            try:
+                new_cred = await self._client.login.refresh_credential()
+            except Exception as exc:
+                logger.warning("refresh_credential 失败: %s", exc)
+                return True
+            if new_cred is None or not getattr(new_cred, "musickey", None):
+                logger.warning("refresh_credential 返回空凭据, 视作失败")
+                return True
+            self._assign_credential(new_cred)
+            try:
+                await self.save_credential()
+            except Exception as exc:
+                logger.warning("刷新凭据后落盘失败: %s", exc)
+            logger.info("凭据已通过 refresh_credential 续命")
+            return False
 
     # ------------------------------------------------------------------
     # 搜索 (0.6 SearchByTypeResponse 含 song/singer/album/songlist 等 list)
@@ -466,6 +507,82 @@ class QuaverService:
             songs=[self._to_song(s) for s in (getattr(resp, "songs", None) or [])],
         )
         return playlist
+
+    # ------------------------------------------------------------------
+    # 歌手 tab 数据 (第二档 2.2)
+    # ------------------------------------------------------------------
+
+    async def get_similar_singers(self, singer_mid: str, *, limit: int = 10) -> list[Singer]:
+        """相似歌手 (歌手详情页 tab). 公开接口, 凭据过期类异常透传."""
+        if not singer_mid:
+            return []
+        try:
+            resp = await self.client.singer.get_similar(singer_mid, number=limit)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_similar_singers 失败 (mid=%s): %s", singer_mid, exc)
+            return []
+        out: list[Singer] = []
+        for s in getattr(resp, "singerlist", None) or []:
+            mid = getattr(s, "mid", "") or ""
+            if not mid:
+                continue
+            out.append(
+                Singer(
+                    mid=mid,
+                    name=getattr(s, "name", "") or "",
+                    avatar_url=getattr(s, "singer_pic", "") or "",
+                )
+            )
+        return out
+
+    async def get_singer_songs(
+        self, singer_mid: str, *, limit: int = 50, page: int = 1
+    ) -> list[Song]:
+        """歌手全部歌曲 (分页). 返回的是完整 Song pydantic, 走 _to_song."""
+        if not singer_mid:
+            return []
+        try:
+            resp = await self.client.singer.get_songs_list(singer_mid, num=limit, page=page)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_singer_songs 失败 (mid=%s): %s", singer_mid, exc)
+            return []
+        return [self._to_song(s) for s in (getattr(resp, "song_list", None) or [])]
+
+    async def get_singer_albums(
+        self, singer_mid: str, *, limit: int = 50, page: int = 1
+    ) -> list[Album]:
+        """歌手全部专辑 (分页). AlbumBrief 字段: time_public/total_num/singer_name (单字符串)."""
+        if not singer_mid:
+            return []
+        try:
+            resp = await self.client.singer.get_album_list(singer_mid, num=limit, page=page)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_singer_albums 失败 (mid=%s): %s", singer_mid, exc)
+            return []
+        out: list[Album] = []
+        for a in getattr(resp, "album_list", None) or []:
+            mid = getattr(a, "mid", "") or ""
+            if not mid:
+                continue
+            singer_name = getattr(a, "singer_name", "") or ""
+            singers = [Singer(mid="", name=singer_name)] if singer_name else []
+            out.append(
+                Album(
+                    mid=mid,
+                    name=getattr(a, "name", "") or "",
+                    singers=singers,
+                    cover_url=_cover_url(mid, 300),
+                    publish_date=getattr(a, "time_public", "") or "",
+                    song_count=int(getattr(a, "total_num", 0) or 0),
+                )
+            )
+        return out
 
     async def get_artist_detail(self, singer_mid: str, *, hot_song_limit: int = 50) -> ArtistDetail:
         info_resp = await self.client.singer.get_info(singer_mid)
@@ -1177,6 +1294,323 @@ class QuaverService:
                     song_count=int(a.get("songnum", 0) or 0),
                 )
             )
+        return out
+
+    # 服务端 PlaylistFavRead 单页 cap = 50, 必须分页拉.
+    _FAV_SONGLIST_PAGE_SIZE = 50
+
+    async def get_fav_songlist(self) -> list[Playlist]:
+        """收藏的外部歌单 (区别于 ``get_my_playlists`` 的自建歌单).
+
+        走 0.6.1 库方法 ``client.user.get_fav_songlist`` 分页拉到 ``hasmore=0``.
+        ``SongList`` 基类用 ``AliasChoices`` 识别服务端 ``tid``/``name``/``logo``
+        等字段名变体, pydantic 解析正常. ``v_list`` 在 0/1 项时变 dict 触发
+        ``ValidationError`` 时回退 ``_bypass_post``, 沿用 fav_albums 同款兜底.
+        """
+        cred = self._effective_credential()
+        if cred is None or not cred.encrypt_uin:
+            return []
+        try:
+            return await self._fetch_fav_songlist_via_library(cred)
+        except CredentialExpiredError:
+            raise
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            # 仅 pydantic 校验失败时退 bypass (例如 0/1 项 v_list 为 dict).
+            from pydantic import ValidationError
+
+            if not isinstance(exc, ValidationError):
+                logger.warning("get_fav_songlist 库方法失败: %s", exc)
+                return []
+            logger.warning("库 get_fav_songlist pydantic 校验失败, 退 bypass: %s", exc)
+            return await self._fetch_fav_songlist_via_bypass(cred)
+
+    async def _fetch_fav_songlist_via_library(self, cred: Credential) -> list[Playlist]:
+        out: list[Playlist] = []
+        page = 1
+        while True:
+            resp = await self.client.user.get_fav_songlist(
+                cred.encrypt_uin,
+                page=page,
+                num=self._FAV_SONGLIST_PAGE_SIZE,
+                credential=cred,
+            )
+            items = getattr(resp, "playlists", None) or []
+            if not items:
+                break
+            for item in items:
+                playlist = self._to_fav_playlist(item)
+                if playlist is not None:
+                    out.append(playlist)
+            if not getattr(resp, "hasmore", 0):
+                break
+            page += 1
+        return out
+
+    async def _fetch_fav_songlist_via_bypass(self, cred: Credential) -> list[Playlist]:
+        data = await self._bypass_post(
+            "music.musicasset.PlaylistFavRead",
+            "CgiGetPlaylistFavInfo",
+            {"uin": cred.encrypt_uin, "offset": 0, "size": self._FAV_SONGLIST_PAGE_SIZE},
+            require_login=True,
+        )
+        return self._parse_fav_songlists(data)
+
+    @staticmethod
+    def _to_fav_playlist(raw: Any) -> Playlist | None:
+        """库 ``UserFavSonglistItem`` (pydantic) → 我们的 ``Playlist`` dataclass."""
+        pid = str(QuaverService._g(raw, "id", 0) or 0)
+        if not pid or pid == "0":
+            return None
+        return Playlist(
+            pid=pid,
+            name=QuaverService._g(raw, "title", "") or "",
+            cover_url=QuaverService._g(raw, "picurl", "") or "",
+            description=QuaverService._g(raw, "desc", "") or "",
+            creator=QuaverService._g(raw, "nickname", "") or "",
+            song_count=int(QuaverService._g(raw, "songnum", 0) or 0),
+            play_count=int(QuaverService._g(raw, "listennum", 0) or 0),
+        )
+
+    @staticmethod
+    def _parse_fav_songlists(data: dict[str, Any] | None) -> list[Playlist]:
+        """bypass 兜底解析: 服务端实际返回 ``tid``/``name``/``logo`` 字段名 (非 id/title/picurl).
+
+        探针实测: ``v_list`` 项是 ``{"tid", "name", "logo", "songnum", "nickname", ...}``.
+        同时兼容老 ``id``/``title``/``picurl`` 键名以防服务端切换.
+        """
+        raw = (data or {}).get("v_list")
+        if isinstance(raw, dict):
+            items = (
+                [raw]
+                if any(k in raw for k in ("tid", "id", "dissid", "name", "title"))
+                else [v for v in raw.values() if isinstance(v, dict)]
+            )
+        elif isinstance(raw, list):
+            items = raw
+        else:
+            items = []
+        out: list[Playlist] = []
+        for p in items:
+            if not isinstance(p, dict):
+                continue
+            pid = str(p.get("tid", "") or p.get("id", "") or p.get("dissid", "") or "")
+            if not pid or pid == "0":
+                continue
+            out.append(
+                Playlist(
+                    pid=pid,
+                    name=str(
+                        p.get("name", "") or p.get("title", "") or p.get("dissname", "") or ""
+                    ),
+                    cover_url=str(p.get("logo", "") or p.get("picurl", "") or ""),
+                    description=str(p.get("desc", "") or ""),
+                    creator=str(p.get("nickname", "") or ""),
+                    song_count=int(p.get("songnum", 0) or 0),
+                    play_count=int(p.get("listennum", 0) or 0),
+                )
+            )
+        return out
+
+    async def get_similar_songs(self, songid: int) -> list[Song]:
+        """歌曲详情 popup 用: 'XX 听过的也在听' 的相似歌曲.
+
+        song.get_similar_song 返回多 SimilarSongGroup, 每组有 title_template/title_content +
+        song 列表 (完整 0.6 Song pydantic). 拍扁所有组 + 按 mid 去重 (跨组重复保留首次).
+        公开接口不需 credential. 凭据过期类异常透传; 其它异常降级为 [].
+        """
+        if not songid:
+            return []
+        try:
+            resp = await self.client.song.get_similar_song(songid)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_similar_song 失败 (songid=%s): %s", songid, exc)
+            return []
+        out: list[Song] = []
+        seen: set[str] = set()
+        for group in getattr(resp, "song", None) or []:
+            for s in getattr(group, "song", None) or []:
+                song = self._to_song(s)
+                if not song.mid or song.mid in seen:
+                    continue
+                seen.add(song.mid)
+                out.append(song)
+        return out
+
+    async def get_related_songlists(self, songid: int) -> list[Playlist]:
+        """歌曲详情 popup 用: 包含此曲或相关主题的歌单.
+
+        song.get_related_songlist 返回 RelatedPlaylist 列表, 字段
+        id/title/picurl/desc/songnum/listennum/creator. 公开接口.
+        """
+        if not songid:
+            return []
+        try:
+            resp = await self.client.song.get_related_songlist(songid)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_related_songlist 失败 (songid=%s): %s", songid, exc)
+            return []
+        out: list[Playlist] = []
+        for p in getattr(resp, "songlist", None) or []:
+            pid = str(getattr(p, "id", 0) or 0)
+            if not pid or pid == "0":
+                continue
+            out.append(
+                Playlist(
+                    pid=pid,
+                    name=getattr(p, "title", "") or "",
+                    cover_url=getattr(p, "picurl", "") or "",
+                    description=getattr(p, "desc", "") or "",
+                    creator=getattr(p, "creator", "") or "",
+                    song_count=int(getattr(p, "songnum", 0) or 0),
+                    play_count=int(getattr(p, "listennum", 0) or 0),
+                )
+            )
+        return out
+
+    async def get_song_related(self, songid: int) -> tuple[list[Song], list[Playlist]]:
+        """并发拉 similar + related, 二元组返回; 一边挂另一边照常.
+
+        凭据过期类异常透传 (let controller 走清缓存路径); 其它错误降级为空列表.
+        """
+        if not songid:
+            return [], []
+        similar, related = await asyncio.gather(
+            self.get_similar_songs(songid),
+            self.get_related_songlists(songid),
+            return_exceptions=True,
+        )
+        for exc in (similar, related):
+            if isinstance(exc, BaseException) and is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+        similar_list = similar if isinstance(similar, list) else []
+        related_list = related if isinstance(related, list) else []
+        if isinstance(similar, BaseException):
+            logger.warning("get_song_related similar 端失败 (songid=%s): %s", songid, similar)
+        if isinstance(related, BaseException):
+            logger.warning("get_song_related related 端失败 (songid=%s): %s", songid, related)
+        return similar_list, related_list
+
+    # ------------------------------------------------------------------
+    # 歌曲附加信息 (语种 / 流派 / 制作人, 第二档 2.4)
+    # ------------------------------------------------------------------
+
+    # 标签接口噪声过滤: 这些 tag_type / species 是"实时统计 / 营销"类, 不适合做"歌曲信息"展示
+    _LABEL_NOISE_TYPES = frozenset({20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31})
+    _LABEL_NOISE_SPECIES = frozenset({3, 4, 5})
+
+    async def get_song_info(self, song_mid: str, song_id: int = 0) -> SongInfo:
+        """歌曲附加信息: 并发拉 detail / labels / producer, 合并为 SongInfo.
+
+        任一接口失败降级为对应空字段, 不抛 (跟相似/相关行为一致).
+        凭据过期类异常透传, 让 controller 走清缓存路径.
+        """
+        if not song_mid and not song_id:
+            return SongInfo()
+
+        # detail 接口 mid/id 都能用; labels/producer 必须 int songid (0 也能调, 接口返空)
+        detail_arg: int | str = song_id if song_id else song_mid
+
+        detail, labels, producer = await asyncio.gather(
+            self._safe_call_song_detail(detail_arg),
+            self._safe_call_song_labels(song_id),
+            self._safe_call_song_producer(song_id if song_id else song_mid),
+            return_exceptions=True,
+        )
+        for exc in (detail, labels, producer):
+            if isinstance(exc, BaseException) and is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+
+        info = SongInfo()
+        if detail is not None and not isinstance(detail, BaseException):
+            info.language = self._first_content_value(getattr(detail, "lan", None))
+            info.genre = self._first_content_value(getattr(detail, "genre", None))
+            info.company = self._first_content_value(getattr(detail, "company", None))
+            info.publish_time = self._first_content_value(getattr(detail, "pub_time", None))
+            info.intro = self._first_content_value(getattr(detail, "intro", None))
+        if labels is not None and not isinstance(labels, BaseException):
+            info.tags = self._filter_song_labels(getattr(labels, "labels", None) or [])
+        if producer is not None and not isinstance(producer, BaseException):
+            info.producers = self._collect_producer_groups(getattr(producer, "data", None) or [])
+        return info
+
+    async def _safe_call_song_detail(self, value: int | str) -> Any | None:
+        try:
+            return await self.client.song.get_detail(value)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise
+            logger.warning("get_song_info detail 失败 (value=%s): %s", value, exc)
+            return None
+
+    async def _safe_call_song_labels(self, songid: int) -> Any | None:
+        if not songid:
+            return None
+        try:
+            return await self.client.song.get_labels(songid)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise
+            logger.warning("get_song_info labels 失败 (songid=%s): %s", songid, exc)
+            return None
+
+    async def _safe_call_song_producer(self, value: int | str) -> Any | None:
+        try:
+            return await self.client.song.get_producer(value)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise
+            logger.warning("get_song_info producer 失败 (value=%s): %s", value, exc)
+            return None
+
+    @staticmethod
+    def _first_content_value(items: Any) -> str:
+        if not items:
+            return ""
+        first = items[0]
+        return getattr(first, "value", "") or ""
+
+    # 单个 chip 文本上限 (服务端会把多个奖项用 | / \n 拼在一条; UI chip 撑不下)
+    _LABEL_MAX_LEN = 28
+
+    @classmethod
+    def _filter_song_labels(cls, labels: list[Any]) -> list[str]:
+        """过滤噪声标签 + 把 | / \\n 拼接的多奖项拆成独立 tag 避免单 chip 过长."""
+        out: list[str] = []
+        for label in labels:
+            txt = (getattr(label, "tag_txt", "") or "").strip()
+            if not txt:
+                continue
+            type_ = int(getattr(label, "tag_type", 0) or 0)
+            species = int(getattr(label, "species", 0) or 0)
+            if type_ in cls._LABEL_NOISE_TYPES or species in cls._LABEL_NOISE_SPECIES:
+                continue
+            # 服务端有时用 | 或换行把多奖项 / 多榜单拼一条; 拆成独立 chip
+            parts = [p.strip() for p in re.split(r"[|\n]+", txt) if p.strip()]
+            for part in parts:
+                if part.isdigit():
+                    continue
+                if len(part) > cls._LABEL_MAX_LEN:
+                    continue  # 单条仍过长 (奖项全名带年份) 直接丢, 不强塞 chip
+                if part not in out:
+                    out.append(part)
+        return out
+
+    @staticmethod
+    def _collect_producer_groups(raw_groups: list[Any]) -> list[ProducerGroup]:
+        out: list[ProducerGroup] = []
+        for g in raw_groups:
+            title = getattr(g, "title", "") or ""
+            producers = getattr(g, "producers", None) or []
+            names = [getattr(p, "name", "") or "" for p in producers]
+            names = [n for n in names if n]
+            if title and names:
+                out.append(ProducerGroup(title=title, names=names))
         return out
 
     async def get_followed_singers(self) -> list[Singer]:
