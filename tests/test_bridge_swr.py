@@ -26,6 +26,7 @@ class _FakeService:
         self.is_authenticated = authed
         self._cred = _FakeCred(musicid) if authed else None
         self.connected = False
+        self.daily_calls = 0
 
     async def connect(self) -> None:
         self.connected = True
@@ -38,6 +39,7 @@ class _FakeService:
 
     # --- Home ---
     async def get_daily_recommend_songs(self, *, limit: int = 30) -> list[Song]:
+        self.daily_calls += 1
         return [
             Song(
                 mid=f"d{i}",
@@ -186,6 +188,89 @@ async def test_library_refresh_persists_my_playlists(tmp_path: Path) -> None:
     key = sc.account_key()
     assert cache.load(key).my_playlists[0]["title"] == "我的歌单"
     assert cache.load("other").my_playlists == []  # 账号隔离
+
+
+# ----------------------------------------------------------------- daily TTL
+async def test_daily_cache_records_and_returns_updated_at(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """HomeCache.update(daily=...) 写入 updated_at; load 私有匹配时返回."""
+    monkeypatch.setattr("time.time", lambda: 1700000000.0)
+    cache = HomeCache(tmp_path / "home.json")
+    cache.update(daily=[Song(mid="x", name="x")], account_key="k1")
+    snap = cache.load("k1")
+    assert snap.daily_updated_at == 1700000000.0
+    # 账号不匹配 -> 私有信息全部丢弃, 时间戳也置 0
+    other = cache.load("k2")
+    assert other.daily_updated_at == 0.0
+
+
+async def test_refresh_daily_skips_when_cache_within_ttl(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """缓存 < 6h 时, refresh_daily_thirty_async 不发网络请求, 保留缓存内容."""
+    monkeypatch.setattr("time.time", lambda: 1000.0)
+    cache = HomeCache(tmp_path / "home.json")
+    service = _FakeService(authed=True, musicid=42)
+    sc = ServiceController(service=service)  # type: ignore[arg-type]
+    key = sc.account_key()
+    cache.update(daily=[Song(mid="cached", name="缓存歌")], account_key=key)
+
+    monkeypatch.setattr("time.time", lambda: 1000.0 + 5 * 3600)  # 5h 后, 仍新鲜
+    home = HomeController(sc, home_cache=cache)
+    home.prime_private_from_cache(key)
+    assert service.daily_calls == 0
+
+    await home.refresh_daily_thirty_async()
+
+    assert service.daily_calls == 0
+    assert home.dailyModel.count == 1
+    assert home.dailyModel.songAt(0)["mid"] == "cached"
+
+
+async def test_refresh_daily_runs_when_cache_stale(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """缓存 > 6h 时, refresh_daily_thirty_async 拉取新数据并覆盖."""
+    monkeypatch.setattr("time.time", lambda: 1000.0)
+    cache = HomeCache(tmp_path / "home.json")
+    service = _FakeService(authed=True, musicid=42)
+    sc = ServiceController(service=service)  # type: ignore[arg-type]
+    key = sc.account_key()
+    cache.update(daily=[Song(mid="cached", name="缓存歌")], account_key=key)
+
+    monkeypatch.setattr("time.time", lambda: 1000.0 + 7 * 3600)  # 7h 后, 过期
+    home = HomeController(sc, home_cache=cache)
+    home.prime_private_from_cache(key)
+
+    await home.refresh_daily_thirty_async()
+
+    assert service.daily_calls == 1
+    assert home.dailyModel.songAt(0)["mid"] == "d0"
+
+
+async def test_refresh_daily_force_overrides_freshness(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """force=True (用户主动下拉刷新) 即使缓存新鲜也强制拉网络."""
+    monkeypatch.setattr("time.time", lambda: 1000.0)
+    cache = HomeCache(tmp_path / "home.json")
+    service = _FakeService(authed=True, musicid=42)
+    sc = ServiceController(service=service)  # type: ignore[arg-type]
+    key = sc.account_key()
+    cache.update(daily=[Song(mid="cached", name="缓存歌")], account_key=key)
+
+    monkeypatch.setattr("time.time", lambda: 1000.0 + 60)  # 1 分钟后
+    home = HomeController(sc, home_cache=cache)
+    home.prime_private_from_cache(key)
+
+    await home.refresh_daily_thirty_async(force=True)
+
+    assert service.daily_calls == 1
 
 
 async def test_library_prime_fills_my_playlists(tmp_path: Path) -> None:

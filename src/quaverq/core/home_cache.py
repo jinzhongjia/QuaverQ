@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,7 @@ class HomeSnapshot:
     tops: list[dict[str, Any]] = field(default_factory=list)
     my_playlists: list[dict[str, Any]] = field(default_factory=list)
     account_key: str = ""
+    daily_updated_at: float = 0.0
 
     def is_empty(self) -> bool:
         return not (
@@ -85,6 +87,11 @@ class HomeCache:
         )
         if private_ok("daily"):
             snap.daily = songs("daily")
+            daily_block = sections.get("daily") or {}
+            try:
+                snap.daily_updated_at = float(daily_block.get("updated_at") or 0.0)
+            except (TypeError, ValueError):
+                snap.daily_updated_at = 0.0
         if private_ok("my_playlists"):
             snap.my_playlists = cards("my_playlists")
         return snap
@@ -112,6 +119,7 @@ class HomeCache:
             sections["daily"] = {
                 "songs": [song_to_dict(s) for s in daily],
                 "account_key": key,
+                "updated_at": time.time(),
             }
         if my_playlists is not None:
             sections["my_playlists"] = {
