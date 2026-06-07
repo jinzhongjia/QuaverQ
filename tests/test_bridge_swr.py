@@ -252,6 +252,30 @@ async def test_refresh_daily_runs_when_cache_stale(
     assert home.dailyModel.songAt(0)["mid"] == "d0"
 
 
+async def test_refresh_daily_refreshes_on_account_switch_even_if_fresh(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A→B 切账号 (authed 直接换 cred) 时, TTL 守门必须按 account_key 失效, 避免 B 看到 A 的列表."""
+    monkeypatch.setattr("time.time", lambda: 1000.0)
+    cache = HomeCache(tmp_path / "home.json")
+    service = _FakeService(authed=True, musicid=42)
+    sc = ServiceController(service=service)  # type: ignore[arg-type]
+    home = HomeController(sc, home_cache=cache)
+
+    # A 已登录, 拉一次 daily, 模型 + 时间戳 + account_key 都是 A 的
+    await home.refresh_daily_thirty_async()
+    assert service.daily_calls == 1
+    assert home.dailyModel.count > 0
+
+    # 切到 B 账号, 1 分钟后 (TTL 仍新鲜), 自动刷新触发
+    monkeypatch.setattr("time.time", lambda: 1000.0 + 60)
+    service._cred = _FakeCred(99)  # type: ignore[attr-defined]
+    await home.refresh_daily_thirty_async()
+
+    assert service.daily_calls == 2  # 不能因 TTL 跳过, 必须为 B 重新拉
+
+
 async def test_refresh_daily_force_overrides_freshness(
     tmp_path: Path,
     monkeypatch,

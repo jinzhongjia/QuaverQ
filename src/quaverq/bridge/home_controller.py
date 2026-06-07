@@ -71,6 +71,7 @@ class HomeController(QObject):
         self._daily_refresh_task: asyncio.Task[None] | None = None
         self._daily_extend_task: asyncio.Task[None] | None = None
         self._daily_updated_at: float = 0.0
+        self._daily_account_key: str = ""
         self._daily_requires_login = False
         self._error_message = ""
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
@@ -106,6 +107,7 @@ class HomeController(QObject):
             self._set_daily_requires_login(False)
             self._daily_model.set_songs(snapshot.daily)
             self._daily_updated_at = snapshot.daily_updated_at
+            self._daily_account_key = account_key
             self.dailyModelChanged.emit()
             self.dailyPreviewSongChanged.emit()
 
@@ -242,8 +244,15 @@ class HomeController(QObject):
 
         self._set_daily_requires_login(False)
 
-        # 缓存 < 6h 且 model 已有数据时, 跳过拉取; force=True (用户下拉) 永不跳过
-        if not force and self._daily_model.count > 0 and self._is_daily_cache_fresh():
+        # 缓存 < 6h + 账号匹配 + model 有数据 -> 自动刷新跳过; force=True (用户下拉) 永不跳过.
+        # 账号守门: 防 authed→authed 切账号 (login_by_qrcode 直接覆盖凭据) 时 B 看到 A 的 daily.
+        current_key = self._service_controller.account_key()
+        if (
+            not force
+            and self._daily_model.count > 0
+            and self._daily_account_key == current_key
+            and self._is_daily_cache_fresh()
+        ):
             return
 
         async def load() -> list[Song]:
@@ -260,6 +269,7 @@ class HomeController(QObject):
             if songs is not None:
                 self._daily_model.set_songs(songs)
                 self._daily_updated_at = time.time()
+                self._daily_account_key = self._service_controller.account_key()
                 self.dailyModelChanged.emit()
                 self.dailyPreviewSongChanged.emit()
                 self._persist(daily=songs, account_key=self._service_controller.account_key())
