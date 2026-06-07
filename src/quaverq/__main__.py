@@ -34,6 +34,7 @@ from .bridge.system_theme import SystemThemeWatcher
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
 from .core.cover_cache import CoverCache
 from .core.home_cache import HomeCache
+from .core.single_instance import SingleInstanceGuard
 from .core.state import SessionState
 
 logger = logging.getLogger("quaverq")
@@ -184,6 +185,16 @@ def main() -> None:
 
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
+
+    # 单实例闸门: 占住 lock name -> 第一实例; 占不到 -> 通知已有实例前置窗口后退出.
+    # bus 连接挂在 qasync loop 上, guard 引用必须存活到 app 退出, 否则名字会被释放.
+    instance_guard = SingleInstanceGuard()
+    if not loop.run_until_complete(instance_guard.acquire()):
+        loop.run_until_complete(instance_guard.notify_existing_raise())
+        loop.run_until_complete(instance_guard.release())
+        logger.info("QuaverQ 已在运行, 已请求现有窗口前置, 本实例退出")
+        sys.exit(0)
+    app.aboutToQuit.connect(lambda: loop.create_task(instance_guard.release()))
 
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
