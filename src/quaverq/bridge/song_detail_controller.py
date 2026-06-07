@@ -1,11 +1,12 @@
-"""Song detail popup QObject exposed to QML (第二档 2.1).
+"""Song detail popup QObject exposed to QML (第二档 2.1 + 2.4).
 
-提供"相似歌曲"和"相关歌单"两个 model, 由 ``open(songData)`` 异步并发拉.
+提供"相似歌曲" / "相关歌单" / "歌曲附加信息" 三块数据, 由 ``open(songData)`` 异步并发拉.
 不进 SWR 首帧链路: 仅在用户主动打开 popup 时才请求.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -13,11 +14,24 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
-from quaverq.core.models import Song
+from quaverq.core.models import Playlist, Song, SongInfo
+from quaverq.core.service import QuaverService
 
 from .error_utils import log_bridge_error
 from .models import CardListModel, SongListModel, playlist_to_card, song_from_map, song_to_map
 from .service_controller import ServiceController
+
+
+async def _gather_song_payload(
+    service: QuaverService, song: Song
+) -> tuple[list[Song], list[Playlist], SongInfo]:
+    """单次 call_service 内并发 get_song_related + get_song_info."""
+    (similar, related), info = await asyncio.gather(
+        service.get_song_related(song.id),
+        service.get_song_info(song.mid, song.id),
+    )
+    return similar, related, info
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +42,7 @@ class SongDetailController(QObject):
     currentSongChanged = Signal()
     similarModelChanged = Signal()
     relatedModelChanged = Signal()
+    songInfoChanged = Signal()
     loadingChanged = Signal()
     errorMessageChanged = Signal()
     visibleChanged = Signal()
@@ -43,6 +58,7 @@ class SongDetailController(QObject):
         self._similar_model = SongListModel(self)
         self._related_model = CardListModel(self)
         self._current_song: Song | None = None
+        self._song_info: SongInfo = SongInfo()
         self._loading = False
         self._error_message = ""
         self._visible = False
@@ -61,6 +77,20 @@ class SongDetailController(QObject):
     @Property("QVariant", notify=currentSongChanged)
     def currentSong(self) -> dict[str, Any]:
         return song_to_map(self._current_song) if self._current_song is not None else {}
+
+    @Property("QVariant", notify=songInfoChanged)
+    def songInfo(self) -> dict[str, Any]:
+        """歌曲附加信息 (语种/流派/制作人 等), 2.4 加入. QML 用 dict 形式消费."""
+        info = self._song_info
+        return {
+            "language": info.language,
+            "genre": info.genre,
+            "company": info.company,
+            "publishTime": info.publish_time,
+            "intro": info.intro,
+            "tags": list(info.tags),
+            "producers": [{"title": g.title, "names": list(g.names)} for g in info.producers],
+        }
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
@@ -103,23 +133,25 @@ class SongDetailController(QObject):
         await self._load_async(song)
 
     async def _load_async(self, song: Song) -> None:
-        """实际加载相似 + 相关. 切歌时立刻清空 model + 进 loading 态, 避免旧数据残留."""
+        """实际加载相似 + 相关 + 歌曲附加信息. 切歌时立刻清空 model + 进 loading 态."""
         self._set_error_message("")
         self._similar_model.set_songs([])
         self._related_model.set_cards([])
+        self._song_info = SongInfo()
+        self.songInfoChanged.emit()
 
         self._load_generation += 1
         gen = self._load_generation
         self._set_loading(True)
         try:
-            similar, related = await self._service_controller.call_service(
-                lambda service: service.get_song_related(song.id),
-                operation_name=f"get song related (songid={song.id})",
+            similar, related, song_info = await self._service_controller.call_service(
+                lambda service: _gather_song_payload(service, song),
+                operation_name=f"get song detail payload (songid={song.id})",
             )
         except Exception as exc:
             if gen != self._load_generation:
                 return  # 已被更新的请求覆盖
-            message = log_bridge_error(logger, "load song related failed", exc)
+            message = log_bridge_error(logger, "load song detail payload failed", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
@@ -131,8 +163,10 @@ class SongDetailController(QObject):
             return
         self._similar_model.set_songs(similar)
         self._related_model.set_cards([playlist_to_card(p) for p in related])
+        self._song_info = song_info
         self.similarModelChanged.emit()
         self.relatedModelChanged.emit()
+        self.songInfoChanged.emit()
 
     # ------------------------------------------------------------------ helpers
     def _set_loading(self, value: bool) -> None:

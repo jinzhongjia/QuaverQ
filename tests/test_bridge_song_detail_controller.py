@@ -6,7 +6,7 @@ import asyncio
 
 from quaverq.bridge.service_controller import ServiceController
 from quaverq.bridge.song_detail_controller import SongDetailController
-from quaverq.core.models import Playlist, Singer, Song
+from quaverq.core.models import Playlist, ProducerGroup, Singer, Song, SongInfo
 
 
 class _FakeService:
@@ -16,6 +16,9 @@ class _FakeService:
         self.song_related_calls: list[int] = []
         self.song_related_results: dict[int, tuple[list[Song], list[Playlist]]] = {}
         self.song_related_exc: Exception | None = None
+        self.song_info_calls: list[tuple[str, int]] = []
+        self.song_info_results: dict[int, SongInfo] = {}
+        self.song_info_exc: Exception | None = None
         # 用 event 拉长一次调用, 测试 race / loading
         self.gate: asyncio.Event | None = None
 
@@ -35,6 +38,14 @@ class _FakeService:
         if self.song_related_exc is not None:
             raise self.song_related_exc
         return self.song_related_results.get(songid, ([], []))
+
+    async def get_song_info(self, song_mid: str, song_id: int = 0) -> SongInfo:
+        self.song_info_calls.append((song_mid, song_id))
+        if self.gate is not None:
+            await self.gate.wait()
+        if self.song_info_exc is not None:
+            raise self.song_info_exc
+        return self.song_info_results.get(song_id, SongInfo())
 
 
 def _song_map(mid: str = "m1", song_id: int = 101, name: str = "晴天") -> dict[str, object]:
@@ -236,3 +247,73 @@ async def test_open_again_supersedes_in_flight_request():
     assert ctrl.similarSongsModel.songs()[0].mid == "new"
     assert ctrl.relatedPlaylistsModel.cardAt(0)["title"] == "new-playlist"
     assert ctrl.currentSong["mid"] == "m2"
+
+
+async def test_open_loads_song_info_alongside_related():
+    """open 时 controller 应并发把 song_info 也拉过来, 暴露成 dict 给 QML."""
+    svc = _FakeService()
+    svc.song_related_results[101] = (
+        [Song(mid="m2", id=102, name="七里香")],
+        [Playlist(pid="p1", name="抖音热播")],
+    )
+    svc.song_info_results[101] = SongInfo(
+        language="国语",
+        genre="Pop",
+        company="杰威尔",
+        publish_time="2003-07-31",
+        intro="一首校园风",
+        tags=["传唱TOP100", "#Ballad Pop"],
+        producers=[
+            ProducerGroup(title="作词", names=["周杰伦"]),
+            ProducerGroup(title="作曲", names=["周杰伦"]),
+        ],
+    )
+    sc = ServiceController(service=svc)  # type: ignore[arg-type]
+    ctrl = SongDetailController(sc)
+
+    await ctrl.open_async(_song_map())
+
+    # service 双拉
+    assert svc.song_related_calls == [101]
+    assert svc.song_info_calls == [("m1", 101)]
+    # dict 暴露给 QML
+    info = ctrl.songInfo
+    assert info["language"] == "国语"
+    assert info["genre"] == "Pop"
+    assert info["company"] == "杰威尔"
+    assert info["publishTime"] == "2003-07-31"
+    assert info["tags"] == ["传唱TOP100", "#Ballad Pop"]
+    assert len(info["producers"]) == 2
+    assert info["producers"][0] == {"title": "作词", "names": ["周杰伦"]}
+
+
+async def test_open_clears_song_info_before_load():
+    """切歌时 songInfo 应当先清空, 跟 model 一致."""
+    svc = _FakeService()
+    svc.gate = asyncio.Event()
+    svc.song_related_results[101] = ([], [])
+    svc.song_info_results[101] = SongInfo(language="国语", genre="Pop")
+    svc.song_related_results[202] = ([], [])
+    svc.song_info_results[202] = SongInfo(language="英语", genre="Rock")
+    sc = ServiceController(service=svc)  # type: ignore[arg-type]
+    ctrl = SongDetailController(sc)
+
+    # 加载第一首到稳定
+    svc.gate.set()
+    await ctrl.open_async(_song_map(mid="m1", song_id=101))
+    assert ctrl.songInfo["language"] == "国语"
+
+    # 切第二首, gate 关上
+    svc.gate = asyncio.Event()
+    task = asyncio.create_task(ctrl.open_async(_song_map(mid="m2", song_id=202)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    # loading 中: songInfo 应已清空
+    assert ctrl.loading is True
+    info = ctrl.songInfo
+    assert info["language"] == ""
+    assert info["tags"] == []
+
+    svc.gate.set()
+    await task
+    assert ctrl.songInfo["language"] == "英语"

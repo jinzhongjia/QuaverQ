@@ -41,8 +41,10 @@ from .models import (
     Lyric,
     LyricLine,
     Playlist,
+    ProducerGroup,
     Singer,
     Song,
+    SongInfo,
     SongUrl,
     TopList,
 )
@@ -1493,6 +1495,123 @@ class QuaverService:
         if isinstance(related, BaseException):
             logger.warning("get_song_related related 端失败 (songid=%s): %s", songid, related)
         return similar_list, related_list
+
+    # ------------------------------------------------------------------
+    # 歌曲附加信息 (语种 / 流派 / 制作人, 第二档 2.4)
+    # ------------------------------------------------------------------
+
+    # 标签接口噪声过滤: 这些 tag_type / species 是"实时统计 / 营销"类, 不适合做"歌曲信息"展示
+    _LABEL_NOISE_TYPES = frozenset({20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31})
+    _LABEL_NOISE_SPECIES = frozenset({3, 4, 5})
+
+    async def get_song_info(self, song_mid: str, song_id: int = 0) -> SongInfo:
+        """歌曲附加信息: 并发拉 detail / labels / producer, 合并为 SongInfo.
+
+        任一接口失败降级为对应空字段, 不抛 (跟相似/相关行为一致).
+        凭据过期类异常透传, 让 controller 走清缓存路径.
+        """
+        if not song_mid and not song_id:
+            return SongInfo()
+
+        # detail 接口 mid/id 都能用; labels/producer 必须 int songid (0 也能调, 接口返空)
+        detail_arg: int | str = song_id if song_id else song_mid
+
+        detail, labels, producer = await asyncio.gather(
+            self._safe_call_song_detail(detail_arg),
+            self._safe_call_song_labels(song_id),
+            self._safe_call_song_producer(song_id if song_id else song_mid),
+            return_exceptions=True,
+        )
+        for exc in (detail, labels, producer):
+            if isinstance(exc, BaseException) and is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+
+        info = SongInfo()
+        if detail is not None and not isinstance(detail, BaseException):
+            info.language = self._first_content_value(getattr(detail, "lan", None))
+            info.genre = self._first_content_value(getattr(detail, "genre", None))
+            info.company = self._first_content_value(getattr(detail, "company", None))
+            info.publish_time = self._first_content_value(getattr(detail, "pub_time", None))
+            info.intro = self._first_content_value(getattr(detail, "intro", None))
+        if labels is not None and not isinstance(labels, BaseException):
+            info.tags = self._filter_song_labels(getattr(labels, "labels", None) or [])
+        if producer is not None and not isinstance(producer, BaseException):
+            info.producers = self._collect_producer_groups(getattr(producer, "data", None) or [])
+        return info
+
+    async def _safe_call_song_detail(self, value: int | str) -> Any | None:
+        try:
+            return await self.client.song.get_detail(value)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise
+            logger.warning("get_song_info detail 失败 (value=%s): %s", value, exc)
+            return None
+
+    async def _safe_call_song_labels(self, songid: int) -> Any | None:
+        if not songid:
+            return None
+        try:
+            return await self.client.song.get_labels(songid)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise
+            logger.warning("get_song_info labels 失败 (songid=%s): %s", songid, exc)
+            return None
+
+    async def _safe_call_song_producer(self, value: int | str) -> Any | None:
+        try:
+            return await self.client.song.get_producer(value)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise
+            logger.warning("get_song_info producer 失败 (value=%s): %s", value, exc)
+            return None
+
+    @staticmethod
+    def _first_content_value(items: Any) -> str:
+        if not items:
+            return ""
+        first = items[0]
+        return getattr(first, "value", "") or ""
+
+    # 单个 chip 文本上限 (服务端会把多个奖项用 | / \n 拼在一条; UI chip 撑不下)
+    _LABEL_MAX_LEN = 28
+
+    @classmethod
+    def _filter_song_labels(cls, labels: list[Any]) -> list[str]:
+        """过滤噪声标签 + 把 | / \\n 拼接的多奖项拆成独立 tag 避免单 chip 过长."""
+        out: list[str] = []
+        for label in labels:
+            txt = (getattr(label, "tag_txt", "") or "").strip()
+            if not txt:
+                continue
+            type_ = int(getattr(label, "tag_type", 0) or 0)
+            species = int(getattr(label, "species", 0) or 0)
+            if type_ in cls._LABEL_NOISE_TYPES or species in cls._LABEL_NOISE_SPECIES:
+                continue
+            # 服务端有时用 | 或换行把多奖项 / 多榜单拼一条; 拆成独立 chip
+            parts = [p.strip() for p in re.split(r"[|\n]+", txt) if p.strip()]
+            for part in parts:
+                if part.isdigit():
+                    continue
+                if len(part) > cls._LABEL_MAX_LEN:
+                    continue  # 单条仍过长 (奖项全名带年份) 直接丢, 不强塞 chip
+                if part not in out:
+                    out.append(part)
+        return out
+
+    @staticmethod
+    def _collect_producer_groups(raw_groups: list[Any]) -> list[ProducerGroup]:
+        out: list[ProducerGroup] = []
+        for g in raw_groups:
+            title = getattr(g, "title", "") or ""
+            producers = getattr(g, "producers", None) or []
+            names = [getattr(p, "name", "") or "" for p in producers]
+            names = [n for n in names if n]
+            if title and names:
+                out.append(ProducerGroup(title=title, names=names))
+        return out
 
     async def get_followed_singers(self) -> list[Singer]:
         """关注的歌手."""

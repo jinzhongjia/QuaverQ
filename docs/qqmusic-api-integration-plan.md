@@ -80,5 +80,5 @@
 - [x] 2.1 `song.get_similar_song` + `get_related_songlist`
 - [x] 2.2 `singer.get_similar` + `get_album_list` + `get_songs_list`
 - [ ] 2.3 `songlist.create` / `delete`
-- [ ] 2.4 `song.get_detail` / `get_labels` / `get_producer`
+- [x] 2.4 `song.get_detail` / `get_labels` / `get_producer`
 - [ ] 3.1 `user.get_music_gene`

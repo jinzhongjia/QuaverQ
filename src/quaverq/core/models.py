@@ -120,6 +120,27 @@ class ArtistDetail:
 
 
 @dataclass
+class ProducerGroup:
+    """歌曲制作人职责分组 (如 词/曲/编曲/混音/...)."""
+
+    title: str  # "作词" / "作曲" / "编曲" / ...
+    names: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SongInfo:
+    """歌曲附加信息 (语种/流派/制作人 等), 第二档 2.4."""
+
+    language: str = ""
+    genre: str = ""
+    company: str = ""
+    publish_time: str = ""
+    intro: str = ""
+    tags: list[str] = field(default_factory=list)
+    producers: list[ProducerGroup] = field(default_factory=list)
+
+
+@dataclass
 class Playlist:
     """歌单."""
 
@@ -137,6 +158,7 @@ class Playlist:
 __all__ = [
     "Singer",
     "Song",
+    "SongInfo",
     "SongUrl",
     "Lyric",
     "LyricLine",
@@ -144,5 +166,6 @@ __all__ = [
     "Album",
     "ArtistDetail",
     "Playlist",
+    "ProducerGroup",
     "TopList",
 ]

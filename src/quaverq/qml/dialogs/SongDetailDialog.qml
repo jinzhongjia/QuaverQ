@@ -36,7 +36,13 @@ Dialog {
     readonly property string singerText: {
         if (!root.hasSong) return ""
         const names = root.current.singerNames
-        return Array.isArray(names) ? names.join("、") : ""
+        // PySide6 list 是 QVariantList, Array.isArray 不灵; 用 length 直接判
+        if (names && names.length !== undefined && names.length > 0) {
+            const arr = []
+            for (let i = 0; i < names.length; ++i) arr.push(names[i])
+            return arr.join("、")
+        }
+        return ""
     }
 
     // ===== 三态判定 =====
@@ -50,10 +56,40 @@ Dialog {
     readonly property bool relatedHasItems: !!(root.songDetailController
         && root.songDetailController.relatedPlaylistsModel
         && root.songDetailController.relatedPlaylistsModel.count > 0)
+    // 2.4 歌曲附加信息
+    readonly property var songInfo: root.songDetailController
+        ? root.songDetailController.songInfo
+        : ({})
+    readonly property string infoFactsLine: {
+        if (!root.songInfo) return ""
+        const parts = []
+        if (root.songInfo.language) parts.push(root.songInfo.language)
+        if (root.songInfo.genre) parts.push(root.songInfo.genre)
+        if (root.songInfo.company) parts.push(root.songInfo.company)
+        if (root.songInfo.publishTime) parts.push(root.songInfo.publishTime)
+        return parts.join(" · ")
+    }
+    readonly property bool hasInfoFacts: root.infoFactsLine.length > 0
+    // 注意: PySide6 list 经 QVariant 转成 QML 时是 QVariantList, Array.isArray() 对它返回 false.
+    // 用 length 直接判断 (truthy check 走 != undefined && length > 0).
+    readonly property bool hasProducers: !!(root.songInfo
+        && root.songInfo.producers
+        && root.songInfo.producers.length > 0)
+    readonly property bool hasTags: !!(root.songInfo
+        && root.songInfo.tags
+        && root.songInfo.tags.length > 0)
+    readonly property bool hasIntro: !!(root.songInfo
+        && typeof root.songInfo.intro === "string"
+        && root.songInfo.intro.length > 0)
+    readonly property bool hasAnySongInfo: root.hasInfoFacts
+        || root.hasProducers
+        || root.hasTags
+        || root.hasIntro
     readonly property bool isLoaded: !root.isLoading && !root.hasError
     readonly property bool isLoadedAndAllEmpty: root.isLoaded
         && !root.similarHasItems
         && !root.relatedHasItems
+        && !root.hasAnySongInfo
 
     Connections {
         target: root.songDetailController
@@ -235,11 +271,114 @@ Dialog {
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
 
-            // --- 态 3b: loaded 有内容 (相似 / 相关; 空 section 隐藏) ---
-            ColumnLayout {
+            // --- 态 3b: loaded 有内容 (歌曲信息 / 相似 / 相关; 空 section 隐藏) ---
+            // 内容超出 dialog 时 ScrollView 滚动, 防止专辑卡片被裁掉
+            ScrollView {
+                id: loadedScroll
+
                 anchors.fill: parent
                 visible: root.isLoaded && !root.isLoadedAndAllEmpty
-                spacing: ThemeTokens.Spacing.s5
+                clip: true
+                contentWidth: loadedScroll.availableWidth
+
+                ColumnLayout {
+                    width: loadedScroll.availableWidth
+                    spacing: ThemeTokens.Spacing.s5
+
+                // --- 歌曲信息 (2.4 加入: 语种/流派/制作人/标签/简介) ---
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: root.hasAnySongInfo
+                    spacing: ThemeTokens.Spacing.s2
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("歌曲信息")
+                        color: ThemeTokens.Palette.surfaceText
+                        font.pixelSize: ThemeTokens.TypeScale.body
+                        font.weight: ThemeTokens.TypeScale.medium
+                    }
+
+                    // 单行 facts: 语种 · 流派 · 公司 · 发布时间
+                    Label {
+                        Layout.fillWidth: true
+                        visible: root.hasInfoFacts
+                        text: root.infoFactsLine
+                        color: ThemeTokens.Palette.surfaceVariantText
+                        font.pixelSize: ThemeTokens.TypeScale.bodySm
+                        elide: Text.ElideRight
+                    }
+
+                    // 制作人: 把 producers groups 紧凑成一行字符串
+                    Label {
+                        id: producerLabel
+
+                        Layout.fillWidth: true
+                        visible: root.hasProducers
+                        text: {
+                            if (!root.hasProducers) return ""
+                            const parts = []
+                            for (let i = 0; i < root.songInfo.producers.length; ++i) {
+                                const g = root.songInfo.producers[i]
+                                let namesStr = ""
+                                if (g.names && g.names.length !== undefined) {
+                                    const arr = []
+                                    for (let j = 0; j < g.names.length; ++j) arr.push(g.names[j])
+                                    namesStr = arr.join("、")
+                                }
+                                if (g.title && namesStr)
+                                    parts.push(g.title + "：" + namesStr)
+                            }
+                            return parts.join(" / ")
+                        }
+                        color: ThemeTokens.Palette.surfaceVariantText
+                        font.pixelSize: ThemeTokens.TypeScale.caption
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
+                    }
+
+                    // 标签: chips 紧凑横排
+                    Flow {
+                        Layout.fillWidth: true
+                        visible: root.hasTags
+                        spacing: ThemeTokens.Spacing.s2
+
+                        Repeater {
+                            model: root.hasTags ? root.songInfo.tags : []
+
+                            delegate: Rectangle {
+                                id: tagChip
+
+                                required property string modelData
+                                implicitWidth: tagLabel.implicitWidth + ThemeTokens.Spacing.s4 * 2
+                                implicitHeight: tagLabel.implicitHeight + ThemeTokens.Spacing.s2 * 2
+                                radius: implicitHeight / 2
+                                color: ThemeTokens.Palette.surfaceVariant
+
+                                Label {
+                                    id: tagLabel
+                                    anchors.centerIn: parent
+                                    text: tagChip.modelData
+                                    color: ThemeTokens.Palette.surfaceVariantText
+                                    font.pixelSize: ThemeTokens.TypeScale.caption
+                                }
+                            }
+                        }
+                    }
+
+                    // 简介: 折叠成最多 2 行
+                    Label {
+                        Layout.fillWidth: true
+                        visible: root.hasIntro
+                        text: root.songInfo.intro
+                        color: ThemeTokens.Palette.surfaceVariantText
+                        font.pixelSize: ThemeTokens.TypeScale.caption
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
+                }
 
                 // --- 相似歌曲 (横向, 只在有数据时显示) ---
                 ColumnLayout {
@@ -382,6 +521,7 @@ Dialog {
 
                         ScrollBar.horizontal: ScrollBar {}
                     }
+                }
                 }
             }
         }
