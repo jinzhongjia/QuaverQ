@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -47,6 +48,8 @@ class HomeController(QObject):
     errorRaised = Signal(str)
 
     DAILY_SOURCE = "daily"
+    # 缓存 6h 内启动 / 自动刷新都跳过, 用户主动下拉 (force=True) 才覆盖
+    DAILY_TTL_SECONDS = 6 * 3600
 
     def __init__(
         self,
@@ -67,6 +70,8 @@ class HomeController(QObject):
         self._section_errors: dict[str, str] = {}
         self._daily_refresh_task: asyncio.Task[None] | None = None
         self._daily_extend_task: asyncio.Task[None] | None = None
+        self._daily_updated_at: float = 0.0
+        self._daily_account_key: str = ""
         self._daily_requires_login = False
         self._error_message = ""
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
@@ -101,6 +106,8 @@ class HomeController(QObject):
         if snapshot.daily and self._daily_model.count == 0:
             self._set_daily_requires_login(False)
             self._daily_model.set_songs(snapshot.daily)
+            self._daily_updated_at = snapshot.daily_updated_at
+            self._daily_account_key = account_key
             self.dailyModelChanged.emit()
             self.dailyPreviewSongChanged.emit()
 
@@ -202,11 +209,12 @@ class HomeController(QObject):
 
     @asyncSlot()
     async def refreshHome(self) -> None:
-        await self.refresh_home_async()
+        # QML 调用 = 用户主动刷新, 穿透 daily TTL
+        await self.refresh_home_async(force=True)
 
-    async def refresh_home_async(self) -> None:
+    async def refresh_home_async(self, *, force: bool = False) -> None:
         await asyncio.gather(
-            self.refresh_daily_thirty_async(),
+            self.refresh_daily_thirty_async(force=force),
             self.refresh_playlists_async(),
             self.refresh_new_songs_async(),
             self.refresh_top_lists_async(),
@@ -214,9 +222,10 @@ class HomeController(QObject):
 
     @asyncSlot()
     async def refreshDailyThirty(self) -> None:
-        await self.refresh_daily_thirty_async()
+        # 来自 QML 的显式调用 = 用户主动下拉刷新, 必须穿透 TTL
+        await self.refresh_daily_thirty_async(force=True)
 
-    async def refresh_daily_thirty_async(self) -> None:
+    async def refresh_daily_thirty_async(self, *, force: bool = False) -> None:
         task = self._daily_refresh_task
         current_task = asyncio.current_task()
         if task is not None and task is not current_task and not task.done():
@@ -235,6 +244,17 @@ class HomeController(QObject):
 
         self._set_daily_requires_login(False)
 
+        # 缓存 < 6h + 账号匹配 + model 有数据 -> 自动刷新跳过; force=True (用户下拉) 永不跳过.
+        # 账号守门: 防 authed→authed 切账号 (login_by_qrcode 直接覆盖凭据) 时 B 看到 A 的 daily.
+        current_key = self._service_controller.account_key()
+        if (
+            not force
+            and self._daily_model.count > 0
+            and self._daily_account_key == current_key
+            and self._is_daily_cache_fresh()
+        ):
+            return
+
         async def load() -> list[Song]:
             return await self._service_controller.call_service(
                 lambda service: service.get_daily_recommend_songs(limit=30),
@@ -248,6 +268,8 @@ class HomeController(QObject):
             songs = await self._load_section("daily", load)
             if songs is not None:
                 self._daily_model.set_songs(songs)
+                self._daily_updated_at = time.time()
+                self._daily_account_key = self._service_controller.account_key()
                 self.dailyModelChanged.emit()
                 self.dailyPreviewSongChanged.emit()
                 self._persist(daily=songs, account_key=self._service_controller.account_key())
@@ -361,6 +383,11 @@ class HomeController(QObject):
         if bool(self._loading_sections) != old_loading:
             self.loadingChanged.emit()
         self.loadingSectionsChanged.emit()
+
+    def _is_daily_cache_fresh(self) -> bool:
+        if self._daily_updated_at <= 0:
+            return False
+        return (time.time() - self._daily_updated_at) < self.DAILY_TTL_SECONDS
 
     def _set_daily_requires_login(self, value: bool) -> None:
         if self._daily_requires_login == value:

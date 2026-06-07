@@ -38,6 +38,7 @@ class SessionSnapshot:
     position_ms: int = 0
     play_mode: PlayMode = PlayMode.SEQUENCE
     volume: float = 0.8
+    source: str = ""
 
     def apply_to(self, queue: PlayQueue) -> None:
         """把快照状态写回一个空白 PlayQueue."""
@@ -46,7 +47,7 @@ class SessionSnapshot:
             queue.clear()
             return
         # push 然后 jump_to
-        queue.push(self.songs, play_now=False)
+        queue.push(self.songs, play_now=False, source=self.source)
         if 0 <= self.current_index < len(self.songs):
             queue.current_index = self.current_index
             # SHUFFLE 模式下重新生成 shuffle 池 (current 排除)
@@ -79,6 +80,7 @@ class SessionState:
                 "position_ms": int(position_ms),
                 "play_mode": queue.mode.name,
                 "volume": max(0.0, min(1.0, float(volume))),
+                "source": queue.source,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.path, "w") as f:
@@ -111,12 +113,14 @@ class SessionState:
             mode = PlayMode.SEQUENCE
 
         logger.info("会话快照恢复: %d 首, mode=%s", len(songs), mode.name)
+        source = str(d.get("source") or "")
         return SessionSnapshot(
             songs=songs,
             current_index=ci,
             position_ms=pos,
             play_mode=mode,
             volume=volume,
+            source=source,
         )
 
     def clear(self) -> None:
