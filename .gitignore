@@ -34,3 +34,5 @@ Thumbs.db
 # QuaverQ
 *.cookie
 config.local.toml
+.reasonix
+.codegraph
