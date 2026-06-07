@@ -202,4 +202,4 @@ class _FakeLyricController:
 
         self._holder = _Sig()
         self.lyricChanged = self._holder.lyricChanged
-        self.current_lyric = Lyric(lines=[])
+        self.current_lyric = Lyric(mid="", lines=[])
