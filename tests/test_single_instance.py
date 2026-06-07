@@ -111,7 +111,7 @@ async def test_release_disconnects_bus(monkeypatch):
 
     guard = single_instance.SingleInstanceGuard()
     await guard.acquire()
-    await guard.release()
+    guard.release()
     assert fake["_bus"].disconnect.call_count == 1
 
 
@@ -147,8 +147,8 @@ async def test_release_is_idempotent(monkeypatch):
 
     guard = single_instance.SingleInstanceGuard()
     await guard.acquire()
-    await guard.release()
-    await guard.release()  # 二次 release 不应抛
+    guard.release()
+    guard.release()  # 二次 release 不应抛
     assert fake["_bus"].disconnect.call_count == 1
 
 

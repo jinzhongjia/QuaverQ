@@ -191,10 +191,10 @@ def main() -> None:
     instance_guard = SingleInstanceGuard()
     if not loop.run_until_complete(instance_guard.acquire()):
         loop.run_until_complete(instance_guard.notify_existing_raise())
-        loop.run_until_complete(instance_guard.release())
+        instance_guard.release()
         logger.info("QuaverQ 已在运行, 已请求现有窗口前置, 本实例退出")
         sys.exit(0)
-    app.aboutToQuit.connect(lambda: loop.create_task(instance_guard.release()))
+    app.aboutToQuit.connect(instance_guard.release)
 
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
