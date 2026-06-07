@@ -127,7 +127,7 @@ ScrollView {
                     if (root.currentSongMatches(root.homeController.dailyPreviewSong)) {
                         root.playerController.togglePlayPause()
                     } else {
-                        root.playerController.playFromModel(root.homeController.dailyModel, 0)
+                        root.playerController.playSourceFromModel(root.homeController.dailyModel, 0, "daily")
                     }
                 }
             }

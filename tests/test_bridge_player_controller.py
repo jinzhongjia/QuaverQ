@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from PySide6.QtMultimedia import QMediaPlayer
 
 from quaverq.bridge.models import SongListModel
@@ -375,6 +377,85 @@ async def test_media_error_non_retryable_reports_immediately():
     assert len(service.calls) == 1  # 没重取链
     assert controller.playbackState == "stopped"
     assert errors and "晴天" in errors[-1]
+
+
+async def test_play_songs_records_queue_source_and_emits_change():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    source_changes: list[str] = []
+    controller.queueSourceChanged.connect(lambda: source_changes.append(controller.queueSource))
+
+    await controller.play_songs_async([_song("m1", "晴天")], 0, source="daily")
+
+    assert controller.queueSource == "daily"
+    assert source_changes == ["daily"]
+
+
+async def test_end_of_media_with_source_emits_queue_exhausted():
+    """SEQUENCE 末尾自然播完且队列带 source -> 发出 queueExhausted(source); 不带 source 不发."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    exhausted: list[str] = []
+    controller.queueExhausted.connect(exhausted.append)
+    await controller.play_songs_async(
+        [_song("m1", "晴天"), _song("m2", "七里香")], 0, source="daily"
+    )
+
+    await controller.handleEndOfMedia()  # 到 m2
+    controller.updatePlaybackState("playing")
+    await controller.handleEndOfMedia()  # m2 后再无, 触发 exhausted
+
+    assert exhausted == ["daily"]
+    assert controller.playbackState == "stopped"
+    assert controller.currentSong == {}  # current_index 推过末尾
+
+
+async def test_end_of_media_without_source_does_not_emit_queue_exhausted():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    exhausted: list[str] = []
+    controller.queueExhausted.connect(exhausted.append)
+    await controller.play_songs_async([_song("m1", "晴天")], 0)
+
+    await controller.handleEndOfMedia()
+
+    assert exhausted == []
+    # 与历史 stop() 行为一致: current_index 不推过末尾
+    assert controller.currentIndex == 0
+
+
+async def test_append_to_queue_resumes_when_previously_exhausted():
+    """耗尽 (current_index 越界) 后 append 应自动跳到第一首新加曲并续播."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "晴天")], 0, source="daily")
+    await controller.handleEndOfMedia()  # 触发 exhausted
+    assert controller.currentSong == {}
+
+    added = controller.append_to_queue([_song("m2", "七里香"), _song("m3", "稻香")])
+
+    assert [s.mid for s in added] == ["m2", "m3"]
+    assert controller.queueModel.count == 3
+    # 异步 _load_current 已 schedule, 让事件循环跑一下
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert controller.currentIndex == 1
+    assert controller.currentSong["name"] == "七里香"
+
+
+async def test_append_to_queue_dedupes_and_does_not_disturb_playback():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async(
+        [_song("m1", "晴天"), _song("m2", "七里香")], 0, source="daily"
+    )
+
+    added = controller.append_to_queue([_song("m2", "dup"), _song("m9", "new")])
+
+    assert [s.mid for s in added] == ["m9"]
+    assert controller.queueModel.count == 3
+    assert controller.currentIndex == 0
+    assert controller.currentSong["name"] == "晴天"
 
 
 async def test_media_error_retry_counter_resets_after_successful_play():
