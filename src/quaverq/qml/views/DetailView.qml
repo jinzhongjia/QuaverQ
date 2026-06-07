@@ -18,6 +18,7 @@ ColumnLayout {
     property var detailController
     property var playerController
     property var libraryController
+    property var songDetailController
     property bool completed: false
 
     readonly property string displayKind: root.detailController && root.detailController.kind.length > 0
@@ -40,6 +41,7 @@ ColumnLayout {
 
     signal backRequested()
     signal searchRequested(string keyword)
+    signal detailRequested(string kind, string detailId, string title, string subtitle)
 
     spacing: 0
 
@@ -268,12 +270,16 @@ ColumnLayout {
                     width: ListView.view.width
                     libraryController: root.libraryController
                     coverController: root.coverController
+                    songDetailController: root.songDetailController
                     selected: root.playerController
                         && root.playerController.currentSong
                         && root.playerController.currentSong.mid === song.mid
                     onActivated: function(songData, row) {
                         if (root.playerController && root.detailController)
                             root.playerController.playFromModel(root.detailController.songModel, row)
+                    }
+                    onNavigationRequested: function(kind, detailId, title, subtitle) {
+                        root.detailRequested(kind, detailId, title, subtitle)
                     }
                 }
 

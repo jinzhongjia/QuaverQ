@@ -77,7 +77,7 @@
 
 - [x] 1.1 `login.refresh_credential`
 - [x] 1.2 `user.get_fav_songlist`
-- [ ] 2.1 `song.get_similar_song` + `get_related_songlist`
+- [x] 2.1 `song.get_similar_song` + `get_related_songlist`
 - [ ] 2.2 `singer.get_similar` + 列表
 - [ ] 2.3 `songlist.create` / `delete`
 - [ ] 2.4 `song.get_detail` / `get_labels` / `get_producer`

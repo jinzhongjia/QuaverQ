@@ -27,6 +27,7 @@ from .bridge import (
     PlayerController,
     ServiceController,
     SettingsController,
+    SongDetailController,
 )
 from .bridge.stream_proxy import StreamProxy
 from .bridge.system_theme import SystemThemeWatcher
@@ -196,6 +197,7 @@ def main() -> None:
     app_controller = AppController(service_controller)
     home_controller = HomeController(service_controller, home_cache=home_cache)
     detail_controller = DetailController(service_controller)
+    song_detail_controller = SongDetailController(service_controller)
     library_controller = LibraryController(service_controller, home_cache=home_cache)
     stream_proxy = StreamProxy()
     stream_proxy.start()
@@ -216,6 +218,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("CoverController", cover_controller)
     engine.rootContext().setContextProperty("HomeController", home_controller)
     engine.rootContext().setContextProperty("DetailController", detail_controller)
+    engine.rootContext().setContextProperty("SongDetailController", song_detail_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)
     engine.rootContext().setContextProperty("LibraryController", library_controller)
     engine.rootContext().setContextProperty("LyricController", lyric_controller)

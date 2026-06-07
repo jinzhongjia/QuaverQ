@@ -13,6 +13,7 @@
 | `home_controller.py` | `HomeController` | 首页发现：每日推荐 / 今日歌单 / 新歌速递 / 排行榜。SWR：先用 `home_cache` 同步喂首帧，再后台 `refresh_*_async`。 |
 | `library_controller.py` | `LibraryController` | 资料库：我喜欢、我的歌单、收藏歌单、收藏专辑、关注艺人，登录后从 `home_cache` 私有区块同步首帧再刷新。 |
 | `detail_controller.py` | `DetailController` | 歌单 / 专辑 / 艺人 / 排行榜详情页状态：标题、封面、曲目列表、loading / error。 |
+| `song_detail_controller.py` | `SongDetailController` | 歌曲详情 popup 状态：currentSong + similarSongsModel + relatedPlaylistsModel + visible，由 SongRow 右键 / 菜单键触发 `open(song)` 异步并发拉相似与相关。`load_generation` 防 race，关闭时保留旧 model 内容不闪空。 |
 | `player_controller.py` | `PlayerController` | 播放器：包装 `QMediaPlayer` + `core.queue.PlayQueue`。控制四种播放模式、音质偏好、进度/音量、退出快照保存（`session_state`）。 |
 | `lyric_controller.py` | `LyricController` | 同步歌词：跟随 `player_controller` 的进度更新 `activeIndex`，逐字 karaoke 高亮的进度也在这里算。 |
 | `settings_controller.py` | `SettingsController` | `QSettings` 持久化的偏好：主题模式、音质、封面缓存上限 + 一键清理。 |

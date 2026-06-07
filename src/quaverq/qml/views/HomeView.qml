@@ -15,6 +15,7 @@ ScrollView {
     property var homeController
     property var libraryController
     property var playerController
+    property var songDetailController
 
     readonly property bool hasSong: root.playerController
         && root.playerController.currentSong
@@ -162,6 +163,7 @@ ScrollView {
             actionEnabled: root.homeController && root.homeController.newSongModel.count > 0
             libraryController: root.libraryController
             coverController: root.coverController
+            songDetailController: root.songDetailController
             onActionRequested: {
                 if (root.playerController && root.homeController && root.homeController.newSongModel.count > 0)
                     root.playerController.playFromModel(root.homeController.newSongModel, 0)
@@ -169,6 +171,9 @@ ScrollView {
             onSongRequested: function(row) {
                 if (root.playerController && root.homeController)
                     root.playerController.playFromModel(root.homeController.newSongModel, row)
+            }
+            onNavigationRequested: function(kind, detailId, title, subtitle) {
+                root.detailRequested(kind, detailId, title, subtitle)
             }
         }
 
@@ -402,10 +407,12 @@ ScrollView {
         property bool actionEnabled: false
         property var libraryController
         property var coverController
+        property var songDetailController
         readonly property bool hasRows: section.model && section.model.count > 0
 
         signal actionRequested()
         signal songRequested(int row)
+        signal navigationRequested(string kind, string detailId, string title, string subtitle)
 
         Layout.preferredHeight: songColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
@@ -456,8 +463,12 @@ ScrollView {
                     Layout.fillWidth: true
                     libraryController: section.libraryController
                     coverController: section.coverController
+                    songDetailController: section.songDetailController
                     onActivated: function(songData, row) {
                         section.songRequested(row)
+                    }
+                    onNavigationRequested: function(kind, detailId, title, subtitle) {
+                        section.navigationRequested(kind, detailId, title, subtitle)
                     }
                 }
             }

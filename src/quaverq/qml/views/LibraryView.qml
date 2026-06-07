@@ -14,6 +14,7 @@ ColumnLayout {
     property var coverController
     property var libraryController
     property var playerController
+    property var songDetailController
     property int currentTab: 0
 
     signal loginRequested()
@@ -214,9 +215,13 @@ ColumnLayout {
                     width: ListView.view.width
                     libraryController: root.libraryController
                     coverController: root.coverController
+                    songDetailController: root.songDetailController
                     onActivated: function(songData, row) {
                         if (root.playerController && root.libraryController)
                             root.playerController.playFromModel(root.libraryController.likedModel, row)
+                    }
+                    onNavigationRequested: function(kind, detailId, title, subtitle) {
+                        root.detailRequested(kind, detailId, title, subtitle)
                     }
                 }
 

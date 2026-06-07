@@ -187,8 +187,9 @@ class QuaverService:
     # bypass / 反风控
     # ------------------------------------------------------------------
 
-    # 合法 ct 候选池 (排除 findings.md 列出的风控值 1/3/4/11/18/23/27/46)
+    # 合法 ct 候选池 (排除 findings.md 列出的风控值 1/3/4/11/18/19/23/27/46)
     # 反风控原则: 1) 不固定一个值 2) 避开"客户端热门"值
+    # ct=19: 2026-06-07 实测被加入风控黑名单, CDN 直接返 403 (Lego Server)
     _SAFE_CT_VALUES = (
         2,
         5,
@@ -203,7 +204,6 @@ class QuaverService:
         15,
         16,
         17,
-        19,
         20,
         21,
         22,
@@ -1334,6 +1334,89 @@ class QuaverService:
                 )
             )
         return out
+
+    async def get_similar_songs(self, songid: int) -> list[Song]:
+        """歌曲详情 popup 用: 'XX 听过的也在听' 的相似歌曲.
+
+        song.get_similar_song 返回多 SimilarSongGroup, 每组有 title_template/title_content +
+        song 列表 (完整 0.6 Song pydantic). 拍扁所有组 + 按 mid 去重 (跨组重复保留首次).
+        公开接口不需 credential. 凭据过期类异常透传; 其它异常降级为 [].
+        """
+        if not songid:
+            return []
+        try:
+            resp = await self.client.song.get_similar_song(songid)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_similar_song 失败 (songid=%s): %s", songid, exc)
+            return []
+        out: list[Song] = []
+        seen: set[str] = set()
+        for group in getattr(resp, "song", None) or []:
+            for s in getattr(group, "song", None) or []:
+                song = self._to_song(s)
+                if not song.mid or song.mid in seen:
+                    continue
+                seen.add(song.mid)
+                out.append(song)
+        return out
+
+    async def get_related_songlists(self, songid: int) -> list[Playlist]:
+        """歌曲详情 popup 用: 包含此曲或相关主题的歌单.
+
+        song.get_related_songlist 返回 RelatedPlaylist 列表, 字段
+        id/title/picurl/desc/songnum/listennum/creator. 公开接口.
+        """
+        if not songid:
+            return []
+        try:
+            resp = await self.client.song.get_related_songlist(songid)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("get_related_songlist 失败 (songid=%s): %s", songid, exc)
+            return []
+        out: list[Playlist] = []
+        for p in getattr(resp, "songlist", None) or []:
+            pid = str(getattr(p, "id", 0) or 0)
+            if not pid or pid == "0":
+                continue
+            out.append(
+                Playlist(
+                    pid=pid,
+                    name=getattr(p, "title", "") or "",
+                    cover_url=getattr(p, "picurl", "") or "",
+                    description=getattr(p, "desc", "") or "",
+                    creator=getattr(p, "creator", "") or "",
+                    song_count=int(getattr(p, "songnum", 0) or 0),
+                    play_count=int(getattr(p, "listennum", 0) or 0),
+                )
+            )
+        return out
+
+    async def get_song_related(self, songid: int) -> tuple[list[Song], list[Playlist]]:
+        """并发拉 similar + related, 二元组返回; 一边挂另一边照常.
+
+        凭据过期类异常透传 (let controller 走清缓存路径); 其它错误降级为空列表.
+        """
+        if not songid:
+            return [], []
+        similar, related = await asyncio.gather(
+            self.get_similar_songs(songid),
+            self.get_related_songlists(songid),
+            return_exceptions=True,
+        )
+        for exc in (similar, related):
+            if isinstance(exc, BaseException) and is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+        similar_list = similar if isinstance(similar, list) else []
+        related_list = related if isinstance(related, list) else []
+        if isinstance(similar, BaseException):
+            logger.warning("get_song_related similar 端失败 (songid=%s): %s", songid, similar)
+        if isinstance(related, BaseException):
+            logger.warning("get_song_related related 端失败 (songid=%s): %s", songid, related)
+        return similar_list, related_list
 
     async def get_followed_singers(self) -> list[Singer]:
         """关注的歌手."""
