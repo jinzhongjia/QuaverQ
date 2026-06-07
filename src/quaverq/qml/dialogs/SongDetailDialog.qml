@@ -280,6 +280,9 @@ Dialog {
                 visible: root.isLoaded && !root.isLoadedAndAllEmpty
                 clip: true
                 contentWidth: loadedScroll.availableWidth
+                // 给右侧滚动条预留 gutter, 内容不会被压在滚动条下
+                rightPadding: ThemeTokens.Spacing.s4
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
                 ColumnLayout {
                     width: loadedScroll.availableWidth
@@ -479,8 +482,9 @@ Dialog {
 
                     ListView {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: 200
+                        // 160 封面 (=width) + s3 + 标题 + s3 + 创作者 + 给 hover 角标留点空间
+                        // 在 ScrollView 内 fillHeight 没意义, 用足够大的 preferredHeight
+                        Layout.preferredHeight: 240
                         orientation: ListView.Horizontal
                         spacing: ThemeTokens.Spacing.s4
                         clip: true
