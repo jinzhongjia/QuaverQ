@@ -155,12 +155,13 @@ Rectangle {
             }
         }
 
-        // 歌曲信息 + 喜欢 紧凑成组: 文字块按内容自适应宽度 (短标题不留大空档),
-        // 过长才省略号; 心形紧贴文字右侧.
+        // 歌曲信息 + 喜欢. 固定宽度防止布局随标题/歌手长度跳变;
+        // 超长文字走 MarqueeLabel 自动横向滚动, hover 弹 ToolTip 看完整信息.
         Item {
             id: songInfo
 
-            Layout.preferredWidth: Math.min(220, infoColumn.implicitWidth)
+            Layout.preferredWidth: 200
+            Layout.maximumWidth: 200
             Layout.preferredHeight: 56
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("打开正在播放")
@@ -169,6 +170,18 @@ Rectangle {
             TapHandler {
                 enabled: root.hasSong
                 onTapped: root.nowPlayingRequested()
+            }
+
+            HoverHandler {
+                id: songInfoHover
+                enabled: root.hasSong
+            }
+
+            ToolTip {
+                parent: songInfo
+                visible: songInfoHover.hovered && root.hasSong
+                delay: 600
+                text: root.songTitle + qsTr(" — ") + root.songMeta
             }
 
             Keys.onReturnPressed: { if (root.hasSong) root.nowPlayingRequested() }
@@ -190,21 +203,21 @@ Rectangle {
                 width: parent.width
                 spacing: ThemeTokens.Spacing.s2
 
-                Label {
+                MarqueeLabel {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: 20
                     text: root.songTitle
                     color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: ThemeTokens.TypeScale.medium
-                    elide: Text.ElideRight
+                    pixelSize: ThemeTokens.TypeScale.bodySm
+                    fontWeight: ThemeTokens.TypeScale.medium
                 }
 
-                Label {
+                MarqueeLabel {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: 16
                     text: root.loading ? qsTr("正在准备播放链接") : root.songMeta
                     color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.caption
-                    elide: Text.ElideRight
+                    pixelSize: ThemeTokens.TypeScale.caption
                 }
             }
         }

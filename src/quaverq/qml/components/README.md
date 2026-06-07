@@ -28,6 +28,7 @@
 | `LikeButton.qml` | 喜欢按钮。绑 `libraryController.isLiked(mid)` + `likedRevision`，自动随同步状态变化。 |
 | `Snackbar.qml` | **轻量状态提示**。`show()` 触发，`autoHideMs` 后自动收起；`kind` ∈ `info` / `error` / `warning` / `success`。 |
 | `Banner.qml` | **持久提示**：带恢复动作（`actionText`）、不自动关闭；`message` 非空即显示。用于"凭据过期，点此重登"这类场景。 |
+| `MarqueeLabel.qml` | 单行文字标签：超出容器宽度时无缝横向滚动（双拷贝 + Repeater 平移），未溢出时回退为 `elide: ElideRight`，配合固定宽度容器防止布局抖动。用于底部播放栏歌曲名 / 歌手。 |
 
 ## 约定
 
