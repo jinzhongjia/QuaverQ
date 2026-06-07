@@ -54,51 +54,74 @@ docs-site/
 
 **接口失败兜底**（断网、JSON 损坏、文件 404）：版本徽标显示「最新版本」，下载按钮回退到 `/download` 短链（由 `_redirects` 跳转到 R2 上的 latest 路径）。
 
-## 发版流程（手动）
+## 发版流程
 
-假设要发 `v0.2.0`，桶名为 `quaverq`：
+两种发版路径，按需选用。**仓库闭源**，所以不使用 Pages 的 Git 集成（避免暴露源码）。
 
-1. 本地或 CI 构建出 AppImage：`uv run python build.py --appimage`
-2. 上传到 R2（一份归档、一份覆盖 latest）：
-   ```bash
-   wrangler r2 object put quaverq/v0.2.0/QuaverQ-x86_64.AppImage --file dist/QuaverQ-x86_64.AppImage
-   wrangler r2 object put quaverq/latest/QuaverQ-x86_64.AppImage --file dist/QuaverQ-x86_64.AppImage
-   ```
-3. 更新 `docs-site/version.json`：
-   ```json
-   {
-     "version": "v0.2.0",
-     "filename": "QuaverQ-x86_64.AppImage",
-     "url": "https://cdn.quaverq.nvimer.org/v0.2.0/QuaverQ-x86_64.AppImage",
-     "size": 40345600,
-     "released_at": "2026-06-15"
-   }
-   ```
-4. 重新部署 Pages：
-   ```bash
-   wrangler pages deploy docs-site --project-name=quaverq
-   ```
-
-## 短链
-
-- `https://<pages-domain>/download` → `https://cdn.quaverq.nvimer.org/latest/QuaverQ-x86_64.AppImage`（302）
-
-## 部署到 Cloudflare Pages
-
-仓库闭源，建议用 **手动上传**（不接 Git 集成，避免暴露源码）：
+### 一次性准备
 
 ```bash
 npm i -g wrangler
 wrangler login
 
-# 首次创建项目（仅一次）
+# 首次创建 Pages 项目（仅一次）
 wrangler pages project create quaverq --production-branch=main
 
-# 每次部署
-wrangler pages deploy docs-site --project-name=quaverq --branch=main
+# 首次创建 R2 桶（仅一次）
+wrangler r2 bucket create quaverq
+# 然后在 Cloudflare 仪表盘把 cdn.quaverq.nvimer.org 自定义域名绑定到这个桶
 ```
 
-也可以本地把 `docs-site/` 打包成 zip 后用 Cloudflare 仪表盘的 **Direct Upload** 拖上去。
+### 方式 A：本地一键脚本（推荐日常用）
+
+```bash
+./scripts/release.sh v0.2.0
+```
+
+脚本会按顺序：
+1. `uv run python build.py --appimage` 构建 AppImage
+2. `wrangler r2 object put` 上传两份（`v0.2.0/` 归档 + `latest/` 覆盖）
+3. 改写 `docs-site/version.json`（version / size / released_at / url 全部自动算好）
+4. `wrangler pages deploy` 部署静态站
+
+跑完后手动 commit 一下 `version.json` 即可。
+
+可覆盖的环境变量：`R2_BUCKET`（默认 `quaverq`）、`PAGES_PROJECT`（默认 `quaverq`）、`CDN_HOST`（默认 `cdn.quaverq.nvimer.org`）。
+
+### 方式 B：GitHub Actions 自动发版
+
+push 一个 `v*` tag 即触发，或在 Actions 页面手动 workflow_dispatch 输入版本号。配置见 [`.github/workflows/release.yml`](../.github/workflows/release.yml)。
+
+需要预先在仓库 **Settings → Secrets and variables → Actions** 配置：
+
+| Secret | 内容 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | API Token，权限需含 `R2:Edit` + `Pages:Edit`（在 [API Tokens](https://dash.cloudflare.com/profile/api-tokens) 创建） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID（仪表盘右下角或任意 R2/Pages 页面 URL 里） |
+
+完整流程：
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+# CI 自动跑：构建 → 改 version.json → 上传 R2 ×2 → 部署 Pages
+```
+
+⚠️ 注意：CI 在 workspace 内改 `version.json` 但 **不会** commit 回 git 仓库，避免 push 权限污染。tag 发完后建议本地 `git pull` 后 commit 同样的内容到主分支，让仓库的 `version.json` 与线上一致（或者你 `tag` 之前就改好它再 push）。
+
+### 方式 C：仅部署文档（不重建 AppImage）
+
+只改了文案 / 样式时跑：
+
+```bash
+./scripts/deploy-docs.sh
+```
+
+或直接 `wrangler pages deploy docs-site --project-name=quaverq`。
+
+## 短链
+
+- `https://<pages-domain>/download` → `https://cdn.quaverq.nvimer.org/latest/QuaverQ-x86_64.AppImage`（302）
 
 ## 本地预览
 
@@ -114,7 +137,10 @@ python -m http.server 8080
 
 ## 待办
 
-- [ ] 在 Cloudflare R2 桶下创建 `latest/` + 首版 `v0.1.0/` 路径并上传 AppImage
+- [ ] 在 Cloudflare 创建 R2 桶 `quaverq` 并绑定 `cdn.quaverq.nvimer.org` 自定义域名
+- [ ] 在 Cloudflare 创建 Pages 项目 `quaverq`
+- [ ] 配置 GitHub Secrets：`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`
+- [ ] 首次跑 `./scripts/release.sh v0.1.0` 把 AppImage 推上 R2
 - [ ] 补充实际软件截图区块（当前版本未包含截图，避免误用设计参考素材）
 - [ ] 给 Pages 接入自定义域名
 - [ ] 视情况引入轻量站点统计（如 Cloudflare Web Analytics，零侵入）
