@@ -36,3 +36,4 @@ Thumbs.db
 config.local.toml
 .reasonix
 .codegraph
+reasonix.toml
