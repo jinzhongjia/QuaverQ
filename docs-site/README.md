@@ -27,17 +27,19 @@ docs-site/
 - 响应式：3 列 → 2 列 → 1 列断点切换
 - 不出现 GitHub / Issue / 源码 / Release 等公开仓库相关链接
 
-## 配置：替换 R2 域名
+## R2 自定义域名
 
-**部署前必须** 修改两处占位符 `dl.example.com` 为你实际的 R2 自定义域名（例如 `dl.quaverq.app`）：
+发行产物托管在 **`cdn.quaverq.nvimer.org`**（Cloudflare R2 自定义域名）。
 
-1. `version.json` — `url` 字段：当前版本的精确 R2 路径
-2. `_redirects` — `/download` 的目标：建议指向 R2 上的 `latest/` 别名路径
+约定的对象路径：
 
-```bash
-# 例如批量替换（确认无误后再执行）：
-sed -i 's|dl.example.com|dl.quaverq.app|g' docs-site/version.json docs-site/_redirects
-```
+| 路径 | 用途 |
+|---|---|
+| `cdn.quaverq.nvimer.org/v<version>/QuaverQ-x86_64.AppImage` | 精确版本归档（不可变） |
+| `cdn.quaverq.nvimer.org/latest/QuaverQ-x86_64.AppImage`     | 「最新版」别名，发版时覆盖 |
+
+- `version.json` 的 `url` 字段填精确版本路径，便于客户端追溯
+- `_redirects` 的 `/download` 短链指向 `latest/` 别名，方便外部直接分享
 
 ## 版本号自动化
 
@@ -54,11 +56,12 @@ sed -i 's|dl.example.com|dl.quaverq.app|g' docs-site/version.json docs-site/_red
 
 ## 发版流程（手动）
 
+假设要发 `v0.2.0`，桶名为 `quaverq`：
+
 1. 本地或 CI 构建出 AppImage：`uv run python build.py --appimage`
-2. 上传到 R2：
+2. 上传到 R2（一份归档、一份覆盖 latest）：
    ```bash
    wrangler r2 object put quaverq/v0.2.0/QuaverQ-x86_64.AppImage --file dist/QuaverQ-x86_64.AppImage
-   # 如果用 latest/ 别名约定，再上传一份：
    wrangler r2 object put quaverq/latest/QuaverQ-x86_64.AppImage --file dist/QuaverQ-x86_64.AppImage
    ```
 3. 更新 `docs-site/version.json`：
@@ -66,7 +69,7 @@ sed -i 's|dl.example.com|dl.quaverq.app|g' docs-site/version.json docs-site/_red
    {
      "version": "v0.2.0",
      "filename": "QuaverQ-x86_64.AppImage",
-     "url": "https://dl.quaverq.app/quaverq/v0.2.0/QuaverQ-x86_64.AppImage",
+     "url": "https://cdn.quaverq.nvimer.org/v0.2.0/QuaverQ-x86_64.AppImage",
      "size": 40345600,
      "released_at": "2026-06-15"
    }
@@ -78,7 +81,7 @@ sed -i 's|dl.example.com|dl.quaverq.app|g' docs-site/version.json docs-site/_red
 
 ## 短链
 
-- `https://<domain>/download` → R2 上的 latest AppImage 直链
+- `https://<pages-domain>/download` → `https://cdn.quaverq.nvimer.org/latest/QuaverQ-x86_64.AppImage`（302）
 
 ## 部署到 Cloudflare Pages
 
@@ -111,7 +114,7 @@ python -m http.server 8080
 
 ## 待办
 
-- [ ] 配置实际 R2 自定义域名（替换 `dl.example.com` 占位符）
+- [ ] 在 Cloudflare R2 桶下创建 `latest/` + 首版 `v0.1.0/` 路径并上传 AppImage
 - [ ] 补充实际软件截图区块（当前版本未包含截图，避免误用设计参考素材）
 - [ ] 给 Pages 接入自定义域名
 - [ ] 视情况引入轻量站点统计（如 Cloudflare Web Analytics，零侵入）
