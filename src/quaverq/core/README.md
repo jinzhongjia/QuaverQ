@@ -17,6 +17,7 @@
 | `queue.py` | **播放队列 + 4 种播放模式**（`SEQUENCE` / `REPEAT_ALL` / `REPEAT_ONE` / `SHUFFLE`）。区分 `on_song_end()`（EOS 回调，遵守模式）和 `next()` / `prev()`（用户主动）；SHUFFLE 维护独立的索引置换列表。 |
 | `lyric.py` | **LRC / QRC 解析 + 同步定位**。LRC 行级、QRC 逐字（`[起始ms,时长ms](文字起始,时长)...`）。给定播放进度返回当前行 + 字内进度，驱动 karaoke 高亮；无逐字数据时回退逐行。 |
 | `mpris.py` | **MPRIS2 D-Bus 集成**（`org.mpris.MediaPlayer2.quaverq`）。dbus-next pure-python async，挂在 qasync / Qt 主事件循环。方法调用回调由 `bridge.MprisController` 注入，状态/元数据变化由 controller 主动推。 |
+| `single_instance.py` | **单实例守卫**。启动时占 well-known name `org.quaverq.SingleInstance`（`RequestName + DO_NOT_QUEUE`），占到即第一实例；占不到则给 `org.mpris.MediaPlayer2.quaverq` 发 `Raise` 通知已有实例前置窗口，调用方退出。bus 连接由 `SingleInstanceGuard` 自持到 `release()`，断连即释放名字。 |
 
 ## 缓存与持久化
 
