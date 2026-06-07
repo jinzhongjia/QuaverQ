@@ -105,20 +105,26 @@ def test_linux_adapter_provides_lyric_publisher():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
-def test_windows_adapter_capabilities_after_stage3a():
-    """Stage 3a 后: single_instance 真实现 (Mutex); 其余仍 None (Stage 3b/3c 填).
+def test_windows_adapter_capabilities_after_stage3b():
+    """Stage 3a/3b 后: single_instance + system_theme 真实现; media/lyric 仍 None (Stage 3c).
 
-    详细单实例契约测试见 test_platform_windows_single_instance.py.
+    详细契约测试分别见 test_platform_windows_single_instance.py /
+    test_platform_windows_system_theme.py.
     """
+    from PySide6.QtWidgets import QApplication
+
     from quaverq.platform import get_platform
     from quaverq.platform._windows_single_instance import WindowsSingleInstance
+    from quaverq.platform._windows_system_theme import WindowsSystemThemeWatcher
 
+    _ = QApplication.instance() or QApplication([])
     pal = get_platform()
     assert pal.name == "windows"
     guard = pal.single_instance()
     assert isinstance(guard, WindowsSingleInstance)
     guard.release()  # cleanup; 不持有 mutex
-    assert pal.system_theme() is None
+    theme = pal.system_theme()
+    assert isinstance(theme, WindowsSystemThemeWatcher)
     assert pal.media_session(object(), raise_window=lambda: None, quit_app=lambda: None) is None
     assert pal.lyric_publisher(lyric_controller=object(), player_controller=object()) is None
 

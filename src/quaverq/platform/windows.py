@@ -2,9 +2,9 @@
 
 已实现:
 - single_instance: 命名 Mutex (ctypes CreateMutexW, 见 _windows_single_instance.py)
+- system_theme: 注册表 AppsUseLightTheme + QTimer 2s 轮询 (见 _windows_system_theme.py)
 
-待实现 (Stage 3b/3c):
-- system_theme: 注册表 HKCU\\...\\AppsUseLightTheme + 轮询 / WM_SETTINGCHANGE
+待实现 (Stage 3c):
 - media_session: SMTC (Windows.Media.SystemMediaTransportControls, 经 winrt)
 - lyric_publisher: 暂无对应机制 (Linux D-Bus 的等价物在 Windows 上没有标准, 长尾)
 """
@@ -25,7 +25,9 @@ class WindowsPlatform:
         return WindowsSingleInstance()
 
     def system_theme(self) -> Any | None:
-        return None
+        from ._windows_system_theme import WindowsSystemThemeWatcher
+
+        return WindowsSystemThemeWatcher()
 
     def media_session(
         self,
