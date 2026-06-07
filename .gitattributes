@@ -1,0 +1,40 @@
+# 强制文本文件统一用 LF 换行 (Linux / macOS 原生; Windows 走 git 自动转换).
+#
+# 背景: 项目以 Linux 为主开发, ruff/qmllint/CI 都按 LF 校验
+# (pyproject.toml [tool.ruff.format] line-ending = "lf"). Windows 安装 Git 时
+# 默认 core.autocrlf=true 会在 checkout 时把 LF 转 CRLF, 触发 ruff format 失败.
+# 加 .gitattributes 覆盖全局配置, 任何平台 checkout 都拿到 LF.
+#
+# 改完这个文件后需要执行一次 `git add --renormalize .` 让历史已 commit 的
+# CRLF 文件重新规范化为 LF (会产生一次"line-ending only"的 commit).
+
+* text=auto eol=lf
+
+# 显式声明源码 / 配置文本类型 (eol=lf 已在上面默认, 这里只是更显式)
+*.py     text eol=lf
+*.qml    text eol=lf
+*.toml   text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.json   text eol=lf
+*.ini    text eol=lf
+*.xml    text eol=lf
+*.svg    text eol=lf
+*.desktop text eol=lf
+*.gitignore text eol=lf
+*.python-version text eol=lf
+qmldir   text eol=lf
+
+# 二进制 / 资源文件: 禁止 git 做任何换行转换
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.icns   binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary

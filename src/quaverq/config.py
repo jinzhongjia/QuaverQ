@@ -1,40 +1,44 @@
 """配置管理.
 
-配置文件路径：
-    - Linux: $XDG_CONFIG_HOME/quaverq/config.toml
-    - 回退: ~/.config/quaverq/config.toml
+配置 / 缓存路径走 platformdirs, 跨平台规则:
+    - Linux:   $XDG_CONFIG_HOME/quaverq, $XDG_CACHE_HOME/quaverq
+               (XDG 未设时回退 ~/.config / ~/.cache, 与历史行为一致)
+    - Windows: %APPDATA%\\quaverq, %LOCALAPPDATA%\\quaverq\\Cache
+    - macOS:   ~/Library/Application Support/quaverq, ~/Library/Caches/quaverq
 """
 
 from __future__ import annotations
 
-import os
 import shutil
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
+from platformdirs import PlatformDirs
+
+_APP_NAME = "quaverq"
+
+
+def _dirs() -> PlatformDirs:
+    """构造 PlatformDirs.
+
+    appauthor=False: Windows 上不要在路径里塞一层 "<author>", 让 %APPDATA%\\quaverq
+    与 macOS ~/Library/Application Support/quaverq 直接落在以应用命名的一级目录里.
+    roaming=True: Windows 选 %APPDATA% (Roaming) 而非 %LOCALAPPDATA% 来放配置, 跟随用户漫游.
+    """
+    return PlatformDirs(appname=_APP_NAME, appauthor=False, roaming=True)
+
 
 def _config_dir() -> Path:
-    """获取配置目录."""
-    if sys.platform == "linux":
-        base = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-        return Path(base) / "quaverq"
-    return Path.home() / ".config" / "quaverq"
+    return Path(_dirs().user_config_dir)
+
+
+def _cache_dir() -> Path:
+    return Path(_dirs().user_cache_dir)
 
 
 CONFIG_DIR = _config_dir()
 CONFIG_FILE = CONFIG_DIR / "config.toml"
-
-
-def _cache_dir() -> Path:
-    """获取缓存目录."""
-    if sys.platform == "linux":
-        base = os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
-        return Path(base) / "quaverq"
-    return Path.home() / ".cache" / "quaverq"
-
-
 CACHE_DIR = _cache_dir()
 
 

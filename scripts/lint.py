@@ -13,12 +13,33 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 QML_ROOT = ROOT / "src" / "quaverq" / "qml"
+
+
+def _resolve_tool(name: str) -> str:
+    """在当前 PATH 上把工具名解析成绝对路径.
+
+    Windows 的 ``CreateProcess`` 不会按 ``PATHEXT`` 自动补 ``.exe`` / ``.cmd``,
+    所以 ``subprocess.run(["ruff", ...])`` 在 Windows 上会 FileNotFoundError.
+    ``shutil.which`` 会按 PATHEXT 搜, 跨平台返回带扩展名的真实路径.
+
+    本脚本预期经 ``uv run python scripts/lint.py`` 拉起, 此时 venv 已激活,
+    ``ruff`` / ``pyside6-qmllint`` 都在 PATH 上. 找不到则抛 FileNotFoundError,
+    提示用户用 ``uv run`` 启动.
+    """
+    path = shutil.which(name)
+    if path is None:
+        raise FileNotFoundError(
+            f"未能在 PATH 上找到可执行 {name!r}; "
+            f"请改用 `uv run python scripts/lint.py` 启动 (venv 自动激活)."
+        )
+    return path
 
 
 def _run(cmd: list[str], *, label: str) -> int:
@@ -29,15 +50,16 @@ def _run(cmd: list[str], *, label: str) -> int:
 
 
 def _ruff(fix: bool) -> int:
-    check = ["uv", "run", "ruff", "check", "src", "tests", "scripts", "build.py"]
-    fmt = ["uv", "run", "ruff", "format"]
-    fmt_targets = ["src", "tests", "scripts", "build.py"]
+    ruff = _resolve_tool("ruff")
+    targets = ["src", "tests", "scripts", "build.py"]
+    check = [ruff, "check", *targets]
+    fmt = [ruff, "format"]
     if fix:
         return _run([*check, "--fix"], label="ruff check --fix") | _run(
-            [*fmt, *fmt_targets], label="ruff format"
+            [*fmt, *targets], label="ruff format"
         )
     return _run(check, label="ruff check") | _run(
-        [*fmt, *fmt_targets, "--check"], label="ruff format --check"
+        [*fmt, *targets, "--check"], label="ruff format --check"
     )
 
 
@@ -46,12 +68,11 @@ def _qmllint() -> int:
     if not qml_files:
         print("[lint] 未找到 .qml 文件, 跳过 QML lint")
         return 0
+    qmllint = _resolve_tool("pyside6-qmllint")
     # --max-warnings=0: 任何 warning 都让退出码非 0; 项目里合法的特殊用法 (如 ContextProperty)
     # 已用 inline `// qmllint disable <rule>` 注释精确抑制, 不应放水整条规则.
     cmd = [
-        "uv",
-        "run",
-        "pyside6-qmllint",
+        qmllint,
         "--max-warnings=0",
         "-I",
         str(QML_ROOT),
