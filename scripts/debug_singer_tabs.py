@@ -7,13 +7,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from quaverq.core.service import QuaverService, _credential_from_dict
+from quaverq.core.service import QuaverService
 
 DEFAULT_SINGER = "0025NhlN2yWrP4"  # 周杰伦
 
@@ -28,11 +27,12 @@ def _to_dict(obj):
 
 async def main() -> None:
     mid = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SINGER
-    cred_path = os.path.expanduser("~/.config/quaverq/credential.json")
-    with open(cred_path) as f:
-        cred = _credential_from_dict(json.load(f))
+    svc = QuaverService()
+    cred = svc.load_cached_credential_sync()
+    if cred is None:
+        print("no cached credential; 请先在 app 内扫码登录")
+        return
 
-    svc = QuaverService(credential=cred)
     await svc.connect()
     svc.set_credential_sync(cred)
     print(f"singer mid={mid}  ct={svc._ct_value}")

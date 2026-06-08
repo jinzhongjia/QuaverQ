@@ -12,20 +12,23 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from quaverq.config import CONFIG_DIR
 from quaverq.core.serde import song_from_dict
-from quaverq.core.service import QuaverService, _credential_from_dict
+from quaverq.core.service import QuaverService
 
 
 async def main() -> None:
-    cred_path = os.path.expanduser("~/.config/quaverq/credential.json")
-    state_path = os.path.expanduser("~/.config/quaverq/state.json")
-    guid_path = os.path.expanduser("~/.config/quaverq/device_id")
+    svc = QuaverService()
+    cred = svc.load_cached_credential_sync()
+    if cred is None:
+        print("no cached credential; 请先在 app 内扫码登录")
+        return
 
-    with open(cred_path) as f:
-        cred = _credential_from_dict(json.load(f))
-    with open(state_path) as f:
+    state_path = CONFIG_DIR / "state.json"
+    guid_path = CONFIG_DIR / "device_id"
+    with open(state_path, encoding="utf-8") as f:
         state = json.load(f)
-    with open(guid_path) as f:
+    with open(guid_path, encoding="utf-8") as f:
         guid = f.read().strip()
 
     print(f"musicid={cred.musicid}")
@@ -39,7 +42,6 @@ async def main() -> None:
     song = song_from_dict(queue_raw[0])
     print(f"取第一首: mid={song.mid} name={song.name!r} id={song.id}")
 
-    svc = QuaverService(credential=cred)
     await svc.connect()
     svc.set_credential_sync(cred)
     forced_ct = int(os.environ.get("QQ_DEBUG_CT", "0") or "0")

@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from quaverq.core.service import QuaverService, _credential_from_dict
+from quaverq.config import CONFIG_DIR
+from quaverq.core.service import QuaverService
 
 # 周杰伦《晴天》songid (常见公开歌, 探针默认)
 DEFAULT_SONGID = 102065756
@@ -32,12 +32,13 @@ async def main() -> None:
     songid = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SONGID
     print(f"target songid = {songid}")
 
-    cred_path = os.path.expanduser("~/.config/quaverq/credential.json")
-    with open(cred_path) as f:
-        cred = _credential_from_dict(json.load(f))
+    svc = QuaverService()
+    cred = svc.load_cached_credential_sync()
+    if cred is None:
+        print("no cached credential; 请先在 app 内扫码登录")
+        return
     print(f"cred musicid={cred.musicid}")
 
-    svc = QuaverService(credential=cred)
     await svc.connect()
     svc.set_credential_sync(cred)
     try:
@@ -88,9 +89,9 @@ async def main() -> None:
         print("\n=== C. 当前队列里第一首歌的 id (确认我们 Song.id 的字段类型) ===")
         from quaverq.core.state import SessionState
 
-        sess_path = os.path.expanduser("~/.config/quaverq/state.json")
-        if os.path.exists(sess_path):
-            session = SessionState.load(sess_path)
+        sess_path = CONFIG_DIR / "state.json"
+        if sess_path.exists():
+            session = SessionState.load(str(sess_path))
             if session.queue:
                 first = session.queue[0]
                 print(f"first song mid={first.mid!r} id={first.id!r} name={first.name!r}")
