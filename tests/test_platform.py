@@ -129,6 +129,12 @@ def test_windows_adapter_capabilities_after_stage3c():
     )
     assert isinstance(media, WindowsMediaSession)
     assert pal.lyric_publisher(lyric_controller=object(), player_controller=object()) is None
+    # Windows: desktop_lyrics 应当返回 DesktopLyricsController (QQ 音乐风格悬浮歌词)
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake_lc = _FakeLyricController()
+    dl = pal.desktop_lyrics(fake_lc)
+    assert isinstance(dl, DesktopLyricsController)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS only")
@@ -141,6 +147,8 @@ def test_macos_adapter_returns_none_for_all_capabilities():
     assert pal.system_theme() is None
     assert pal.media_session(object(), raise_window=lambda: None, quit_app=lambda: None) is None
     assert pal.lyric_publisher(lyric_controller=object(), player_controller=object()) is None
+    # macOS 不接 desktop_lyrics (跟 Linux 同理, Spaces / Mission Control 下交互复杂)
+    assert pal.desktop_lyrics(object()) is None
 
 
 # ============================================================== Protocol 契约
@@ -165,10 +173,14 @@ def test_platform_adapter_protocol_accepts_stub():
         def lyric_publisher(self, *, lyric_controller, player_controller):
             return None
 
+        def desktop_lyrics(self, lyric_controller):
+            return None
+
     stub: PlatformAdapter = StubAdapter()  # 类型检查: Protocol 结构鸭子
     assert stub.name == "stub"
     assert stub.single_instance() is None
     assert stub.lyric_publisher(lyric_controller=None, player_controller=None) is None
+    assert stub.desktop_lyrics(None) is None
 
 
 # ============================================================== helpers
@@ -204,7 +216,7 @@ class _FakePlayerController:
 
 
 class _FakeLyricController:
-    """模拟 LyricController, 给 LyricsDBusController 构造时的最少接口."""
+    """模拟 LyricController, 给 LyricsDBusController + DesktopLyricsController 用."""
 
     def __init__(self) -> None:
         from PySide6.QtCore import QObject, Signal
@@ -213,7 +225,10 @@ class _FakeLyricController:
 
         class _Sig(QObject):
             lyricChanged = Signal()
+            currentLineChanged = Signal()
 
         self._holder = _Sig()
         self.lyricChanged = self._holder.lyricChanged
+        self.currentLineChanged = self._holder.currentLineChanged
         self.current_lyric = Lyric(mid="", lines=[])
+        self.currentLineText = ""

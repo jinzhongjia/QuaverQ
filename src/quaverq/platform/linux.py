@@ -56,3 +56,11 @@ class LinuxPlatform:
             lyric_controller=lyric_controller,
             player_controller=player_controller,
         )
+
+    def desktop_lyrics(self, lyric_controller: Any) -> Any | None:  # noqa: ARG002
+        # Linux 故意不实现:
+        # - Wayland (Mutter/KWin/Hyprland) 下 frameless + transparent + input-passthrough
+        #   组合在不同 compositor 行为不一致 (焦点抢占 / z-order 错位 / 透明合成怪异),
+        #   不写跨 compositor 兜底.
+        # - Linux 用户走现成桌面歌词工具 (kde-mpris-osd 等) 接我们的 MPRIS, 不重复造轮子.
+        return None

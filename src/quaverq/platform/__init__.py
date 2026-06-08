@@ -55,6 +55,9 @@ class _NullPlatform:
     ) -> Any | None:
         return None
 
+    def desktop_lyrics(self, lyric_controller: Any) -> Any | None:  # noqa: ARG002
+        return None
+
 
 @lru_cache(maxsize=1)
 def get_platform() -> PlatformAdapter:

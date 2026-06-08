@@ -325,6 +325,11 @@ def main() -> None:
         lyric_controller=lyric_controller,
         player_controller=player_controller,
     )
+    # 桌面悬浮歌词 (Windows 默认开启 QQ 音乐风格悬浮窗; Linux 走 MPRIS 不内嵌).
+    # 必须保留引用防 GC, 否则 Qt 会回收 QWidget + signal 连接断.
+    desktop_lyrics_controller = pal.desktop_lyrics(lyric_controller)
+    if desktop_lyrics_controller is not None:
+        desktop_lyrics_controller.show()
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
         loop.create_task(

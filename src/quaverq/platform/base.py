@@ -94,3 +94,16 @@ class PlatformAdapter(Protocol):
         Windows / macOS 暂无对等机制, 返回 None.
         """
         ...
+
+    def desktop_lyrics(self, lyric_controller: Any) -> Any | None:
+        """返回桌面悬浮歌词窗 controller (类似 QQ 音乐桌面歌词).
+
+        - Windows: 唯一支持平台. 返 ``DesktopLyricsController``.
+        - Linux: **不支持** —— Wayland 下 frameless + transparent + input-passthrough
+          组合在不同 compositor (Mutter / KWin / Hyprland 等) 行为不一致, 焦点抢占 /
+          z-order 问题难定位. Linux 用户走 MPRIS 接现成桌面歌词工具
+          (kde-mpris-osd, gnome-mpris-applet 等). 返 None.
+        - macOS: 不在范围内 (Stage 4 也不打算做; 与 Linux 同理, Spaces / Mission
+          Control 下浮窗交互复杂). 返 None.
+        """
+        ...

@@ -23,7 +23,7 @@ LLM 约定：
   - **Secret Service**（`gnome-keyring` / `kwallet` / `keepassxc` 等任一）：凭据存储（`keyring` 库自动选）。
   - **xdg-desktop-portal**：系统亮/暗色主题跟随（`org.freedesktop.appearance/color-scheme`）。
   - **不支持的场景**：tty / headless / 无 D-Bus 的最小化 WM（i3、dwm 等需自行启 D-Bus session + Secret Service backend），keyring / MPRIS / 单实例守卫都会 log warning 后**降级到 no-op**，但**不会**回退到明文文件存储。
-- **Windows**：Windows 10+ x64。自动使用平台原生：凭证管理器（凭据存储）/ SMTC（Now Playing 卡片 + 键盘媒体键）/ 注册表 `AppsUseLightTheme`（主题跟随）/ 命名 Mutex（单实例）。无单实例守卫则允许多开。详见 `src/quaverq/platform/_windows_*.py`。
+- **Windows**：Windows 10+ x64。自动使用平台原生：凭证管理器（凭据存储）/ SMTC（Now Playing 卡片 + 键盘媒体键）/ 注册表 `AppsUseLightTheme`（主题跟随）/ 文件锁 `LockFileEx`（单实例）/ **QQ 音乐风格桌面悬浮歌词**（`DesktopLyricsController`，Qt frameless + 透明 + 鼠标穿透）。详见 `src/quaverq/platform/_windows_*.py` 及 `src/quaverq/bridge/desktop_lyrics.py`。
 - **macOS**：计划支持 macOS 12+（Stage 4），当前 `darwin` 走 `_NullPlatform` stub，所有平台能力返 None。
 
 平台抽象层入口：`from quaverq.platform import get_platform`；调用方**必须容忍 None**（降级），不能 `assert pal.x() is not None`。详见 `src/quaverq/platform/README.md`。
@@ -95,6 +95,18 @@ LLM 约定：
 
 - `setApplicationName("quaverq")` (**小写, 与 platformdirs appname 完全一致**); Linux case-sensitive, 大小写不一致会分裂出两个目录。
 - **故意不设 `setOrganizationName`** —— Qt 的 `QStandardPaths` 用 `<base>/<orgname>/<appname>` 布局, 设了 orgname 就嵌套出 `%LOCALAPPDATA%\quaverq\quaverq\`。留空后单层 `%LOCALAPPDATA%\quaverq\`, 跟我们 CACHE_DIR 合并。
+
+### 桌面悬浮歌词: 仅 Windows, 不接 Linux / macOS
+
+- **Linux 故意不实现** —— Wayland 多家 compositor (Mutter / KWin / Hyprland 等) 下
+  `FramelessWindowHint + WA_TranslucentBackground + WindowTransparentForInput` 组合行为
+  不一致 (焦点抢占 / z-order 错位 / 透明合成怪异); 不写跨 compositor 兜底.
+- **Linux 用户走 MPRIS** 接现成桌面歌词工具 (kde-mpris-osd / gnome-mpris-applet 等),
+  我们已经暴露 `org.quaverq.Lyrics1` D-Bus 接口, 不重复造轮子.
+- **macOS 同理不接** —— Spaces / Mission Control 下浮窗交互复杂, Stage 4 也不打算做.
+- 实现 (`src/quaverq/bridge/desktop_lyrics.py`) 本身是**纯 Qt, 跨平台 import 不崩**, 但
+  `PAL.desktop_lyrics()` 只在 Windows 实例化 ( `platform/windows.py` 返实例, 其他平台返 None).
+- **不要往 Linux / macOS 路径加 fallback** —— 见 [Wayland 已知坑文档](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) 之类的工程权衡, 别又造一份 X11 / Wayland 分支.
 
 ### Qt SMTC interop (Win32 媒体会话)
 
