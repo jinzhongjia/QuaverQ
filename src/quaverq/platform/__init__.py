@@ -42,6 +42,8 @@ class _NullPlatform:
         *,
         raise_window: Any = None,
         quit_app: Any = None,
+        cover_cache: Any = None,
+        stream_proxy: Any = None,
     ) -> Any | None:
         return None
 

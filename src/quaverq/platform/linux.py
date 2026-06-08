@@ -33,6 +33,8 @@ class LinuxPlatform:
         *,
         raise_window: Any = None,
         quit_app: Any = None,
+        cover_cache: Any = None,  # noqa: ARG002  Linux MPRIS 现走 URL artUrl, 用不到本地缓存
+        stream_proxy: Any = None,  # noqa: ARG002  Linux 同理
     ) -> Any:
         from ..bridge.mpris_controller import MprisController
 

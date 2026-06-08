@@ -66,6 +66,8 @@ class PlatformAdapter(Protocol):
         *,
         raise_window: Any = None,
         quit_app: Any = None,
+        cover_cache: Any = None,
+        stream_proxy: Any = None,
     ) -> Any | None:
         """返回媒体会话控制器 (Linux: MprisController; Windows: SMTC; macOS: NowPlayingInfoCenter).
 
@@ -73,6 +75,8 @@ class PlatformAdapter(Protocol):
         ``async start_async() / stop_async()`` 方法给 __main__.py 的启动 / 退出钩子.
         ``raise_window`` / ``quit_app`` 是无参回调, 用于平台层"前置窗口" / "退出应用"
         语义的本地反馈 (例如 MPRIS Raise / Quit 接口转回主窗口).
+        ``cover_cache`` 让 Windows SMTC 把已下载的封面 (磁盘 file:// URI) 设为
+        Now Playing 卡片 Thumbnail; Linux MPRIS 当前不需要 (artUrl 走 URL 即可).
 
         不支持时返回 None, 调用方退化到"无媒体键 / Now Playing 集成".
         """

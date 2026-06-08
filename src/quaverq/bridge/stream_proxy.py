@@ -14,9 +14,11 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from curl_cffi import requests as creq
@@ -37,11 +39,17 @@ class StreamProxy:
         impersonate: str = "chrome",
         allowed_suffixes: tuple[str, ...] = _ALLOWED_HOST_SUFFIXES,
         timeout: float = 20.0,
+        local_dir: Path | None = None,
     ) -> None:
         self._impersonate = impersonate
         self._allowed = allowed_suffixes
         self._timeout = timeout
         self._token = secrets.token_urlsafe(16)
+        # 本地静态文件目录 (供 Windows SMTC 把封面通过 http:// 暴露出去, 因 SMTC
+        # 的 RandomAccessStreamReference.CreateFromUri 不支持 file:// URI).
+        # 仅 127.0.0.1 监听; 用 token 做额外鉴权防止本机其他进程瞎读.
+        self._local_dir = Path(local_dir).resolve() if local_dir is not None else None
+        self._local_token = secrets.token_urlsafe(16)
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -100,13 +108,33 @@ class StreamProxy:
             return real_url
         return f"http://127.0.0.1:{self.port}/{self._token}?u={quote(real_url, safe='')}"
 
+    def local_file_url(self, filename: str) -> str | None:
+        """给本机静态文件 (在 ``local_dir`` 下) 生成回环 http url.
+
+        典型用途: Windows SMTC 用 ``RandomAccessStreamReference.CreateFromUri(http://)``
+        加载本地封面 —— 它不支持 ``file://`` URI.
+
+        返回 None 表示: 未启动 / 没配置 local_dir / 文件名含路径分隔符.
+        """
+        if not self.running or self._local_dir is None:
+            return None
+        # 防 path traversal: 只允许干净文件名
+        if "/" in filename or "\\" in filename or filename in ("", ".", ".."):
+            return None
+        return f"http://127.0.0.1:{self.port}/_local/{self._local_token}/{quote(filename, safe='')}"
+
     def _host_allowed(self, url: str) -> bool:
         host = (urlsplit(url).hostname or "").lower()
         return any(host.endswith(suffix) for suffix in self._allowed)
 
     def _handle(self, handler: BaseHTTPRequestHandler, *, head: bool) -> None:
         parts = urlsplit(handler.path)
-        if parts.path.strip("/") != self._token:
+        path = parts.path
+        # 本地静态文件路径: /_local/<token>/<filename>
+        if path.startswith("/_local/"):
+            self._handle_local(handler, path, head=head)
+            return
+        if path.strip("/") != self._token:
             handler.send_response(403)
             handler.send_header("Content-Length", "0")
             handler.end_headers()
@@ -156,3 +184,53 @@ class StreamProxy:
             logger.warning("StreamProxy 转发中断: %s", exc)
         finally:
             resp.close()
+
+    def _handle_local(self, handler: BaseHTTPRequestHandler, path: str, *, head: bool) -> None:
+        """``/_local/<token>/<filename>`` -> 从 ``local_dir`` 读文件."""
+        if self._local_dir is None:
+            handler.send_response(403)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        # path: /_local/<token>/<filename>
+        parts = path[len("/_local/") :].split("/", 1)
+        if len(parts) != 2 or parts[0] != self._local_token:
+            handler.send_response(403)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        filename = unquote(parts[1])
+        # 二次防 traversal: resolve 后必须仍在 local_dir 下
+        try:
+            target = (self._local_dir / filename).resolve()
+            target.relative_to(self._local_dir)
+        except (OSError, ValueError):
+            handler.send_response(403)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        if not target.is_file():
+            handler.send_response(404)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        try:
+            size = target.stat().st_size
+            content_type, _ = mimetypes.guess_type(str(target))
+            handler.send_response(200)
+            handler.send_header("Content-Length", str(size))
+            handler.send_header("Content-Type", content_type or "application/octet-stream")
+            handler.send_header("Cache-Control", "public, max-age=3600")
+            handler.end_headers()
+            if head:
+                return
+            with open(target, "rb") as f:
+                while True:
+                    chunk = f.read(_STREAM_CHUNK)
+                    if not chunk:
+                        break
+                    handler.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            logger.warning("StreamProxy 本地文件读取失败: %s", exc)

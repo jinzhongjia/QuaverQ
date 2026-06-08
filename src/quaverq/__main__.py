@@ -243,7 +243,9 @@ def main() -> None:
     detail_controller_factory = DetailControllerFactory(service_controller)
     song_detail_controller = SongDetailController(service_controller)
     library_controller = LibraryController(service_controller, home_cache=home_cache)
-    stream_proxy = StreamProxy()
+    # Windows SMTC 用 stream_proxy 暴露封面给系统 (SMTC 的 RandomAccessStreamReference
+    # 不支持 file:// URI, 必须走 http://); 其他平台无影响.
+    stream_proxy = StreamProxy(local_dir=CACHE_DIR / "covers")
     stream_proxy.start()
     player_controller = PlayerController(
         service_controller,
@@ -298,12 +300,15 @@ def main() -> None:
     else:
         logger.info("系统托盘不可用, 关闭窗口将退出程序")
 
-    # 媒体会话 (Linux: MPRIS2; Windows/macOS: TODO Stage 3/4) + 歌词外发 (Linux: D-Bus).
+    # 媒体会话 (Linux: MPRIS2; Windows: SMTC; macOS: TODO Stage 4) + 歌词外发 (Linux: D-Bus).
     # None 时 _shutdown / start 钩子都已 None-guard, 应用功能不受影响.
+    # cover_cache 仅 Windows SMTC 使用 (本地 file:// URI -> Now Playing 卡片 Thumbnail).
     mpris_controller = pal.media_session(
         player_controller,
         raise_window=lambda: _raise_main_window(engine),
         quit_app=app.quit,
+        cover_cache=cover_cache,
+        stream_proxy=stream_proxy,
     )
     lyrics_dbus_controller = pal.lyric_publisher(
         lyric_controller=lyric_controller,
