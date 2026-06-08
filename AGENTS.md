@@ -67,6 +67,45 @@ LLM 约定：
 - `roaming=True`（Windows config 走 Roaming，可跨机器漫游）
 - `opinion=False`（**关掉 platformdirs 的 Windows `\Cache` 后缀**，否则 CACHE_DIR 就成了 `%LOCALAPPDATA%\quaverq\Cache\`，跟 Qt 的 `cache\` 子目录大小写撞车 + 视觉上别扭）
 
+## 跨平台已踩过的雷 (don't repeat)
+
+下面这些坑都是实测过 + 排查到根因的, 写下来防 LLM / 后人再踩。
+
+### Windows 单实例守卫: 必须用 `LockFileEx`, 不要碰 mutex / msvcrt
+
+- ❌ **`CreateMutexW` 命名 mutex**: 现代 Windows + Python 3.14 上, 不同 `python.exe` 进程的 named kernel object 走 isolated namespace, 第二个 ``CreateMutexW`` 同名也不会返 ``ERROR_ALREADY_EXISTS``。表面成功, 实际**两个进程都"占用成功"**, 互斥失效。
+- ❌ **`msvcrt.locking`**: 基于 CRT `_locking()` 抽象层, 实测不真正调 OS-level byte-range lock, 跨进程也"都成功"。
+- ✅ **Win32 `LockFileEx`**: 直接 ctypes 调, 真正 OS-level byte-range lock, 跨进程一致互斥 (`ERROR_LOCK_VIOLATION=33`)。进程退出时 OS 自动 close handle 释放锁。详见 `src/quaverq/platform/_windows_single_instance.py`。
+
+附加规则:
+- **绝对不 `os.unlink` 锁文件** —— 删了后下次 `CreateFileW(OPEN_ALWAYS)` 会创建**新 inode**, 多进程锁到不同的文件 → 互斥失效。锁文件就 1 byte, 留着不删。
+- **不要把 release 接到 `app.aboutToQuit`** —— qasync 的 `loop.run_until_complete(...)` 内部用 `app.exit()` 退出当前 event loop level, 会**意外触发 aboutToQuit 信号** (app 实际并未退出)。把 `instance_guard.release()` 放在 `with loop:` 块**外** (真正退出后) 调用。
+
+### Windows 凭据 (keyring)
+
+- 凭据**只**走 `keyring` (Windows Credential Manager backend); 失败时静默 log warning, 不回退明文文件 —— 软件未发布无历史用户, 不写迁移逻辑 (见上面 [Stage 2 keyring 实现](src/quaverq/core/service.py) 的 `_save_credential_blob` / `_load_credential_blob`)。
+- `tests/conftest.py` 的 autouse `fake_keyring` fixture 强制把 keyring backend 替成进程内 dict, **测试绝不能往真实 Credential Manager 写**。
+
+### Windows 编码 (GBK 隐患)
+
+- Python `open()` 默认用 `locale.getpreferredencoding()`, Windows 中文 locale 是 `cp936` (GBK)。**所有文本 IO 必须显式 `encoding="utf-8"`**, 否则保存含 Ø / 中文 nickname / Unicode cookie 的 JSON 会 `UnicodeEncodeError`。
+- 已修过的实例: `core/state.py` 会话快照 + `core/service.py` 凭据 (现已迁 keyring)。grep `\bopen\(` 找新引入的漏网。
+
+### Qt `QApplication` 配置 (Windows 路径双层 / 大小写一致)
+
+- `setApplicationName("quaverq")` (**小写, 与 platformdirs appname 完全一致**); Linux case-sensitive, 大小写不一致会分裂出两个目录。
+- **故意不设 `setOrganizationName`** —— Qt 的 `QStandardPaths` 用 `<base>/<orgname>/<appname>` 布局, 设了 orgname 就嵌套出 `%LOCALAPPDATA%\quaverq\quaverq\`。留空后单层 `%LOCALAPPDATA%\quaverq\`, 跟我们 CACHE_DIR 合并。
+
+### Qt SMTC interop (Win32 媒体会话)
+
+- 不要用 `winrt-Windows.Media` Python 包做 SMTC 集成 —— `winrt._winrt.SystemMediaTransportControls._from(ptr)` 不接受裸 `IUnknown*` (来自 `ISystemMediaTransportControlsInterop::GetForWindow`)。
+- **走纯 ctypes COM vtable 直调**, 见 `src/quaverq/platform/_windows_media_session.py`。关键 IID (实测得到, 部分文档抄错的):
+  - `IRandomAccessStreamReferenceStatics = {857309DC-3FBF-4E7D-986F-EF3B1A07A964}`
+  - `IUriRuntimeClassFactory = {44A9796F-723E-4FDF-A218-033E75B0C084}`
+  - `IRandomAccessStreamReferenceStatics::CreateFromUri` 在 vtable[7] (不是 [6])
+- **`RandomAccessStreamReference.CreateFromUri` 不支持 `file://`** (只支持 `ms-appx://` / `ms-appdata://` / `http(s)://`); 本地图片走 `StreamProxy.local_file_url()` 包成 `http://127.0.0.1:port/_local/<token>/<file>` 才能塞给 SMTC Thumbnail。
+- **按钮事件 handler COM 对象**: `QueryInterface` 对 `INoMarshal` 必须返 `E_NOINTERFACE` (不是 `S_OK`), 否则 SMTC 视我们为 non-agile, 拒绝注册回调。
+
 ## 项目使用的库
 
 ### 运行时依赖 (`[project] dependencies`)

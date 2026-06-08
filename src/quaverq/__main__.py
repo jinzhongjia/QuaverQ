@@ -227,7 +227,10 @@ def main() -> None:
             instance_guard.release()
             logger.info("QuaverQ 已在运行, 已请求现有窗口前置, 本实例退出")
             sys.exit(0)
-        app.aboutToQuit.connect(instance_guard.release)
+        # 注意: 不连 `app.aboutToQuit.connect(instance_guard.release)` —— qasync 的
+        # ``loop.run_until_complete()`` 内部用 ``app.exit()`` 退出当前 event loop level
+        # 退出时会触发 aboutToQuit 信号, 误把锁释放掉. 把 release 放到 _shutdown 之后
+        # (with loop 块外), 那时 app 才真正进入退出阶段.
     else:
         logger.info("当前平台 (%s) 暂无单实例守卫, 允许多开", pal.name)
 
@@ -338,6 +341,10 @@ def main() -> None:
         loop.run_forever()  # qasync 在关窗 (app.quit) 时干净返回
         # 关窗后趁 loop 未关 / QObject 仍存活: 关下载 session + 停 D-Bus 服务 + 取消排空挂起任务
         loop.run_until_complete(_shutdown(mpris_controller, lyrics_dbus_controller, cover_cache))
+    # 释放单实例锁: 必须在 with loop 块外, 避免被 qasync run_until_complete 的内部
+    # app.exit() 触发 aboutToQuit 误删 (见上面 instance_guard.acquire 处注释).
+    if instance_guard is not None:
+        instance_guard.release()
 
 
 if __name__ == "__main__":

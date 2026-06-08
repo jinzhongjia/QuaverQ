@@ -1,23 +1,23 @@
-"""Windows 单实例守卫 —— 命名 Mutex 占位.
+"""Windows 单实例守卫 —— 用 ``LockFileEx`` 真正跨进程独占锁.
 
-类比 Linux 的 D-Bus well-known name (``SingleInstanceGuard``):
-- 第一实例: CreateMutexW 拿到一个新 mutex (``GetLastError() != ERROR_ALREADY_EXISTS``), 持有 handle 直到 release()
-- 第二实例: CreateMutexW 返回已有 mutex (``GetLastError() == ERROR_ALREADY_EXISTS``), close handle 后返 False;
-  调 notify_existing_raise() 通过 ``EnumWindows`` 找第一实例主窗 + ``SetForegroundWindow`` 前置, 然后本进程退出.
+为什么 (尝试过又放弃的方案):
+- **命名 mutex (``CreateMutexW``)**: 现代 Windows / Python 3.14 上, 不同 python.exe
+  进程的 named kernel object 走 isolated namespace, ``ERROR_ALREADY_EXISTS`` 不触发,
+  互斥失效.
+- **``msvcrt.locking``**: 它基于 CRT 的 ``_locking()``, 实测两个独立进程都能 "拿到锁"
+  (CRT 抽象层不真正调用 OS-level byte-range lock 或调用方式有问题).
+- **``LockFileEx`` (本实现)**: 直接走 Win32 API, 真正的 OS-level byte-range lock,
+  跨进程一致互斥. 进程退出时 OS 自动释放 (handle close 时自动 unlock).
 
-设计要点:
-- **ctypes 而非 pywin32**: pywin32 ~50MB 太重, 且 Nuitka 打包要额外处理. ctypes 是标准库, Win32 API 直调.
-- **mutex 名带版本后缀**: ``QuaverQ-SingleInstance-v1``; 未来锁语义变更时换 v2, 避免老锁干扰新版本.
-- **不用 ``Global\\`` 前缀**: 默认 per-session per-user, 不同用户登录同机器各跑各的, 不互锁.
-- **SetForegroundWindow 在 Win10+ 可能被拒**: 默认前台锁机制不允许任意进程抢前台.
-  退而求其次 ``ShowWindow(SW_RESTORE)`` + ``FlashWindow`` 让任务栏图标闪烁提醒用户 (足够 UX).
-- **acquire / notify_existing_raise 用 ``asyncio.to_thread``**: Win32 调用是同步的, 但走 thread 避免
-  阻塞 qasync event loop (即使是几毫秒).
+实现:
+- ``CONFIG_DIR / .app.lock`` 用 ``CreateFileW`` 打开 (FILE_SHARE_READ|WRITE)
+- ``LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &OVERLAPPED)``
+  抢字节 0 的独占锁; 失败 GetLastError = ERROR_LOCK_VIOLATION (33)
+- 进程退出 OS 自动释放; ``release()`` 显式 ``UnlockFileEx`` + ``CloseHandle``
 """
 
 from __future__ import annotations
 
-import asyncio
 import ctypes
 import logging
 import sys
@@ -27,23 +27,64 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING or sys.platform == "win32":
-    # 只在 Windows 上加载 Win32 API; 其他平台 import 本模块时不连 DLL.
-    _ERROR_ALREADY_EXISTS = 183
     _SW_RESTORE = 9
-    _FLASHW_TRAY = 0x00000002
-    _FLASHW_TIMERNOFG = 0x0000000C
+    # CreateFileW flags
+    _GENERIC_READ = 0x80000000
+    _GENERIC_WRITE = 0x40000000
+    _FILE_SHARE_READ = 0x00000001
+    _FILE_SHARE_WRITE = 0x00000002
+    _OPEN_ALWAYS = 4
+    _FILE_ATTRIBUTE_NORMAL = 0x80
+    _INVALID_HANDLE_VALUE = -1
+    # LockFileEx flags
+    _LOCKFILE_EXCLUSIVE_LOCK = 0x00000002
+    _LOCKFILE_FAIL_IMMEDIATELY = 0x00000001
+    _ERROR_LOCK_VIOLATION = 33
 
-    DEFAULT_MUTEX_NAME = "QuaverQ-SingleInstance-v1"
-    DEFAULT_WINDOW_TITLE = "QuaverQ"
+
+class _OVERLAPPED(ctypes.Structure):
+    """Win32 OVERLAPPED struct (LockFileEx 必填, 但 byte range 锁可以全 0)."""
+
+    _fields_ = [
+        ("Internal", ctypes.c_void_p),
+        ("InternalHigh", ctypes.c_void_p),
+        ("Offset", wintypes.DWORD),
+        ("OffsetHigh", wintypes.DWORD),
+        ("hEvent", wintypes.HANDLE),
+    ]
 
 
 def _kernel32() -> ctypes.WinDLL:
-    """惰性加载 kernel32; 不在 module 顶部 import, 让本文件在 Linux 上也能被 mypy/grep 等读到."""
     dll = ctypes.WinDLL("kernel32", use_last_error=True)
-    dll.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
-    dll.CreateMutexW.restype = wintypes.HANDLE
+    dll.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    dll.CreateFileW.restype = wintypes.HANDLE
     dll.CloseHandle.argtypes = [wintypes.HANDLE]
     dll.CloseHandle.restype = wintypes.BOOL
+    dll.LockFileEx.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(_OVERLAPPED),
+    ]
+    dll.LockFileEx.restype = wintypes.BOOL
+    dll.UnlockFileEx.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(_OVERLAPPED),
+    ]
+    dll.UnlockFileEx.restype = wintypes.BOOL
     return dll
 
 
@@ -64,59 +105,70 @@ def _user32() -> ctypes.WinDLL:
     return dll
 
 
-class WindowsSingleInstance:
-    """命名 Mutex 实现的单实例守卫.
+def _default_lock_path() -> str:
+    from ..config import CONFIG_DIR
 
-    满足 ``quaverq.platform.base.SingleInstance`` Protocol (acquire / notify_existing_raise / release).
-    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return str(CONFIG_DIR / ".app.lock")
+
+
+class WindowsSingleInstance:
+    """``LockFileEx`` 实现的单实例守卫 (满足 ``platform.base.SingleInstance`` Protocol)."""
 
     def __init__(
         self,
-        mutex_name: str = "QuaverQ-SingleInstance-v1",
+        lock_path: str | None = None,
         window_title: str = "QuaverQ",
     ) -> None:
-        self._mutex_name = mutex_name
+        self._lock_path = lock_path
         self._window_title = window_title
         self._handle: int | None = None
 
+    def _resolve_lock_path(self) -> str:
+        return self._lock_path if self._lock_path is not None else _default_lock_path()
+
     async def acquire(self) -> bool:
-        """走 thread, 调 ``CreateMutexW``.
-
-        - 返回 True: 占到 mutex (本进程为首实例); handle 持有直到 release()
-        - 返回 False: 已被占 (有别的进程持着同名 mutex) / CreateMutex 失败
-        """
-        return await asyncio.to_thread(self._try_create_mutex)
-
-    def _try_create_mutex(self) -> bool:
+        path = self._resolve_lock_path()
         kernel32 = _kernel32()
-        handle = kernel32.CreateMutexW(None, True, self._mutex_name)
-        last_err = ctypes.get_last_error()
-        if not handle:
-            logger.warning("Windows 单实例: CreateMutexW 失败, GetLastError=%s", last_err)
+        # 打开文件: 跟其他读者 / 写者共享 (FILE_SHARE_*), 但锁字节 0 独占
+        handle = kernel32.CreateFileW(
+            path,
+            _GENERIC_READ | _GENERIC_WRITE,
+            _FILE_SHARE_READ | _FILE_SHARE_WRITE,
+            None,
+            _OPEN_ALWAYS,
+            _FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        # CreateFileW 失败时返回 INVALID_HANDLE_VALUE (-1 as signed; 0xFFFFFFFFFFFFFFFF as unsigned)
+        if handle == 0 or handle == 0xFFFFFFFFFFFFFFFF or handle == _INVALID_HANDLE_VALUE:
+            err = ctypes.get_last_error()
+            logger.warning("Windows 单实例: CreateFileW(%s) 失败, err=%d", path, err)
             return False
-        if last_err == _ERROR_ALREADY_EXISTS:
-            # 已经有别的进程占住了, 我们这个 handle 是"已有 mutex"的另一个引用, 释放掉
+        overlapped = _OVERLAPPED()
+        ok = kernel32.LockFileEx(
+            handle,
+            _LOCKFILE_EXCLUSIVE_LOCK | _LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            1,
+            0,
+            ctypes.byref(overlapped),
+        )
+        if not ok:
+            last_err = ctypes.get_last_error()
             kernel32.CloseHandle(handle)
-            logger.info("Windows 单实例: %s 已被占用, 视为已存在实例", self._mutex_name)
+            if last_err == _ERROR_LOCK_VIOLATION:
+                logger.info("Windows 单实例: 锁文件 %s 已被占用, 视为已存在实例", path)
+            else:
+                logger.warning("Windows 单实例: LockFileEx 失败, err=%d", last_err)
             return False
         self._handle = handle
-        logger.info("Windows 单实例: 占用 %s 成功", self._mutex_name)
+        logger.info("Windows 单实例: 占用锁 %s 成功", path)
         return True
 
     async def notify_existing_raise(self) -> None:
-        """通知已有实例把主窗口前置.
-
-        Windows 没有 MPRIS Raise 那种统一接口; 用 ``EnumWindows`` 暴力找符合标题的顶层窗口,
-        然后 ``ShowWindow(SW_RESTORE)`` + ``SetForegroundWindow``. 后者在 Win10+ 可能被拒,
-        但任务栏图标会闪烁 (默认行为), 用户能注意到.
-        """
-        await asyncio.to_thread(self._find_and_raise)
-
-    def _find_and_raise(self) -> None:
         user32 = _user32()
-        EnumWindowsProc = ctypes.WINFUNCTYPE(  # noqa: N806
-            wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
-        )
+        proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         target: list[int] = []
 
         def cb(hwnd: int, _lparam: int) -> bool:
@@ -129,30 +181,34 @@ class WindowsSingleInstance:
             user32.GetWindowTextW(hwnd, buf, length + 1)
             if buf.value == self._window_title:
                 target.append(hwnd)
-                return False  # 找到一个就停
+                return False
             return True
 
-        user32.EnumWindows(EnumWindowsProc(cb), 0)
+        user32.EnumWindows(proc(cb), 0)
         if not target:
             logger.info("Windows 单实例: 未找到主窗口 (title=%s), 跳过 raise", self._window_title)
             return
-
         hwnd = target[0]
         user32.ShowWindow(hwnd, _SW_RESTORE)
         ok = user32.SetForegroundWindow(hwnd)
         if not ok:
-            # Win10+ 前台锁机制拒绝时, 任务栏图标会自动闪烁 (这是系统提示用户"有进程想抢前台").
-            # 实际 UX 上够用, 不再绕开 (绕开方法是 AttachThreadInput, 风险高且不一定可靠).
-            logger.info(
-                "Windows 单实例: SetForegroundWindow 被前台锁拒绝, 任务栏将闪烁提醒用户切到 QuaverQ"
-            )
+            logger.info("Windows 单实例: SetForegroundWindow 被前台锁拒绝, 任务栏将闪烁提醒")
 
     def release(self) -> None:
-        """关闭 mutex handle; 二次调用幂等."""
+        """释放锁; 幂等. 不删锁文件 —— OS close handle 时自动 unlock, 文件留着即可
+        (1 byte 文件, 删了反而会触发 ``CreateFileW(OPEN_ALWAYS)`` 重建新 inode,
+        让后续进程锁到不同的文件, 互斥失效).
+        """
         if self._handle is None:
             return
+        kernel32 = _kernel32()
         try:
-            _kernel32().CloseHandle(self._handle)
+            overlapped = _OVERLAPPED()
+            kernel32.UnlockFileEx(self._handle, 0, 1, 0, ctypes.byref(overlapped))
         except OSError:
-            logger.exception("Windows 单实例: 关闭 mutex handle 异常")
+            pass
+        try:
+            kernel32.CloseHandle(self._handle)
+        except OSError:
+            logger.exception("Windows 单实例: 关闭锁 handle 异常")
         self._handle = None
