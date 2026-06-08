@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import random
 import re
 import time
@@ -151,6 +150,47 @@ def _credential_from_dict(d: dict[str, Any]) -> Credential:
 
 def _credential_to_dict(c: Credential) -> dict[str, Any]:
     return c.model_dump(mode="json")
+
+
+# ---------------------------------------------------------------- 凭据存储 (keyring)
+
+# keyring 条目: (service_name, username); 同一 (service, user) 内一条 JSON blob 即可,
+# 因为我们只有一个用户登录态需要持久化.
+_KEYRING_SERVICE = "QuaverQ"
+_KEYRING_USERNAME = "credential"
+
+
+def _save_credential_blob(blob: str) -> None:
+    """保存凭据 JSON blob 到 keyring.
+
+    keyring 自动选平台后端: Linux Secret Service / Windows Credential Manager /
+    macOS Keychain. 失败 (headless Linux 无 D-Bus 等) 只 log warning, 不 raise ——
+    凭据保存失败不应当阻塞 app 运行, 用户重启后需要重新扫码即可.
+    """
+    try:
+        import keyring
+        import keyring.errors
+
+        keyring.set_password(_KEYRING_SERVICE, _KEYRING_USERNAME, blob)
+    except keyring.errors.KeyringError as exc:
+        logger.warning("keyring 写失败 (%s), 凭据本次未持久化", exc)
+    except Exception as exc:  # 兜底: keyring import / backend init 异常
+        logger.warning("keyring 调用失败 (%s), 凭据本次未持久化", exc)
+
+
+def _load_credential_blob() -> str | None:
+    """从 keyring 读凭据 JSON blob; 没有 / 失败均返 None."""
+    try:
+        import keyring
+        import keyring.errors
+
+        return keyring.get_password(_KEYRING_SERVICE, _KEYRING_USERNAME)
+    except keyring.errors.KeyringError as exc:
+        logger.debug("keyring 读失败: %s", exc)
+        return None
+    except Exception as exc:
+        logger.debug("keyring 调用异常: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------- service
@@ -1658,37 +1698,26 @@ class QuaverService:
     # ------------------------------------------------------------------
 
     def load_cached_credential_sync(self) -> Credential | None:
-        """同步读盘加载缓存凭据 (供启动期首帧前置 authed; 不联网, 不需事件循环)."""
-        path = self._credential_cache_path
-        if not os.path.exists(path):
+        """同步从 keyring 加载缓存凭据 (供启动期首帧前置 authed; 不联网, 不需事件循环)."""
+        blob = _load_credential_blob()
+        if not blob:
             return None
         try:
-            # 显式 UTF-8: Windows 中文 locale 默认 GBK, 与 save() 写入端必须一致.
-            with open(path, encoding="utf-8") as f:
-                return _credential_from_dict(json.load(f))
+            return _credential_from_dict(json.loads(blob))
         except Exception as exc:
-            logger.warning("读取缓存凭据失败: %s", exc)
+            logger.warning("解析缓存凭据失败: %s", exc)
             return None
 
     async def _get_cached_credential(self) -> Credential | None:
         return self.load_cached_credential_sync()
 
-    async def save_credential(self, path: str | None = None) -> None:
+    async def save_credential(self) -> None:
         cred = self._effective_credential()
         if not cred or not cred.musickey:
             return
-        save_path = path or self._credential_cache_path
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        # 显式 UTF-8: cookie / nickname 可能含 Unicode, Windows 默认 GBK 会编不出来.
-        with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(_credential_to_dict(cred), f, ensure_ascii=False)
-        logger.info("凭据已保存到 %s", save_path)
-
-    @property
-    def _credential_cache_path(self) -> str:
-        from ..config import CONFIG_DIR
-
-        return str(CONFIG_DIR / "credential.json")
+        blob = json.dumps(_credential_to_dict(cred), ensure_ascii=False)
+        _save_credential_blob(blob)
+        logger.info("凭据已保存到 keyring")
 
     # ------------------------------------------------------------------
     # 模型转换 (0.6 pydantic 对象 → 我们的 dataclass)

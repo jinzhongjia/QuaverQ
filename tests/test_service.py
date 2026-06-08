@@ -58,10 +58,13 @@ def test_credential_from_dict_ignores_unknown_fields():
     assert cred.musickey == "abc"
 
 
-async def test_save_and_load_credential_roundtrip_with_unicode(tmp_path, monkeypatch):
-    """Windows 中文 locale 下 open() 默认 GBK, 保存含 Unicode 的 cookie / nickname 会崩.
+async def test_save_and_load_credential_roundtrip_with_unicode():
+    """save -> load 应当复原含 Unicode 字段的凭据 (Ø / 中文 nickname 都不能丢).
 
-    回归保护: save_credential / load_cached_credential_sync 必须强制 UTF-8.
+    历史: Stage 0 之前直接 ``json.dump`` 到文件不带 encoding=, Windows GBK locale 会崩.
+    Stage 2 后改走 keyring (字符串 API 内部 UTF-8), 同种 bug 不会再有.
+
+    fake_keyring fixture (conftest.py) 把后端替成进程内 dict, 测试不污染真实凭据存储.
     """
     svc = QuaverService()
     await svc.set_credential(
@@ -71,22 +74,15 @@ async def test_save_and_load_credential_roundtrip_with_unicode(tmp_path, monkeyp
             str_musicid="123",
         )
     )
-    cred_path = str(tmp_path / "credential.json")
 
-    await svc.save_credential(path=cred_path)
-    # 文件按 UTF-8 应当可读
-    text = (tmp_path / "credential.json").read_text(encoding="utf-8")
-    assert "Ø" in text
+    await svc.save_credential()
 
-    # load 路径换到 tmp_path
-    monkeypatch.setattr(
-        QuaverService,
-        "_credential_cache_path",
-        property(lambda _self: cred_path),
-    )
-    loaded = svc.load_cached_credential_sync()
+    # 模拟重启: 新 svc 实例读 keyring (而非依赖共享 in-memory 状态)
+    svc2 = QuaverService()
+    loaded = svc2.load_cached_credential_sync()
     assert loaded is not None
     assert loaded.musickey == "key—Ø"
+    assert loaded.musicid == 123
 
 
 # ============================================================== 二维码登录状态映射

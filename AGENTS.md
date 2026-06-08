@@ -14,6 +14,20 @@ LLM 约定：
 - 调研的结果或计划的具体步骤
 - 预期的结果或目标
 
+## 支持的平台
+
+跨平台改造经 Stage 0 / 1 / 2 / 3 完成，但**对运行环境有最低假设**——非主流桌面环境不支持，也不会为它们写兜底代码。
+
+- **Linux**：要求**标准 freedesktop 桌面环境**（GNOME / KDE / Plasma / 其他符合 freedesktop 规范的 DE）。具体依赖：
+  - **D-Bus session bus**：MPRIS2 媒体键 / GNOME Now Playing 控件 / 单实例守卫（`org.quaverq.SingleInstance`）/ 歌词外发（`org.quaverq.Lyrics1`）。
+  - **Secret Service**（`gnome-keyring` / `kwallet` / `keepassxc` 等任一）：凭据存储（`keyring` 库自动选）。
+  - **xdg-desktop-portal**：系统亮/暗色主题跟随（`org.freedesktop.appearance/color-scheme`）。
+  - **不支持的场景**：tty / headless / 无 D-Bus 的最小化 WM（i3、dwm 等需自行启 D-Bus session + Secret Service backend），keyring / MPRIS / 单实例守卫都会 log warning 后**降级到 no-op**，但**不会**回退到明文文件存储。
+- **Windows**：Windows 10+ x64。自动使用平台原生：凭证管理器（凭据存储）/ SMTC（Now Playing 卡片 + 键盘媒体键）/ 注册表 `AppsUseLightTheme`（主题跟随）/ 命名 Mutex（单实例）。无单实例守卫则允许多开。详见 `src/quaverq/platform/_windows_*.py`。
+- **macOS**：计划支持 macOS 12+（Stage 4），当前 `darwin` 走 `_NullPlatform` stub，所有平台能力返 None。
+
+平台抽象层入口：`from quaverq.platform import get_platform`；调用方**必须容忍 None**（降级），不能 `assert pal.x() is not None`。详见 `src/quaverq/platform/README.md`。
+
 ## 项目使用的库
 
 ### 运行时依赖 (`[project] dependencies`)
@@ -22,15 +36,17 @@ LLM 约定：
 - **`qasync>=0.27`** — `asyncio` ↔ Qt 事件循环桥. 启动期建 `qasync.QEventLoop`, QML 槽用 `@asyncSlot` 暴露异步函数. 不能换成 `asyncio.run`, 否则 Qt 信号 / GUI 线程会卡死 (见"asyncio 经 qasync 跑").
 - **`qqmusic-api-python>=0.6.1,<0.7`** — 第三方 QQ 音乐 API 封装 (搜索 / 歌单 / 歌手 / 歌词 / 排行榜 / 二维码登录 / 播放 URL 等). 暴露 `Client` / `Credential` / `SearchType` / `TabType` / `QRCodeLoginEvents` 等. 版本锁 `<0.7` 因 0.7 系列有破坏性变更.
 - **`curl-cffi>=0.15.0`** — 带浏览器 TLS 指纹的 HTTP 客户端 (`from curl_cffi import requests`), `qqmusic-api-python` 内部用它绕开 QQ 服务端的 JA3 指纹校验. 必须经 `ServiceController.start()` (含 `_start_lock`) 统一启停, 否则会泄漏后台线程导致退出卡死 (见"禁止重复 `start()`").
-- **`dbus-next>=0.2.3`** — 纯 Python 异步 D-Bus 实现, 用于 MPRIS2 (媒体键 / GNOME 媒体控件 / KDE 通知面板). 服务端通过 `__annotations__` 读取 D-Bus 签名字符串 (`"b"` / `"s"` / `"a{sv}"` 等), 不是 Python 类型注解, 不要"修正" (见 `src/quaverq/core/mpris.py` 与"禁止动 MPRIS D-Bus 注解形式").
-- **`tomli-w>=1.0`** — TOML 写入. 读侧用 Python 3.11+ 内置 `tomllib` (3.10 fallback 到 `tomli`), 写 `~/.config/quaverq/config.toml` 用 `tomli_w.dump`.
+- **`dbus-next>=0.2.3`** (**仅 Linux**, `sys_platform == "linux"` marker) — 纯 Python 异步 D-Bus 实现, 用于 MPRIS2 (媒体键 / GNOME 媒体控件 / KDE 通知面板). 服务端通过 `__annotations__` 读取 D-Bus 签名字符串 (`"b"` / `"s"` / `"a{sv}"` 等), 不是 Python 类型注解, 不要"修正" (见 `src/quaverq/core/mpris.py` 与"禁止动 MPRIS D-Bus 注解形式"). Windows / macOS 走各自原生 API, 不依赖此包.
+- **`platformdirs>=4.0`** — 跨平台 config / cache 目录解析. Linux 走 XDG (`~/.config/quaverq`, `~/.cache/quaverq`), Windows 走 `%APPDATA%\quaverq` + `%LOCALAPPDATA%\quaverq\Cache`, macOS 走 `~/Library/Application Support/quaverq` + `~/Library/Caches/quaverq`. **业务代码只用 `from quaverq.config import CONFIG_DIR, CACHE_DIR`**, 不直接 `os.path.expanduser("~/.config/...")`.
+- **`keyring>=24.0`** — 跨平台凭据存储. 自动选平台后端: Linux Secret Service (gnome-keyring / kwallet) / Windows Credential Manager / macOS Keychain. 服务名 `QuaverQ`, 用户名 `credential`, 内容为 JSON blob. 不再有文件兜底——keyring 不可用 (headless / 无 D-Bus) 时凭据不持久化, 用户重启需重新扫码.
+- **`tomli-w>=1.0`** — TOML 写入. 读侧用 Python 3.11+ 内置 `tomllib` (3.10 fallback 到 `tomli`), 写 `config.toml` 用 `tomli_w.dump` (路径走 `CONFIG_DIR`).
 
 ### 开发依赖 (`[dependency-groups] dev`)
 
-- **`pytest>=8.0`** + **`pytest-asyncio>=0.24`** — 单元 / 契约测试框架, `asyncio_mode=auto` 让 `async def test_*` 自动跑. QQ API 调用统一用 `types.SimpleNamespace` mock 而非真请求; 文件 I/O 一律 `tmp_path` fixture, 不污染 `~/.config/quaverq/` 真实目录.
-- **`ruff>=0.6.0`** — Python lint + formatter 一体工具 (替代 flake8 + isort + black). 配置见 `pyproject.toml [tool.ruff]`, 规则集 F/E/W/I/B/UP/C4/SIM/RET/PIE, `line-length=100`, `target-version=py310`. 对 `src/quaverq/core/mpris.py` 有 per-file ignore (`F821`/`F722`/`UP037`) 放过 D-Bus 签名字符串.
+- **`pytest>=8.0`** + **`pytest-asyncio>=0.24`** — 单元 / 契约测试框架, `asyncio_mode=auto` 让 `async def test_*` 自动跑. QQ API 调用统一用 `types.SimpleNamespace` mock 而非真请求; 文件 I/O 一律 `tmp_path` fixture, 不污染真实 `CONFIG_DIR` / `CACHE_DIR`. `tests/conftest.py` 的 autouse `fake_keyring` fixture 把 keyring 后端替成进程内 dict, 防测试污染用户真实凭据存储.
+- **`ruff>=0.6.0`** — Python lint + formatter 一体工具 (替代 flake8 + isort + black). 配置见 `pyproject.toml [tool.ruff]`, 规则集 F/E/W/I/B/UP/C4/SIM/RET/PIE, `line-length=100`, `target-version=py310`. 对 `src/quaverq/core/mpris.py` / `core/lyric_dbus.py` 有 per-file ignore (`F821`/`F722`/`UP037`) 放过 D-Bus 签名字符串.
 - **`nuitka>=4.1.2`** — Python → C 编译器, `standalone` 模式产出可独立分发的二进制 (见 `[tool.quaverq] nuitka_module_mode = "standalone"`). `build.py --appimage` 再套 linuxdeploy 打成 AppImage.
-- **`patchelf>=0.17.2.4`** — ELF `rpath` / interpreter 修补工具, Nuitka standalone 产物动态库依赖处理依赖它.
+- **`patchelf>=0.17.2.4`** (**仅 Linux**, `sys_platform == "linux"` marker) — ELF `rpath` / interpreter 修补工具, Nuitka standalone 产物动态库依赖处理依赖它. Windows / macOS 装包时自动跳过.
 
 ### 构建与依赖管理
 
@@ -83,7 +99,9 @@ LLM 约定：
 - **禁止破坏 SWR 首帧契约**: 不要把 `__main__.py` 启动顺序里的 `prime_credential_sync()` / `prime_public_from_cache()` / `prime_private_from_cache(account_key)` 挪到 `engine.load()` 之后, 也不要改成异步; 否则首帧登录态 / 公共区 / 私有区会闪一下空再填.
 - **禁止重复 `start()`**: `ServiceController.start()` 已用 `_start_lock` 串行化, 不要绕开锁; 也不要在多处并发显式 `await sc.start()` —— 用 `call_service()` / `_ensure_started()` 走统一入口, 否则会泄漏第二个 curl_cffi 客户端线程 → 退出卡死.
 - **禁止 `tray._menu = menu` 这类引用绑定改成局部变量**: 见上"持有 QObject 引用"; 任何"看起来没用的赋值"删除前先确认它不是为防 GC.
-- **禁止往 `dist/` / `.venv/` / `~/.config/quaverq/` / `~/.cache/quaverq/` 写测试夹具**: 测试只用 `tmp_path` fixture, 不污染用户真实配置 / 缓存目录.
+- **禁止往 `dist/` / `.venv/` / 真实 `CONFIG_DIR` / `CACHE_DIR` 写测试夹具**: 测试只用 `tmp_path` fixture, 不污染用户真实配置 / 缓存目录 (Linux `~/.config/quaverq` + `~/.cache/quaverq`, Windows `%APPDATA%\quaverq` + `%LOCALAPPDATA%\quaverq\Cache`, macOS `~/Library/...`).
+- **禁止往用户真实 keyring 写凭据**: `tests/conftest.py` 的 `fake_keyring` autouse fixture 已把后端替成进程内 dict; 测试不要主动 `keyring.set_keyring(real_backend)` 绕开它, 否则会污染 Windows Credential Manager / Secret Service / Keychain.
+- **禁止假设非标准 Linux DE**: 不要为 headless Linux / 无 D-Bus 的最小化 WM 写"明文文件兜底"; keyring / MPRIS / 单实例 失败时降级到 no-op + log warning 即可. 软件未发布无历史用户, 无需写迁移逻辑.
 
 ## Readme 维护
 
