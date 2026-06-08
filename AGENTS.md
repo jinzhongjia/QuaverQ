@@ -28,6 +28,45 @@ LLM 约定：
 
 平台抽象层入口：`from quaverq.platform import get_platform`；调用方**必须容忍 None**（降级），不能 `assert pal.x() is not None`。详见 `src/quaverq/platform/README.md`。
 
+## 缓存 / 配置目录约定
+
+跨平台路径走 `from quaverq.config import CONFIG_DIR, CACHE_DIR`（由 `platformdirs` 解析）。**目录命名 + 层级必须遵守**以下规则，否则会在 Windows 上看到 `%LOCALAPPDATA%\QuaverQ\QuaverQ\` 这类重复嵌套，在 Linux 上分裂出大小写不同的两个目录：
+
+### 命名规则
+
+- **app 名称一律小写 `quaverq`**：`platformdirs(appname="quaverq")` + `QApplication.setApplicationName("quaverq")` 必须**完全一致**（含大小写）。Linux 是 case-sensitive，混用 `quaverq` / `QuaverQ` 会出现两个目录；Windows 虽然 case-insensitive 但首创者大小写会"污染"所有后续路径显示。用户可见的"QuaverQ"是 QML 端的 `Window.title` 属性，不走 `setApplicationName`。
+- **不设 `QApplication.setOrganizationName`**：留空让 Qt 的 `QStandardPaths` 用单层 `<base>/<appname>` 路径布局；设了 orgname 就嵌套成 `<base>/<orgname>/<appname>` 与 `CACHE_DIR` 分裂。
+
+### 目录结构
+
+```
+%APPDATA%\quaverq\               (Linux: ~/.config/quaverq, macOS: ~/Library/Application Support/quaverq)
+├── settings.ini                 ← QSettings (主题模式 / 音质 / 歌词字体偏好)
+├── state.json                   ← SessionState 会话快照 (队列 + 进度 + mode)
+├── device_id                    ← 持久设备 GUID (反风控)
+└── config.toml                  ← 按需写入的用户配置 (可能没生成)
+
+%LOCALAPPDATA%\quaverq\          (Linux: ~/.cache/quaverq, macOS: ~/Library/Caches/quaverq)
+├── covers/                      ← 封面图磁盘缓存 (CoverCache, ~200 张)
+├── home.json                    ← 首页 SWR 缓存 (HomeCache)
+└── cache/                       ← Qt 自动管理 (不要往里写自定义文件!)
+    ├── qmlcache/                ← QML 字节码缓存 (.qmlc 文件)
+    └── qtpipelinecache-...      ← 渲染管线缓存
+```
+
+### 写新缓存文件的规则
+
+- **app 数据**放 `CACHE_DIR` 顶层（如 `covers/`、`home.json`），或语义清晰的子目录（如未来加 `lyrics/`）。
+- **绝对不要**往 `CACHE_DIR / "cache"` 写——那是 Qt 的内部 cache 目录，混进自定义文件会被 Qt 当成它的 QML 字节码误删 / 误改。
+- **凭据不落盘**（走 `keyring`，见上文）；调试脚本读凭据用 `QuaverService.load_cached_credential_sync()`，**不要**自己 `open(CONFIG_DIR / "credential.json")`。
+
+### platformdirs 配置
+
+`config.py` 的 `_dirs()` 必须：
+- `appauthor=False`（不塞 `<author>\` 中间层）
+- `roaming=True`（Windows config 走 Roaming，可跨机器漫游）
+- `opinion=False`（**关掉 platformdirs 的 Windows `\Cache` 后缀**，否则 CACHE_DIR 就成了 `%LOCALAPPDATA%\quaverq\Cache\`，跟 Qt 的 `cache\` 子目录大小写撞车 + 视觉上别扭）
+
 ## 项目使用的库
 
 ### 运行时依赖 (`[project] dependencies`)

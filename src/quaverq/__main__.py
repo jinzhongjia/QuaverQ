@@ -198,8 +198,16 @@ def main() -> None:
     QQuickStyle.setStyle("Basic")
 
     app = QApplication(sys.argv)
-    app.setApplicationName("QuaverQ")
-    app.setOrganizationName("QuaverQ")
+    # ApplicationName **必须小写** 与 platformdirs ``appname="quaverq"`` 完全一致:
+    # Qt 用 setApplicationName 作 QStandardPaths 路径段, 跟 platformdirs 大小写不一致
+    # 会在 Linux 上分裂出两个目录 (case-sensitive), 在 Windows 上虽然合并但首创者
+    # 的大小写会"污染"后续所有路径显示.
+    # **故意不设 setOrganizationName**: Qt 路径默认布局是 ``<base>/<orgname>/<appname>``,
+    # 设了 orgname 就会嵌套 (如 ``%LOCALAPPDATA%\quaverq\quaverq\``). 留空后 Qt 单层布局
+    # ``%LOCALAPPDATA%\quaverq\`` 与 CACHE_DIR 父目录重叠, Qt 内部 cache 自动落到
+    # ``%LOCALAPPDATA%\quaverq\cache\`` (Qt 自己加 ``cache`` 子目录), 与我们的
+    # ``covers/`` / ``home.json`` 在 CACHE_DIR 顶层并列, 清晰分层.
+    app.setApplicationName("quaverq")
     app.setDesktopFileName(resources.APP_ID)
     app.setWindowIcon(QIcon(str(resources.icon_file())))
 

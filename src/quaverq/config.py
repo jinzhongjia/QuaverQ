@@ -22,11 +22,16 @@ _APP_NAME = "quaverq"
 def _dirs() -> PlatformDirs:
     """构造 PlatformDirs.
 
-    appauthor=False: Windows 上不要在路径里塞一层 "<author>", 让 %APPDATA%\\quaverq
-    与 macOS ~/Library/Application Support/quaverq 直接落在以应用命名的一级目录里.
-    roaming=True: Windows 选 %APPDATA% (Roaming) 而非 %LOCALAPPDATA% 来放配置, 跟随用户漫游.
+    - ``appauthor=False``: Windows 不塞 ``<author>\\`` 中间层.
+    - ``roaming=True``: Windows config 走 ``%APPDATA%`` (Roaming) 而非 Local, 跟用户漫游.
+    - ``opinion=False``: 关掉 platformdirs 的"opinionated" 后缀 —— 它默认在 Windows
+      cache dir 末尾加 ``\\Cache``, 跟 Qt 自动管理的 ``cache\\`` 子目录大小写撞车,
+      且 cache 子目录又有 ``Cache``/``cache`` 看着乱. 关掉后 CACHE_DIR 就是
+      ``%LOCALAPPDATA%\\quaverq`` 顶层 (单目录, 小写), Qt 内部 QML / 渲染管线缓存
+      自动落到 ``%LOCALAPPDATA%\\quaverq\\cache\\`` 子目录里 (Qt 默认 CacheLocation),
+      跟我们的 ``covers/`` / ``home.json`` 干净分开.
     """
-    return PlatformDirs(appname=_APP_NAME, appauthor=False, roaming=True)
+    return PlatformDirs(appname=_APP_NAME, appauthor=False, roaming=True, opinion=False)
 
 
 def _config_dir() -> Path:
