@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 
@@ -36,6 +37,7 @@ class AppController(QObject):
         self._authed = False
         self._dark_mode = False
         self._logging_in = False
+        self._login_task: asyncio.Task[None] | None = None
         self._qrcode_data_url = ""
         self._qrcode_kind = ""
         self._login_state = "idle"
@@ -91,6 +93,7 @@ class AppController(QObject):
             return
 
         self._set_logging_in(True)
+        self._login_task = asyncio.current_task()
         self._set_qrcode("", "")
         self._set_login_state("loading")
         self._set_login_message("正在获取二维码")
@@ -99,6 +102,12 @@ class AppController(QObject):
                 self._handle_qrcode,
                 self._handle_login_status,
             )
+        except asyncio.CancelledError:
+            logger.info("用户关闭窗口，二维码登录已取消")
+            self._set_login_state("idle")
+            self._set_login_message("")
+            self._set_qrcode("", "")
+            return
         except Exception as exc:
             logger.exception("QR login failed")
             self._set_authed(False, "error")
@@ -106,6 +115,7 @@ class AppController(QObject):
             return
         finally:
             self._set_logging_in(False)
+            self._login_task = None
 
         if success:
             self._set_authed(True, "login")
@@ -120,6 +130,12 @@ class AppController(QObject):
                 self._set_login_message("登录未完成，请重试")
             elif not self._login_message:
                 self._set_login_message("登录未完成，请重试")
+
+    @Slot()
+    def cancelLogin(self) -> None:
+        task = self._login_task
+        if task is not None and not task.done():
+            task.cancel()
 
     async def refresh_auth_state_async(self) -> None:
         if self._service_controller is None:
