@@ -419,9 +419,10 @@ def test_desktop_lyrics_color_rejects_invalid(tmp_path):
 
 
 def test_reset_desktop_lyrics(tmp_path):
-    """重置: 字体 / 字号 / 粗体 / 斜体 / 方向 / 颜色全部回默认; 锁定状态不动 (用户不希望被冲掉)."""
+    """重置: 字体 / 字号 / 粗体 / 斜体 / 方向 / 颜色全部回默认; 锁定 / 启用状态不动 (用户偏好独立)."""
     path = tmp_path / "settings.ini"
     controller = SettingsController(settings=_settings(path))
+    controller.setDesktopLyricsEnabled(False)
     controller.setDesktopLyricsLocked(False)
     controller.setDesktopLyricsFontFamily("SimHei")
     controller.setDesktopLyricsFontSize(48)
@@ -433,6 +434,7 @@ def test_reset_desktop_lyrics(tmp_path):
 
     controller.resetDesktopLyrics()
 
+    assert controller.desktopLyricsEnabled is False  # 启用不动
     assert controller.desktopLyricsLocked is False  # 锁定不动
     assert controller.desktopLyricsFontFamily == ""
     assert controller.desktopLyricsFontSize == 32
@@ -441,3 +443,30 @@ def test_reset_desktop_lyrics(tmp_path):
     assert controller.desktopLyricsOrientation == "horizontal"
     assert controller.desktopLyricsColorBase == "#FFFFFF"
     assert controller.desktopLyricsColorHighlight == "#FFA200"
+
+
+def test_desktop_lyrics_enabled_default(tmp_path):
+    """默认启用 (用户主动关才关). 默认 True 配合"装即用"."""
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    assert controller.desktopLyricsEnabled is True
+
+
+def test_desktop_lyrics_enabled_setter_persist(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    controller.setDesktopLyricsEnabled(False)
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.desktopLyricsEnabled is False
+
+
+def test_desktop_lyrics_enabled_setter_signal(tmp_path):
+    """变化才 emit; 重复 set 同值不 emit."""
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    emitted: list[int] = []
+    controller.settingsChanged.connect(lambda: emitted.append(1))
+
+    controller.setDesktopLyricsEnabled(True)  # 同默认值
+    assert emitted == []
+
+    controller.setDesktopLyricsEnabled(False)
+    assert len(emitted) == 1

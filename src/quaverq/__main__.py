@@ -125,20 +125,35 @@ def _setup_tray(
     menu.addAction("下一首").triggered.connect(lambda *_: player_controller.next())
     menu.addAction("上一首").triggered.connect(lambda *_: player_controller.prev())
 
-    # 桌面歌词锁定 (仅 Windows 才接 SettingsController; 其他平台 desktop_lyrics_settings=None 跳)
+    # 桌面歌词启用 + 锁定 (仅 Windows 才接 SettingsController; 其他平台 None 跳)
     if desktop_lyrics_settings is not None:
         menu.addSeparator()
+
+        enable_action = menu.addAction("启用桌面歌词")
+        enable_action.setCheckable(True)
+        enable_action.setChecked(bool(desktop_lyrics_settings.desktopLyricsEnabled))
+        enable_action.toggled.connect(
+            lambda checked: desktop_lyrics_settings.setDesktopLyricsEnabled(bool(checked))
+        )
+
         lock_action = menu.addAction("锁定桌面歌词")
         lock_action.setCheckable(True)
         lock_action.setChecked(bool(desktop_lyrics_settings.desktopLyricsLocked))
         lock_action.toggled.connect(
             lambda checked: desktop_lyrics_settings.setDesktopLyricsLocked(bool(checked))
         )
-        # settings 从其他入口 (设置页) 改时同步勾选状态
-        desktop_lyrics_settings.settingsChanged.connect(
-            lambda: lock_action.setChecked(bool(desktop_lyrics_settings.desktopLyricsLocked))
-        )
-        tray._desktop_lyrics_lock_action = lock_action  # 持有引用, 防 QAction 被 GC
+
+        # settings 从其他入口 (设置页) 改时同步勾选状态; 关闭桌面歌词时连带置灰锁定项
+        def _sync_tray_state() -> None:
+            enabled = bool(desktop_lyrics_settings.desktopLyricsEnabled)
+            enable_action.setChecked(enabled)
+            lock_action.setChecked(bool(desktop_lyrics_settings.desktopLyricsLocked))
+            lock_action.setEnabled(enabled)
+
+        desktop_lyrics_settings.settingsChanged.connect(_sync_tray_state)
+        _sync_tray_state()  # 启动期同步一次置灰态
+        tray._desktop_lyrics_enable_action = enable_action  # 持有引用, 防 QAction 被 GC
+        tray._desktop_lyrics_lock_action = lock_action
 
     menu.addSeparator()
     menu.addAction("退出 QuaverQ").triggered.connect(lambda *_: app.quit())
@@ -342,9 +357,9 @@ def main() -> None:
     )
     # 桌面悬浮歌词 (Windows 默认开启 QQ 音乐风格悬浮窗; Linux 走 MPRIS 不内嵌).
     # 必须保留引用防 GC, 否则 Qt 会回收 QWidget + signal 连接断.
+    # 可见性由 SettingsController.desktopLyricsEnabled 驱动: 构造时 _on_settings_changed
+    # 自动 pull 一次, enabled=True 时 apply_settings 会调 window.show(); 不再显式 .show().
     desktop_lyrics_controller = pal.desktop_lyrics(lyric_controller, settings_controller)
-    if desktop_lyrics_controller is not None:
-        desktop_lyrics_controller.show()
 
     # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
     # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.

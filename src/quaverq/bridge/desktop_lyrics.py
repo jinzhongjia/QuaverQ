@@ -392,6 +392,7 @@ class DesktopLyricsController(QObject):
     def apply_settings(
         self,
         *,
+        enabled: bool | None = None,
         locked: bool | None = None,
         font_family: str | None = None,
         font_size: int | None = None,
@@ -401,7 +402,11 @@ class DesktopLyricsController(QObject):
         color_base: str | None = None,
         color_highlight: str | None = None,
     ) -> None:
-        """从 SettingsController 推过来的批量更新; 任一字段 None 时跳过."""
+        """从 SettingsController 推过来的批量更新; 任一字段 None 时跳过.
+
+        ``enabled`` 在末尾处理: 先把样式 / 内容应到位再切换可见性,
+        避免开启时先看到旧文字闪一下.
+        """
         if locked is not None:
             self._window.set_locked(locked)
         if (
@@ -426,6 +431,13 @@ class DesktopLyricsController(QObject):
                 if parsed.isValid():
                     hi = parsed
             self._window.set_colors(base, hi)
+        if enabled is not None:
+            if enabled:
+                self._sync_line()
+                self._sync_position()
+                self._window.show()
+            else:
+                self._window.hide()
 
     @Slot()
     def _on_line_changed(self) -> None:
@@ -443,6 +455,7 @@ class DesktopLyricsController(QObject):
         if sc is None:
             return
         self.apply_settings(
+            enabled=bool(sc.desktopLyricsEnabled),
             locked=bool(sc.desktopLyricsLocked),
             font_family=str(sc.desktopLyricsFontFamily) or None,
             font_size=int(sc.desktopLyricsFontSize),

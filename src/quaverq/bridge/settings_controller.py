@@ -111,6 +111,7 @@ class SettingsController(QObject):
 
         # 桌面悬浮歌词 (Windows-only feature; 字段持久化跨平台无伤大雅, 反正非 Windows
         # 不会实例化 DesktopLyricsController, 这些值就不会被读到).
+        self._desktop_lyrics_enabled = self._read_bool("desktopLyrics/enabled", True)
         self._desktop_lyrics_locked = self._read_bool("desktopLyrics/locked", True)
         self._desktop_lyrics_font_family = str(
             self._settings.value("desktopLyrics/fontFamily", "") or ""
@@ -171,6 +172,11 @@ class SettingsController(QObject):
         return self._lyric_font_italic
 
     # ------------------------------------------------------------------ 桌面悬浮歌词 (Windows-only)
+
+    @Property(bool, notify=settingsChanged)
+    def desktopLyricsEnabled(self) -> bool:
+        """是否启用桌面悬浮歌词. False -> Controller 立即隐藏窗口, 不动其他字段."""
+        return self._desktop_lyrics_enabled
 
     @Property(bool, notify=settingsChanged)
     def desktopLyricsLocked(self) -> bool:
@@ -297,6 +303,16 @@ class SettingsController(QObject):
     # ------------------------------------------------------------------ 桌面悬浮歌词 setters
 
     @Slot(bool)
+    def setDesktopLyricsEnabled(self, enabled: bool) -> None:
+        value = bool(enabled)
+        if self._desktop_lyrics_enabled == value:
+            return
+        self._desktop_lyrics_enabled = value
+        self._settings.setValue("desktopLyrics/enabled", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
     def setDesktopLyricsLocked(self, locked: bool) -> None:
         value = bool(locked)
         if self._desktop_lyrics_locked == value:
@@ -408,7 +424,7 @@ class SettingsController(QObject):
 
     @Slot()
     def resetDesktopLyrics(self) -> None:
-        """字体 / 字号 / 粗体 / 斜体 / 方向 / 颜色 -> 默认. 锁定状态不动 (用户偏好独立)."""
+        """字体 / 字号 / 粗体 / 斜体 / 方向 / 颜色 -> 默认. 启用 / 锁定状态不动 (用户偏好独立)."""
         changed = False
         if self._desktop_lyrics_font_family != "":
             self._desktop_lyrics_font_family = ""

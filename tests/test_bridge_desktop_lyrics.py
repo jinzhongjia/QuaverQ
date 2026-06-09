@@ -410,6 +410,33 @@ def test_controller_pushes_line_with_words(qapp):
     assert ctrl.window._sung_count == 2
 
 
+def test_controller_apply_enabled_false_hides_window(qapp):
+    """apply_settings(enabled=False) -> 隐藏窗口."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    ctrl._window.show()
+    qapp.processEvents()
+    ctrl.apply_settings(enabled=False)
+    qapp.processEvents()
+    assert ctrl._window.isHidden()
+
+
+def test_controller_apply_enabled_true_shows_window(qapp):
+    """apply_settings(enabled=True) -> 显示窗口 (从 hidden 状态)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    ctrl.apply_settings(enabled=False)
+    qapp.processEvents()
+    assert ctrl._window.isHidden()
+    ctrl.apply_settings(enabled=True)
+    qapp.processEvents()
+    assert ctrl._window.isVisible()
+
+
 def test_controller_position_updates_sung_count(qapp):
     """positionMs 改变只重发不当行的话, controller 应当走 set_progress_ms 推 sung_count."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsController

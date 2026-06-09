@@ -245,6 +245,21 @@ ScrollView {
 
             ChoiceRow {
                 Layout.fillWidth: true
+                title: qsTr("启用")
+                value: root.settingsController
+                    ? root.onOffLabel(root.settingsController.desktopLyricsEnabled)
+                    : root.onOffLabel(true)
+                model: [qsTr("关"), qsTr("开")]
+                values: ["off", "on"]
+                currentValue: (root.settingsController && root.settingsController.desktopLyricsEnabled) ? "on" : "off"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsEnabled(value === "on")
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
                 title: qsTr("锁定 (鼠标穿透)")
                 value: root.settingsController
                     ? root.onOffLabel(root.settingsController.desktopLyricsLocked)
