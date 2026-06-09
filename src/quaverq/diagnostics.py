@@ -4,6 +4,8 @@
 
 - ``multimedia``：Qt 多媒体后端（QtMultimedia / FFmpeg 插件）—— 缺失为 ``critical``，播放不可用。
 - ``dbus``：D-Bus 会话总线（MPRIS 媒体键）—— 缺失为 ``warning``，可降级运行。
+  仅 Linux 桌面适用；Windows 走 SMTC、macOS 走 NowPlayingInfoCenter，
+  调用方应当通过 ``include_dbus=False`` 跳过此检查 (见 ``__main__.py``)。
 
 探测函数可注入，便于测试覆盖各分支；默认探测只做 import / 环境变量检查，
 不要求 ``QApplication`` 实例存在。
@@ -79,8 +81,14 @@ def run_diagnostics(
     *,
     multimedia_probe: Probe | None = None,
     dbus_probe: Probe | None = None,
+    include_dbus: bool = True,
 ) -> list[Diagnostic]:
-    return [check_multimedia(multimedia_probe), check_dbus(dbus_probe)]
+    """跑所有相关自检. ``include_dbus=False`` 时跳过 D-Bus 检查 (Windows / macOS 用),
+    避免在没有 D-Bus 概念的平台上误报 warning."""
+    results = [check_multimedia(multimedia_probe)]
+    if include_dbus:
+        results.append(check_dbus(dbus_probe))
+    return results
 
 
 def has_critical(results: list[Diagnostic]) -> bool:

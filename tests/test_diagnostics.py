@@ -80,3 +80,14 @@ def test_default_probes_run_without_qapplication() -> None:
     results = diagnostics.run_diagnostics()
     assert len(results) >= 2
     assert all(isinstance(d, diagnostics.Diagnostic) for d in results)
+
+
+def test_include_dbus_false_skips_dbus_check() -> None:
+    """Windows / macOS 调用方传 include_dbus=False 时不该跑 dbus check (D-Bus 在这些平台不适用)."""
+    results = diagnostics.run_diagnostics(
+        multimedia_probe=lambda: True,
+        include_dbus=False,
+    )
+    names = {d.name for d in results}
+    assert "multimedia" in names
+    assert "dbus" not in names

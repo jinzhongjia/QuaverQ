@@ -804,7 +804,16 @@ class QuaverService:
                 media_mid=song_obj.media_mid,
             )
             if url:
-                logger.info("命中 %s: %s", quality_label, song_obj.name)
+                artists = " / ".join(s.name for s in song_obj.singers) or "未知歌手"
+                album = f" [{song_obj.album_name}]" if song_obj.album_name else ""
+                logger.info(
+                    "命中 %s: %s — %s%s (mid=%s)",
+                    quality_label,
+                    song_obj.name,
+                    artists,
+                    album,
+                    song_obj.mid,
+                )
                 return SongUrl(mid=song_obj.mid, url=url, quality=quality_label)
         # mid + media_mid 让我们能快速本地复现 (诊断脚本只需这两项即可还原 filename).
         logger.warning(

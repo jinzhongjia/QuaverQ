@@ -56,6 +56,9 @@ def _should_suppress_qt_message(message: str) -> bool:
         # 位图字体会反复报 "CreateFontFaceFromHDC() failed". Qt 内部已自动 fallback 到
         # 默认 monospace, 不影响功能; 但每次切歌 / 字体枚举都刷屏 -> 屏蔽掉.
         or ("DirectWrite: CreateFontFaceFromHDC() failed" in message and "Fixedsys" in message)
+        # Qt 多媒体后端初始化打的 banner ("Using Qt multimedia with FFmpeg version X.Y"),
+        # 启动期纯报喜信息无诊断价值, 屏蔽.
+        or "Using Qt multimedia with FFmpeg version" in message
     )
 
 
@@ -75,6 +78,44 @@ def _qt_message_handler(
 
 def _install_qt_message_filter() -> None:
     qInstallMessageHandler(_qt_message_handler)
+
+
+def _silence_ffmpeg_logs() -> None:
+    """把 PySide6 自带 ffmpeg 的全局日志级别置 ``AV_LOG_QUIET`` (-8),
+    防止 ``av_dump_format`` 在每次切歌时把 ``Input #0, mp3, ...`` 元数据直接
+    printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到).
+
+    必须在任何 ``QMediaPlayer`` 实例化前调; 否则 ffmpeg 后端首帧 dump 已发生.
+    best-effort: 找不到对应平台的 libavutil 时静默跳过, 不影响功能.
+    """
+    try:
+        import ctypes
+        from pathlib import Path
+
+        from PySide6 import __file__ as pyside_init
+
+        pyside_dir = Path(pyside_init).parent
+        # PySide6 自带的 libavutil 版本号会变 (58 / 59 / ...), 用 glob 兜底
+        if sys.platform == "win32":
+            candidates = list(pyside_dir.glob("avutil-*.dll"))
+        elif sys.platform == "linux":
+            candidates = list(pyside_dir.glob("libavutil.so*"))
+        elif sys.platform == "darwin":
+            candidates = list(pyside_dir.glob("libavutil*.dylib"))
+        else:
+            candidates = []
+
+        for dll_path in candidates:
+            try:
+                lib = ctypes.CDLL(str(dll_path))
+                lib.av_log_set_level.argtypes = [ctypes.c_int]
+                lib.av_log_set_level.restype = None
+                lib.av_log_set_level(-8)  # AV_LOG_QUIET
+                return
+            except (OSError, AttributeError):
+                continue
+    except Exception:
+        logger.debug("av_log_set_level 静默失败 (不影响功能, 仅 ffmpeg 仍会刷日志)", exc_info=True)
 
 
 def _qml_main_path() -> Path:
@@ -221,6 +262,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     _install_qt_message_filter()
+    _silence_ffmpeg_logs()  # 必须在 QMediaPlayer 实例化前, 关 ffmpeg 全局日志免每次切歌刷 stderr
     load_config()
     orphan_caches = purge_orphan_caches()
     if orphan_caches:
@@ -228,7 +270,9 @@ def main() -> None:
             "清理旧架构遗留缓存: %s",
             ", ".join(str(path) for path in orphan_caches),
         )
-    for diag in diagnostics.run_diagnostics():
+    # D-Bus 仅 Linux 桌面适用 (Windows 走 SMTC / macOS 走 NowPlayingInfoCenter);
+    # 非 Linux 跳过此检查避免误报 "未检测到 D-Bus 会话总线" warning.
+    for diag in diagnostics.run_diagnostics(include_dbus=sys.platform == "linux"):
         level = {
             diagnostics.CRITICAL: logging.ERROR,
             diagnostics.WARNING: logging.WARNING,
