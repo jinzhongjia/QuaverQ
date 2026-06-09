@@ -1,29 +1,58 @@
 name: Release
 
+# 触发：
+#   - 推送 v* tag (e.g. v0.2.0) → 自动发版
+#   - 手动 workflow_dispatch，输入版本号
+#
+# 需要的 GitHub Secrets：
+#   CLOUDFLARE_API_TOKEN   权限需含 R2 (Edit) + Pages (Edit)
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare 账号 ID
+
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（形如 v0.2.0）'
+        required: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  # linuxdeploy 自身是 AppImage；GitHub runner 无 FUSE，改用解压执行
   APPIMAGE_EXTRACT_AND_RUN: '1'
+  R2_BUCKET: quaverq
+  PAGES_PROJECT: quaverq
+  CDN_HOST: cdn.quaverq.nvimer.org
 
 jobs:
-  appimage:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve version
+        id: ver
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="$DISPATCH_VERSION"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "错误: 非法 version $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          # libpulse0 是 Qt6Multimedia 的运行时依赖（PulseAudio），
-          # linuxdeploy 部署 libQt6Multimedia.so.6 时必须能解析到 libpulse.so.0
           sudo apt-get install -y \
             patchelf libfuse2 libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3 \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
@@ -34,34 +63,79 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Sync project (incl. build deps)
+      - name: Sync project
         run: uv sync --dev
 
       - name: Fetch linuxdeploy
-        # 不需要 linuxdeploy-plugin-qt：Nuitka 的 pyside6 插件已把整套 Qt 打进 bundle，
-        # qt 插件反而会去部署系统 Qt（引入 sqldrivers 等缺失依赖而失败）。
         run: |
-          base=https://github.com/linuxdeploy
-          wget -q $base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -O linuxdeploy
           chmod +x linuxdeploy
           echo "$PWD" >> "$GITHUB_PATH"
 
-      - name: Build AppImage (Nuitka standalone + linuxdeploy)
+      - name: Build AppImage
         run: uv run python build.py --appimage
 
-      - name: Smoke test bundle (QML 加载 + 窗口创建)
+      - name: Smoke test bundle
         run: uv run python -m quaverq.packaging --smoke dist/quaverq.dist/QuaverQ
 
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: QuaverQ-x86_64-AppImage
-          path: 'dist/*.AppImage'
-          if-no-files-found: error
+      - name: Update docs-site/version.json
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          SIZE=$(stat -c '%s' dist/QuaverQ-x86_64.AppImage)
+          RELEASED_AT=$(date -u +%Y-%m-%d)
+          export VERSION SIZE RELEASED_AT
+          python3 <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path("docs-site/version.json")
+          data = json.loads(path.read_text()) if path.exists() else {}
+          data["version"] = os.environ["VERSION"]
+          data["filename"] = "QuaverQ-x86_64.AppImage"
+          data["url"] = f"https://{os.environ['CDN_HOST']}/{data['version']}/QuaverQ-x86_64.AppImage"
+          data["size"] = int(os.environ["SIZE"])
+          data["released_at"] = os.environ["RELEASED_AT"]
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+          print(f"version.json 已更新: {data}")
+          PY
 
-      - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: 'dist/*.AppImage'
-          generate_release_notes: true
+      - name: Install wrangler
+        run: npm install -g wrangler@latest
+
+      - name: Upload AppImage to R2 (versioned)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          wrangler r2 object put "$R2_BUCKET/$VERSION/QuaverQ-x86_64.AppImage" \
+            --file dist/QuaverQ-x86_64.AppImage --remote
+
+      - name: Upload AppImage to R2 (latest)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler r2 object put "$R2_BUCKET/latest/QuaverQ-x86_64.AppImage" \
+            --file dist/QuaverQ-x86_64.AppImage --remote
+
+      - name: Deploy docs-site to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler pages deploy docs-site \
+            --project-name="$PAGES_PROJECT" \
+            --branch=main \
+            --commit-dirty=true
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          {
+            echo "## ✓ Release $VERSION"
+            echo ""
+            echo "- 归档: https://$CDN_HOST/$VERSION/QuaverQ-x86_64.AppImage"
+            echo "- Latest: https://$CDN_HOST/latest/QuaverQ-x86_64.AppImage"
+          } >> "$GITHUB_STEP_SUMMARY"
