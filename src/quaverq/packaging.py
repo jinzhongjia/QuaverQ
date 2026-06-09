@@ -27,6 +27,11 @@ from . import resources
 
 APP_ID = resources.APP_ID
 
+# Nuitka standalone 产物目录名 = 入口脚本 basename + ".dist". 我们入口是
+# ``src/quaverq_entry.py`` (包外 shim, 见 nuitka_command 注释), 因此 dist 子目录
+# 名是 ``quaverq_entry.dist``. 不要改, 改了得同步改 packaging.py 里所有引用.
+_NUITKA_DIST_DIRNAME = "quaverq_entry.dist"
+
 # 这些包有大量运行时动态 import（niquests/urllib3-future 的 DNS resolver、
 # HTTP/2/3 后端 jh2/qh3、wassima CA、curl_cffi native、qqmusic_api 动态模块），
 # nuitka 静态分析会漏，必须整包显式包含。
@@ -139,11 +144,17 @@ def nuitka_command(
         "--assume-yes-for-downloads",
         f"--output-dir={output_dir}",
         "--enable-plugin=pyside6",
-        "--include-qt-plugins=sensible,qml",  # QtQuick / QtMultimedia / Layouts 运行时
+        # sensible (platforms/styles/imageformats) + qml (Qt Quick 模块) +
+        # multimedia (QMediaPlayer ffmpeg backend 插件; 不加 Windows 上启动会报
+        # "No QtMultimedia backends found" 不能播放).
+        "--include-qt-plugins=sensible,qml,multimedia",
         *(f"--noinclude-dlls={pattern}" for pattern in _EXCLUDE_QT_DLL_PATTERNS),
         "--include-package-data=quaverq",  # qml / Theme / qmldir
         "--include-package-data=curl_cffi",  # native _wrapper.so + libcurl
         f"--include-data-dir={root / 'assets'}=assets",
+        # WiX 模板是 MSI 构建时给 build_msi() 用的, 不需要进运行时 bundle.
+        # --include-data-dir 会把 assets/ 整目录拉进来, 这里挑出来踢掉.
+        "--noinclude-data-files=assets/quaverq.wxs.tmpl",
         *(f"--include-package={pkg}" for pkg in force_packages),
         "--product-name=QuaverQ",
         f"--product-version={version}",
@@ -155,16 +166,24 @@ def nuitka_command(
         # 不用 LTO：LTO 让 nuitka 编译 PySide6 慢数倍，在 CI 2 核 runner 上不实际
         # （实测 >35min 未完）；no-LTO 产物功能一致、体积略大，本地已验证可启动。
         f"--jobs={os.cpu_count() or 4}",
+        # 编译成功后清掉 .build 中间目录 (.o 文件等约 500MB-1GB), 只留 .dist 产物.
+        "--remove-output",
     ]
+    if sys.platform == "win32":
+        # GUI 应用: 双击启动不弹黑色 cmd 窗口. attach (默认) 会跟父 console
+        # 关联打印 logging, 但用户从资源管理器 / 开始菜单启动时凭空蹦个终端,
+        # 极差体验. CI 调试用 onefile 想看日志就改回 force.
+        cmd.append("--windows-console-mode=disable")
+        # 显式声明带 VC++ runtime (vcruntime140 / msvcp140), 让没装 VC++ Redist
+        # 的用户也能跑 portable. Nuitka 默认就这么干, 显式声明只是消掉提醒.
+        cmd.append("--include-windows-runtime-dlls=yes")
     if icon_path is not None:
         cmd.append(f"--windows-icon-from-ico={icon_path}")
-    cmd.extend(
-        [
-            # 以包目录为入口 + -m：让 __main__ 有 quaverq 包上下文，relative import 才有效
-            "--python-flag=-m",
-            str(root / "src" / "quaverq"),
-        ]
-    )
+    # 入口走包**外** shim (``src/quaverq_entry.py`` -> ``quaverq.__main__.main``);
+    # 不能直接 ``-m src/quaverq`` 因为会让 ``__main__`` 同时是 "主程序" 又是
+    # "--include-package=quaverq 列表里的子模块", Nuitka 去重时刷一条 INFO 警告.
+    # 用包外 shim 后 ``__main__`` 只通过正常 import 链进, 警告消失.
+    cmd.append(str(root / "src" / "quaverq_entry.py"))
     return cmd
 
 
@@ -292,7 +311,7 @@ def build_msi(output_dir: str = "dist") -> int:
     rc = build("standalone", output_dir=output_dir)
     if rc != 0:
         return rc
-    dist_dir = root / output_dir / "quaverq.dist"
+    dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
     if not dist_dir.is_dir():
         print(f"[msi] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
         return 1
@@ -336,7 +355,7 @@ def build_msi(output_dir: str = "dist") -> int:
 
 
 def build_portable_zip(output_dir: str = "dist") -> int:
-    """Nuitka standalone 产物 ``dist/quaverq.dist/`` -> ``dist/QuaverQ-{version}-portable.zip``.
+    """Nuitka standalone 产物 ``dist/quaverq_entry.dist/`` -> ``dist/QuaverQ-{version}-portable.zip``.
 
     用户解压后双击 ``QuaverQ.exe`` 即跑, 不需要安装 / admin 权限. 适合 U 盘携带 /
     禁止 IT 装软件 / 临时试用场景.
@@ -352,7 +371,7 @@ def build_portable_zip(output_dir: str = "dist") -> int:
     rc = build("standalone", output_dir=output_dir)
     if rc != 0:
         return rc
-    dist_dir = root / output_dir / "quaverq.dist"
+    dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
     if not dist_dir.is_dir():
         print(f"[portable] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
         return 1
@@ -378,7 +397,7 @@ def build_appimage(output_dir: str = "dist") -> int:
     rc = build("standalone")
     if rc != 0:
         return rc
-    dist = root / output_dir / "quaverq.dist"
+    dist = root / output_dir / _NUITKA_DIST_DIRNAME
     appdir = root / output_dir / "AppDir"
     bindir = appdir / "usr/bin"
     bindir.mkdir(parents=True, exist_ok=True)

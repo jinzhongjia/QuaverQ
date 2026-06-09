@@ -177,7 +177,9 @@ LLM 约定：
 - `uv run python scripts/lint.py` — 跑 lint (ruff check + ruff format --check + pyside6-qmllint)
 - `uv run python scripts/lint.py --fix` — 自动修复可修的 ruff 问题并执行 `ruff format`
 - `uv run python scripts/lint.py --py` / `--qml` — 只跑其中一项
-- `uv run python build.py --appimage` — 打 AppImage (Nuitka standalone + linuxdeploy)
+- `uv run python build.py --appimage` — 打 AppImage (Linux: Nuitka standalone + linuxdeploy)
+- `uv run python build.py --portable` — 打 portable zip (跨平台: Nuitka standalone → `dist/QuaverQ-{version}-portable.zip`, 解压即跑)
+- `uv run python build.py --msi` — 打 MSI 安装包 (Windows: Nuitka standalone + WiX 5 → `dist/QuaverQ-{version}.msi`; 需 `dotnet tool install --global wix`)
 
 ## 项目使用的 Lint
 

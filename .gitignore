@@ -30,6 +30,7 @@ Thumbs.db
 *.build/
 *.dist/
 *.onefile-build/
+nuitka-crash-report*.xml
 
 # QuaverQ
 *.cookie
