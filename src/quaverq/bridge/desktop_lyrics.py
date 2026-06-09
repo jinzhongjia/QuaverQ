@@ -61,6 +61,9 @@ _WIPE_TIMER_INTERVAL_MS = 33  # ~30 FPS 插值, 比 MediaPlayer 100ms tick 更�
 # 斜体常见 shear ~12°, tan(12°) ≈ 0.213. 用此值把 wipe 边沿做成平行四边形,
 # 匹配 italic 字形倾斜, 避免垂直 clip 把字劈成楔形伪影 (上半字被切歪一刀).
 _ITALIC_SHEAR = 0.213
+# 字间距: 默认 advance 太挤 (尤其 CJK 大字号 OSD), 加 10% PercentageSpacing 让字呼吸,
+# 同时与字号成比例 (避免小字号下加固定 px 导致过宽 / 大字号下不够).
+_LETTER_SPACING_PERCENT = 110.0
 
 
 class DesktopLyricsWindow(QWidget):
@@ -82,6 +85,7 @@ class DesktopLyricsWindow(QWidget):
         self._locked = True
         self._orientation = "horizontal"
         self._font = QFont("Microsoft YaHei UI", 32, QFont.Weight.Bold)
+        self._font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, _LETTER_SPACING_PERCENT)
         self._color_base = QColor(_DEFAULT_COLOR_BASE)
         self._color_highlight = QColor(_DEFAULT_COLOR_HIGHLIGHT)
         self._drag_origin: QPoint | None = None

@@ -499,6 +499,32 @@ def test_horizontal_wipe_clip_skewed_when_italic(qapp):
     assert abs(rect.height() - 100.0) < 0.01
 
 
+def test_font_has_letter_spacing(qapp):
+    """默认字体应当带 PercentageSpacing > 100, 让字之间不挤."""
+    from PySide6.QtGui import QFont
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    f = w.current_font()
+    assert f.letterSpacingType() == QFont.SpacingType.PercentageSpacing
+    assert f.letterSpacing() > 100.0
+
+
+def test_set_font_config_preserves_letter_spacing(qapp):
+    """改字体 family / size / bold 不该把字间距重置回默认 100%."""
+    from PySide6.QtGui import QFont
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    original_spacing = w.current_font().letterSpacing()
+    w.set_font_config(family="SimHei", size=40, bold=True, italic=True)
+    f = w.current_font()
+    assert f.letterSpacingType() == QFont.SpacingType.PercentageSpacing
+    assert abs(f.letterSpacing() - original_spacing) < 0.01
+
+
 def test_wipe_timer_stops_on_hide(qapp):
     """窗口隐藏时定时器停 (即便有 active word)."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
