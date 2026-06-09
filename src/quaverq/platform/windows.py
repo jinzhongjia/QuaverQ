@@ -62,6 +62,16 @@ class WindowsPlatform:
 
         return WindowsPowerSaver(player_controller)
 
+    def taskbar(
+        self,
+        player_controller: Any,
+        hwnd_provider: Any,
+        cover_cache: Any = None,
+    ) -> Any | None:
+        from ._windows_taskbar import WindowsTaskbar
+
+        return WindowsTaskbar(player_controller, hwnd_provider, cover_cache=cover_cache)
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,

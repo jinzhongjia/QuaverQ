@@ -58,6 +58,14 @@ class _NullPlatform:
     def power_saver(self, player_controller: Any) -> Any | None:  # noqa: ARG002
         return None
 
+    def taskbar(
+        self,
+        player_controller: Any,  # noqa: ARG002
+        hwnd_provider: Any,  # noqa: ARG002
+        cover_cache: Any = None,  # noqa: ARG002
+    ) -> Any | None:
+        return None
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,  # noqa: ARG002

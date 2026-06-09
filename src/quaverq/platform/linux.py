@@ -62,6 +62,16 @@ class LinuxPlatform:
         # 屏幕保护 + 待机, 我们不再叠加. 极少数最小化 WM 用户自行配置.
         return None
 
+    def taskbar(
+        self,
+        player_controller: Any,  # noqa: ARG002
+        hwnd_provider: Any,  # noqa: ARG002
+        cover_cache: Any = None,  # noqa: ARG002
+    ) -> Any | None:
+        # Linux 任务栏 (X11 / Wayland) 没有 ITaskbarList3 等价物;
+        # 进度提示 + 媒体控制都由 DE 通过 MPRIS 自动呈现, 不重复造轮子.
+        return None
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,  # noqa: ARG002

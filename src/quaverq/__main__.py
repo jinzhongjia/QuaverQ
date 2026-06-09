@@ -420,6 +420,20 @@ def main() -> None:
     if power_saver is not None:
         app.aboutToQuit.connect(power_saver.release)
 
+    # Windows 任务栏 (ITaskbarList3): 进度条 + 缩略图按钮 ⏮ ⏯ ⏭. 非 Windows 返 None.
+    # hwnd_provider 走回调 -> 延迟到 taskbar controller 自己择机取 HWND (engine.load
+    # 后窗口才创建好). 必须保留引用防 GC; 退出前显式 release 撤销 subclass + 释放 COM.
+    def _main_window_hwnd() -> int:
+        roots = engine.rootObjects()
+        if not roots:
+            return 0
+        wid = roots[0].winId()
+        return int(wid) if wid else 0
+
+    taskbar = pal.taskbar(player_controller, _main_window_hwnd, cover_cache=cover_cache)
+    if taskbar is not None:
+        app.aboutToQuit.connect(taskbar.release)
+
     # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
     # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.
     # _setup_tray 内部 QSystemTrayIcon(parent=app) + tray._menu=menu 已持有引用, 此处不存.

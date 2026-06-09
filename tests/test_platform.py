@@ -212,6 +212,34 @@ def test_non_windows_power_saver_returns_none():
     assert saver is None
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+def test_windows_taskbar_returns_real_taskbar():
+    """Windows: taskbar(player, hwnd_provider) 返回 WindowsTaskbar 实例."""
+    from PySide6.QtCore import QObject
+    from PySide6.QtWidgets import QApplication
+
+    from quaverq.platform import get_platform
+    from quaverq.platform._windows_taskbar import WindowsTaskbar
+
+    _ = QApplication.instance() or QApplication([])
+    pal = get_platform()
+    fake_player = _FakePlayerController()
+    tb = pal.taskbar(fake_player, lambda: 0)
+    assert isinstance(tb, WindowsTaskbar)
+    assert isinstance(tb, QObject)
+    tb.release()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="non-Windows: taskbar 返 None")
+def test_non_windows_taskbar_returns_none():
+    from quaverq.platform import get_platform
+
+    pal = get_platform()
+    fake_player = _FakePlayerController()
+    tb = pal.taskbar(fake_player, lambda: 0)
+    assert tb is None
+
+
 # ============================================================== helpers
 
 

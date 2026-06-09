@@ -95,6 +95,25 @@ class PlatformAdapter(Protocol):
         """
         ...
 
+    def taskbar(
+        self,
+        player_controller: Any,
+        hwnd_provider: Any,
+        cover_cache: Any = None,
+    ) -> Any | None:
+        """返回任务栏深度集成 controller (进度条 + 缩略图按钮 + DWM 自定义缩略图).
+
+        ``hwnd_provider`` 是 ``Callable[[], int]``: 调用方传一个延迟返回主窗口 HWND
+        的回调 (engine.load 后 ``rootObjects()[0].winId()`` 可拿到). PAL 自己不知道
+        QML 窗口, 所以走回调.
+        ``cover_cache`` 可选: 传入后会把当前歌封面替换成任务栏悬停缩略图 (DWM
+        iconic representation), 否则保留默认窗口快照.
+
+        - Windows: ``WindowsTaskbar`` 走 ``ITaskbarList3``.
+        - Linux / macOS: 返 None.
+        """
+        ...
+
     def power_saver(self, player_controller: Any) -> Any | None:
         """返回防睡眠 controller (QObject); 实现需订阅 player_controller.playbackStateChanged
         播放时阻止 OS 进入待机, 暂停时撤销.
