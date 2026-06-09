@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QSettings, Signal, Slot
-from PySide6.QtGui import QFontDatabase, QGuiApplication
+from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication
 
 from quaverq.core.cover_cache import CoverCache
 
@@ -21,6 +21,9 @@ _DESKTOP_LYRIC_ORIENTATIONS = {"horizontal", "vertical"}
 _DESKTOP_LYRIC_FONT_SIZE_MIN = 14
 _DESKTOP_LYRIC_FONT_SIZE_MAX = 72
 _DESKTOP_LYRIC_FONT_SIZE_DEFAULT = 32
+# 桌面歌词默认颜色: 未唱白色 + 已唱 QQ 音乐风格深琥珀 (饱和度高 -> 桌面背景上识别度更好).
+_DESKTOP_LYRIC_COLOR_BASE_DEFAULT = "#FFFFFF"
+_DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT = "#FFA200"
 
 # 封面缓存默认上限 256 MB (设为 0 表示不限). 封面多为 30–80 KB 的 jpg,
 # 256 MB 可缓存数千张, 正常使用不会触及; 用户可在设置页调整或关闭.
@@ -30,6 +33,20 @@ _DEFAULT_COVER_MAX_BYTES = 256 * 1024 * 1024
 _LYRIC_FONT_SIZE_MIN = 12
 _LYRIC_FONT_SIZE_MAX = 48
 _LYRIC_FONT_SIZE_DEFAULT = 22
+
+
+def _normalize_hex_color(raw: str | None) -> str | None:
+    """把任意输入归一为大写 ``#RRGGBB``; 非法 hex / 空串 / None -> 返回 ``None``.
+
+    QColor 解析能容忍多种格式 (``red`` / ``#FFF`` / ``#FFFFFFFF`` 等), 但持久化与
+    UI 显示需要稳定的 ``#RRGGBB``. 用 QColor 做 normalize 并丢 alpha.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    color = QColor(raw)
+    if not color.isValid():
+        return None
+    return color.name().upper()  # QColor.name() 返 "#rrggbb" 小写, 统一大写
 
 
 def _collect_cjk_font_families() -> list[str]:
@@ -111,6 +128,14 @@ class SettingsController(QObject):
             "horizontal",
             _DESKTOP_LYRIC_ORIENTATIONS,
         )
+        self._desktop_lyrics_color_base = self._read_color(
+            "desktopLyrics/colorBase",
+            _DESKTOP_LYRIC_COLOR_BASE_DEFAULT,
+        )
+        self._desktop_lyrics_color_highlight = self._read_color(
+            "desktopLyrics/colorHighlight",
+            _DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT,
+        )
 
     @Property(str, notify=settingsChanged)
     def themeMode(self) -> str:
@@ -170,6 +195,16 @@ class SettingsController(QObject):
     @Property(str, notify=settingsChanged)
     def desktopLyricsOrientation(self) -> str:
         return self._desktop_lyrics_orientation
+
+    @Property(str, notify=settingsChanged)
+    def desktopLyricsColorBase(self) -> str:
+        """未唱字色 (#RRGGBB hex 大写)."""
+        return self._desktop_lyrics_color_base
+
+    @Property(str, notify=settingsChanged)
+    def desktopLyricsColorHighlight(self) -> str:
+        """已唱字色 (#RRGGBB hex 大写)."""
+        return self._desktop_lyrics_color_highlight
 
     @Property("QStringList", constant=True)
     def availableLyricFonts(self) -> list[str]:
@@ -325,6 +360,90 @@ class SettingsController(QObject):
         self._settings.sync()
         self.settingsChanged.emit()
 
+    @Slot(str)
+    def setDesktopLyricsColorBase(self, color: str) -> None:
+        value = _normalize_hex_color(color)
+        if value is None or self._desktop_lyrics_color_base == value:
+            return
+        self._desktop_lyrics_color_base = value
+        self._settings.setValue("desktopLyrics/colorBase", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str)
+    def setDesktopLyricsColorHighlight(self, color: str) -> None:
+        value = _normalize_hex_color(color)
+        if value is None or self._desktop_lyrics_color_highlight == value:
+            return
+        self._desktop_lyrics_color_highlight = value
+        self._settings.setValue("desktopLyrics/colorHighlight", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str, result=str)
+    def pickDesktopLyricsColor(self, role: str) -> str:
+        """打开 QColorDialog 让用户选颜色, 选定后通过对应 setter 应用 + 返回 hex.
+
+        role: ``base`` (未唱) / ``highlight`` (已唱). 用户取消 -> 返空串, 不动状态.
+        QColorDialog 是 QtWidgets 模态对话框, 已有 QApplication, 不阻塞 Qt 事件循环
+        (内部自跑 nested loop).
+        """
+        from PySide6.QtWidgets import QColorDialog
+
+        if role == "base":
+            initial = self._desktop_lyrics_color_base
+        elif role == "highlight":
+            initial = self._desktop_lyrics_color_highlight
+        else:
+            return ""
+        chosen = QColorDialog.getColor(QColor(initial), None, "选择颜色")
+        if not chosen.isValid():
+            return ""
+        hex_value = chosen.name().upper()  # QColor.name() -> "#rrggbb" 小写
+        if role == "base":
+            self.setDesktopLyricsColorBase(hex_value)
+        else:
+            self.setDesktopLyricsColorHighlight(hex_value)
+        return hex_value
+
+    @Slot()
+    def resetDesktopLyrics(self) -> None:
+        """字体 / 字号 / 粗体 / 斜体 / 方向 / 颜色 -> 默认. 锁定状态不动 (用户偏好独立)."""
+        changed = False
+        if self._desktop_lyrics_font_family != "":
+            self._desktop_lyrics_font_family = ""
+            self._settings.setValue("desktopLyrics/fontFamily", "")
+            changed = True
+        if self._desktop_lyrics_font_size != _DESKTOP_LYRIC_FONT_SIZE_DEFAULT:
+            self._desktop_lyrics_font_size = _DESKTOP_LYRIC_FONT_SIZE_DEFAULT
+            self._settings.setValue("desktopLyrics/fontSize", _DESKTOP_LYRIC_FONT_SIZE_DEFAULT)
+            changed = True
+        if self._desktop_lyrics_bold is not True:
+            self._desktop_lyrics_bold = True
+            self._settings.setValue("desktopLyrics/bold", True)
+            changed = True
+        if self._desktop_lyrics_italic is not False:
+            self._desktop_lyrics_italic = False
+            self._settings.setValue("desktopLyrics/italic", False)
+            changed = True
+        if self._desktop_lyrics_orientation != "horizontal":
+            self._desktop_lyrics_orientation = "horizontal"
+            self._settings.setValue("desktopLyrics/orientation", "horizontal")
+            changed = True
+        if self._desktop_lyrics_color_base != _DESKTOP_LYRIC_COLOR_BASE_DEFAULT:
+            self._desktop_lyrics_color_base = _DESKTOP_LYRIC_COLOR_BASE_DEFAULT
+            self._settings.setValue("desktopLyrics/colorBase", _DESKTOP_LYRIC_COLOR_BASE_DEFAULT)
+            changed = True
+        if self._desktop_lyrics_color_highlight != _DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT:
+            self._desktop_lyrics_color_highlight = _DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT
+            self._settings.setValue(
+                "desktopLyrics/colorHighlight", _DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT
+            )
+            changed = True
+        if changed:
+            self._settings.sync()
+            self.settingsChanged.emit()
+
     @Slot()
     def resetLyricFont(self) -> None:
         """把 4 个歌词字体字段全部恢复到默认值, 仅在确有变化时统一发一次 settingsChanged."""
@@ -424,6 +543,11 @@ class SettingsController(QObject):
         except (TypeError, ValueError):
             return default
         return max(lo, min(hi, value))
+
+    def _read_color(self, key: str, default: str) -> str:
+        raw = self._settings.value(key, default)
+        normalized = _normalize_hex_color(raw if isinstance(raw, str) else default)
+        return normalized or default
 
     def _read_bool(self, key: str, default: bool) -> bool:
         raw = self._settings.value(key, default)

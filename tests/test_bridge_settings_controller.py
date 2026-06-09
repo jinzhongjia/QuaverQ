@@ -385,3 +385,59 @@ def test_desktop_lyrics_setters_no_redundant_signal(tmp_path):
 
     controller.setDesktopLyricsLocked(False)
     assert len(emitted) == 1
+
+
+def test_desktop_lyrics_color_defaults(tmp_path):
+    """默认: 未唱白色 + 已唱 QQ 风格暖黄 (#FFA200)."""
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    assert controller.desktopLyricsColorBase == "#FFFFFF"
+    assert controller.desktopLyricsColorHighlight == "#FFA200"
+
+
+def test_desktop_lyrics_color_setters_persist(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    controller.setDesktopLyricsColorBase("#aabbcc")
+    # Qt 接受 #AARRGGBB (alpha-first), 这里 #11223344 = alpha=0x11/R=22/G=33/B=44, 存为 #223344
+    controller.setDesktopLyricsColorHighlight("#11223344")
+
+    # 统一大写存 + 不含 alpha 段 (颜色对比下 alpha 没意义, 解析后只保留 #RRGGBB)
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.desktopLyricsColorBase == "#AABBCC"
+    assert reloaded.desktopLyricsColorHighlight == "#223344"
+
+
+def test_desktop_lyrics_color_rejects_invalid(tmp_path):
+    """非 hex / 错长度 / 含字母不 valid -> 静默忽略, 保留旧值."""
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    controller.setDesktopLyricsColorBase("not-a-color")
+    assert controller.desktopLyricsColorBase == "#FFFFFF"
+    controller.setDesktopLyricsColorHighlight("#xyz")
+    assert controller.desktopLyricsColorHighlight == "#FFA200"
+    controller.setDesktopLyricsColorBase("")
+    assert controller.desktopLyricsColorBase == "#FFFFFF"
+
+
+def test_reset_desktop_lyrics(tmp_path):
+    """重置: 字体 / 字号 / 粗体 / 斜体 / 方向 / 颜色全部回默认; 锁定状态不动 (用户不希望被冲掉)."""
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    controller.setDesktopLyricsLocked(False)
+    controller.setDesktopLyricsFontFamily("SimHei")
+    controller.setDesktopLyricsFontSize(48)
+    controller.setDesktopLyricsBold(False)
+    controller.setDesktopLyricsItalic(True)
+    controller.setDesktopLyricsOrientation("vertical")
+    controller.setDesktopLyricsColorBase("#000000")
+    controller.setDesktopLyricsColorHighlight("#FF0000")
+
+    controller.resetDesktopLyrics()
+
+    assert controller.desktopLyricsLocked is False  # 锁定不动
+    assert controller.desktopLyricsFontFamily == ""
+    assert controller.desktopLyricsFontSize == 32
+    assert controller.desktopLyricsBold is True
+    assert controller.desktopLyricsItalic is False
+    assert controller.desktopLyricsOrientation == "horizontal"
+    assert controller.desktopLyricsColorBase == "#FFFFFF"
+    assert controller.desktopLyricsColorHighlight == "#FFA200"

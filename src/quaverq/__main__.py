@@ -52,6 +52,10 @@ def _should_suppress_qt_message(message: str) -> bool:
         )
         or "Could not register app ID" in message
         or "Could not update timestamps for skipped samples" in message
+        # DirectWrite 在 Windows 上枚举字体时, 对 "Fixedsys" 这类 GDI-only / 非 OpenType
+        # 位图字体会反复报 "CreateFontFaceFromHDC() failed". Qt 内部已自动 fallback 到
+        # 默认 monospace, 不影响功能; 但每次切歌 / 字体枚举都刷屏 -> 屏蔽掉.
+        or ("DirectWrite: CreateFontFaceFromHDC() failed" in message and "Fixedsys" in message)
     )
 
 

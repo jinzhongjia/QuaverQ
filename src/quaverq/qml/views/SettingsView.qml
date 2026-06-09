@@ -58,6 +58,14 @@ ScrollView {
         return (value && value.length > 0) ? value : qsTr("系统默认")
     }
 
+    function orientationLabel(value) {
+        return value === "vertical" ? qsTr("竖向") : qsTr("横向")
+    }
+
+    function onOffLabel(value) {
+        return value ? qsTr("开") : qsTr("关")
+    }
+
     function cacheCapLabel(bytes) {
         if (!bytes || bytes <= 0)
             return qsTr("无限制")
@@ -227,6 +235,130 @@ ScrollView {
             }
         }
 
+        // 桌面悬浮歌词: 仅 Windows 暴露 (Linux / macOS 故意不实现, 见 platform/base.py)
+        SettingsSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            visible: Qt.platform.os === "windows"
+            title: qsTr("桌面悬浮歌词")
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("锁定 (鼠标穿透)")
+                value: root.settingsController
+                    ? root.onOffLabel(root.settingsController.desktopLyricsLocked)
+                    : root.onOffLabel(true)
+                model: [qsTr("开"), qsTr("关")]
+                values: ["on", "off"]
+                currentValue: (root.settingsController && root.settingsController.desktopLyricsLocked) ? "on" : "off"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsLocked(value === "on")
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("方向")
+                value: root.settingsController
+                    ? root.orientationLabel(root.settingsController.desktopLyricsOrientation)
+                    : root.orientationLabel("horizontal")
+                model: [qsTr("横向"), qsTr("竖向")]
+                values: ["horizontal", "vertical"]
+                currentValue: root.settingsController ? root.settingsController.desktopLyricsOrientation : "horizontal"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsOrientation(value)
+                }
+            }
+
+            FontPickerRow {
+                Layout.fillWidth: true
+                title: qsTr("字体")
+                families: root.settingsController ? root.settingsController.availableLyricFonts : []
+                currentValue: root.settingsController ? root.settingsController.desktopLyricsFontFamily : ""
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsFontFamily(value)
+                }
+            }
+
+            SpinRow {
+                Layout.fillWidth: true
+                title: qsTr("字号")
+                fromValue: 14
+                toValue: 72
+                suffix: qsTr(" px")
+                currentValue: root.settingsController ? root.settingsController.desktopLyricsFontSize : 32
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsFontSize(value)
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("粗体")
+                value: root.settingsController
+                    ? root.onOffLabel(root.settingsController.desktopLyricsBold)
+                    : root.onOffLabel(true)
+                model: [qsTr("关"), qsTr("开")]
+                values: ["off", "on"]
+                currentValue: (root.settingsController && root.settingsController.desktopLyricsBold) ? "on" : "off"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsBold(value === "on")
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("斜体")
+                value: root.settingsController
+                    ? root.onOffLabel(root.settingsController.desktopLyricsItalic)
+                    : root.onOffLabel(false)
+                model: [qsTr("关"), qsTr("开")]
+                values: ["off", "on"]
+                currentValue: (root.settingsController && root.settingsController.desktopLyricsItalic) ? "on" : "off"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDesktopLyricsItalic(value === "on")
+                }
+            }
+
+            ColorRow {
+                Layout.fillWidth: true
+                title: qsTr("未唱字色")
+                colorValue: root.settingsController ? root.settingsController.desktopLyricsColorBase : "#FFFFFF"
+                onPickRequested: {
+                    if (root.settingsController)
+                        root.settingsController.pickDesktopLyricsColor("base")
+                }
+            }
+
+            ColorRow {
+                Layout.fillWidth: true
+                title: qsTr("已唱字色")
+                colorValue: root.settingsController ? root.settingsController.desktopLyricsColorHighlight : "#FFA200"
+                onPickRequested: {
+                    if (root.settingsController)
+                        root.settingsController.pickDesktopLyricsColor("highlight")
+                }
+            }
+
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("重置桌面歌词")
+                value: qsTr("字体 / 字号 / 颜色 / 方向 恢复默认 (不动锁定状态)")
+                actionText: qsTr("重置")
+                onActionRequested: {
+                    if (root.settingsController)
+                        root.settingsController.resetDesktopLyrics()
+                }
+            }
+        }
+
         SettingsSection {
             Layout.fillWidth: true
             Layout.leftMargin: ThemeTokens.Spacing.s6
@@ -298,10 +430,13 @@ ScrollView {
 
             anchors.fill: parent
             anchors.margins: ThemeTokens.Spacing.s5
-            spacing: ThemeTokens.Spacing.s3
+            // 行间 0 间距让 SettingsRow 的 1px 底分隔线直接相邻成连续列表;
+            // 章节标题与首行的间距由标题 bottomMargin 单独给.
+            spacing: 0
 
             Label {
                 Layout.fillWidth: true
+                Layout.bottomMargin: ThemeTokens.Spacing.s3
                 text: section.title
                 color: ThemeTokens.Palette.surfaceText
                 font.pixelSize: ThemeTokens.TypeScale.h2
@@ -311,30 +446,30 @@ ScrollView {
         }
     }
 
-    component SettingsRow: Rectangle {
+    // 行容器: 不再加边框 / 圆角背景 (section 卡已带), 改用 1px 底分隔线让多行连成一列.
+    // section 内最后一行 / 单行的多余分隔线被 section 下边距 / 圆角自然吸收, 视觉无歧义.
+    component SettingsRow: Item {
         id: row
 
         property string title: ""
         property string value: ""
         property string actionText: ""
-        property int rightReservedWidth: row.actionText.length > 0 ? 94 : 0
+        property int rightReservedWidth: row.actionText.length > 0 ? 96 : 0
+        property bool showSeparator: true
 
         signal actionRequested()
 
-        implicitHeight: 60
-        radius: ThemeTokens.Spacing.radiusMd
-        color: ThemeTokens.Palette.surface
-        border.color: ThemeTokens.Palette.outlineMuted
+        implicitHeight: 56
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: ThemeTokens.Spacing.s4
+            anchors.leftMargin: ThemeTokens.Spacing.s3
             anchors.rightMargin: ThemeTokens.Spacing.s3 + row.rightReservedWidth
             spacing: ThemeTokens.Spacing.s4
 
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: ThemeTokens.Spacing.s2
+                spacing: 2
 
                 Label {
                     Layout.fillWidth: true
@@ -351,6 +486,7 @@ ScrollView {
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
+                    visible: text.length > 0
                 }
             }
 
@@ -358,7 +494,7 @@ ScrollView {
                 id: actionButton
 
                 Layout.preferredWidth: 86
-                Layout.preferredHeight: 34
+                Layout.preferredHeight: 32
                 visible: row.actionText.length > 0
                 text: row.actionText
                 Accessible.name: text
@@ -379,9 +515,20 @@ ScrollView {
                     color: actionButton.down
                         ? ThemeTokens.Palette.statePressed
                         : actionButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                    border.color: ThemeTokens.Palette.outline
+                    border.color: ThemeTokens.Palette.outlineMuted
                 }
             }
+        }
+
+        // 1px 底分隔线: 把列表纵向连成一气 (vs. 每行独立 card)
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: ThemeTokens.Palette.outlineMuted
+            opacity: 0.6
+            visible: row.showSeparator
         }
     }
 
@@ -493,6 +640,115 @@ ScrollView {
                         ? ThemeTokens.Palette.stateHover
                         : comboDelegate.index === combo.currentIndex ? ThemeTokens.Palette.primaryContainer : "transparent"
                 }
+            }
+        }
+    }
+
+    // 数字输入行: 纯 TextField + 后缀, 不带 +/- 按钮 (用户偏好直接键盘输入).
+    component SpinRow: SettingsRow {
+        id: spinRow
+
+        property int fromValue: 0
+        property int toValue: 100
+        property int currentValue: 0
+        property string suffix: ""
+
+        signal valueRequested(int value)
+
+        actionText: ""
+        rightReservedWidth: 110
+
+        TextField {
+            id: numField
+
+            anchors.right: parent.right
+            anchors.rightMargin: ThemeTokens.Spacing.s3
+            anchors.verticalCenter: parent.verticalCenter
+            width: 96
+            height: 32
+            horizontalAlignment: TextInput.AlignHCenter
+            verticalAlignment: TextInput.AlignVCenter
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+            color: ThemeTokens.Palette.surfaceText
+            selectByMouse: true
+            inputMethodHints: Qt.ImhDigitsOnly
+            validator: IntValidator { bottom: spinRow.fromValue; top: spinRow.toValue }
+            text: spinRow.currentValue + spinRow.suffix
+            Accessible.name: spinRow.title
+
+            // currentValue 外部变化 (重置 / 其他入口) 时同步显示
+            property int _externalValue: spinRow.currentValue
+            onTextEdited: {} // 防止 binding loop, 实际同步走 _externalValue
+            Connections {
+                target: spinRow
+                function onCurrentValueChanged() {
+                    if (!numField.activeFocus)
+                        numField.text = spinRow.currentValue + spinRow.suffix
+                }
+            }
+
+            function commit() {
+                var raw = text.replace(spinRow.suffix, "").trim()
+                var num = parseInt(raw)
+                if (isNaN(num))
+                    num = spinRow.currentValue
+                if (num < spinRow.fromValue) num = spinRow.fromValue
+                if (num > spinRow.toValue) num = spinRow.toValue
+                text = num + spinRow.suffix
+                if (num !== spinRow.currentValue)
+                    spinRow.valueRequested(num)
+            }
+
+            onEditingFinished: commit()
+            Keys.onReturnPressed: numField.focus = false  // 触发 editingFinished
+            Keys.onEnterPressed: numField.focus = false
+
+            background: Rectangle {
+                radius: ThemeTokens.Spacing.radiusMd
+                color: numField.activeFocus
+                    ? ThemeTokens.Palette.surface
+                    : numField.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
+                border.color: numField.activeFocus
+                    ? ThemeTokens.Palette.focusRing
+                    : ThemeTokens.Palette.outlineMuted
+            }
+        }
+    }
+
+    // 颜色选择行: 点击触发 QColorDialog (经 SettingsController.pickDesktopLyricsColor).
+    component ColorRow: SettingsRow {
+        id: colorRow
+
+        property string colorValue: "#FFFFFF"
+
+        signal pickRequested()
+
+        actionText: ""
+        rightReservedWidth: 96
+        value: colorRow.colorValue.toUpperCase()
+
+        Rectangle {
+            id: swatch
+
+            anchors.right: parent.right
+            anchors.rightMargin: ThemeTokens.Spacing.s3
+            anchors.verticalCenter: parent.verticalCenter
+            width: 72
+            height: 32
+            radius: ThemeTokens.Spacing.radiusSm
+            color: colorRow.colorValue
+            border.color: swatchMouse.containsMouse
+                ? ThemeTokens.Palette.focusRing
+                : ThemeTokens.Palette.outlineMuted
+            border.width: 1
+
+            MouseArea {
+                id: swatchMouse
+
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: colorRow.pickRequested()
             }
         }
     }
