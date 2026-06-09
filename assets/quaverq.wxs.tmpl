@@ -14,10 +14,14 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <!-- Codepage=65001 (UTF-8): 默认 1252 不含中文 (DowngradeErrorMessage / Shortcut Name
+       等 Property 字符串里都有汉字, 不设会 WIX0311 报错). Windows 10+ MSI 完全支持 UTF-8;
+       目标系统就是 Win 10/11, 无兼容顾虑. -->
   <Package Name="QuaverQ"
            Manufacturer="jinzhongjia"
            Version="$VERSION"
            UpgradeCode="$UPGRADE_CODE"
+           Codepage="65001"
            Compressed="yes"
            Scope="perMachine">
 
@@ -29,12 +33,13 @@
         Schedule="afterInstallInitialize"
         DowngradeErrorMessage="已安装的 QuaverQ 版本比当前要装的更新, 请先卸载现有版本." />
 
-    <!-- ARP (添加 / 删除程序) 列表显示 -->
+    <!-- ARP (添加 / 删除程序) 列表显示.
+         ARPNOMODIFY / ARPNOREPAIR 故意不设: WixUI_InstallDir UI 扩展自己接管 Modify
+         (允许用户重新选安装路径) + Repair (重新部署文件), 我们再显式置 1 会与扩展
+         内部声明的 Property 冲突 (WIX0091 Duplicate Property). -->
     <Icon Id="QuaverQ.exe" SourceFile="$ICON_PATH" />
     <Property Id="ARPPRODUCTICON" Value="QuaverQ.exe" />
     <Property Id="ARPHELPLINK" Value="https://github.com/jinzhongjia/QuaverQ" />
-    <Property Id="ARPNOMODIFY" Value="1" />
-    <Property Id="ARPNOREPAIR" Value="1" />
 
     <!-- 装到 %ProgramFiles%\QuaverQ -->
     <StandardDirectory Id="ProgramFiles64Folder">

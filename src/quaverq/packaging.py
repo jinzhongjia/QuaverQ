@@ -263,6 +263,28 @@ def _find_wix_cli() -> str | None:
     return shutil.which("wix")
 
 
+def _ensure_wix_extension(wix: str, extension: str) -> bool:
+    """确保 WiX 扩展在用户级 (-g) 缓存里. 第一次跑会联网拉, 之后命中本地缓存.
+
+    WiX 5 的 UI / Bal / Util 等扩展不再随 CLI 安装, 需要 ``wix extension add -g`` 显式加.
+    幂等: 已加过会输出 "already added" / 类似消息, 我们容忍 returncode != 0 但带这关键词.
+    """
+    result = subprocess.run(
+        [wix, "extension", "add", "-g", extension],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode == 0:
+        return True
+    if "already added" in output.lower() or "已添加" in output:
+        return True
+    print(f"[msi] WiX extension '{extension}' 添加失败:\n{output}", file=sys.stderr)
+    return False
+
+
 def _render_wxs(
     template: Path,
     output: Path,
@@ -285,11 +307,15 @@ def _render_wxs(
     output.write_text(rendered, encoding="utf-8")
 
 
-def build_msi(output_dir: str = "dist") -> int:
+def build_msi(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     """Nuitka standalone -> SVG/ICO + WiX 5 -> ``QuaverQ-{version}.msi``.
 
     依赖: WiX 5 CLI (``dotnet tool install --global wix``), .NET 6+ runtime.
     不装 WiX 时给清晰错误 + 安装命令, 不静默失败.
+
+    ``rebuild=False`` (CLI ``--no-rebuild``): 复用已存在的 ``dist/quaverq_entry.dist/``,
+    只跑 WiX 那段. 调 .wxs 模板 / 改 UI extension 这类 packaging 改动迭代时用,
+    避免每次重跑 5 分钟 Nuitka 链接 + 250MB 复制. Python 代码改了就别用这个.
     """
     if sys.platform != "win32":
         print("[msi] 仅 Windows 支持 MSI 打包", file=sys.stderr)
@@ -306,12 +332,16 @@ def build_msi(output_dir: str = "dist") -> int:
 
     root = resources.project_root()
     version = project_version()
-
-    # 1) Nuitka standalone (build() 内部已经渲染 ICO + 嵌入 exe)
-    rc = build("standalone", output_dir=output_dir)
-    if rc != 0:
-        return rc
     dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
+
+    # 1) Nuitka standalone (build() 内部已经渲染 ICO + 嵌入 exe).
+    # rebuild=False 时跳过 (用于调 WiX 模板迭代, 不动 Python 代码)
+    if rebuild or not (dist_dir / "QuaverQ.exe").exists():
+        rc = build("standalone", output_dir=output_dir)
+        if rc != 0:
+            return rc
+    else:
+        print(f"[msi] 复用已有 Nuitka 产物: {dist_dir} (--no-rebuild)")
     if not dist_dir.is_dir():
         print(f"[msi] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
         return 1
@@ -334,7 +364,11 @@ def build_msi(output_dir: str = "dist") -> int:
         dist_dir=dist_dir,
     )
 
-    # 4) wix build (含 UI extension 让安装界面带选目录)
+    # 4) 确保 UI extension 已在 ``wix extension`` 缓存; WiX 5 默认不带, 用户首次构建拉一次
+    if not _ensure_wix_extension(wix, "WixToolset.UI.wixext"):
+        return 1
+
+    # 5) wix build (含 UI extension 让安装界面带选目录)
     msi_path = root / output_dir / f"QuaverQ-{version}.msi"
     cmd = [
         wix,
@@ -455,6 +489,11 @@ def main() -> None:
         action="store_true",
         help="standalone -> portable .zip (解压即跑, 不需要安装)",
     )
+    parser.add_argument(
+        "--no-rebuild",
+        action="store_true",
+        help="跟 --msi 一起用: 复用已存在的 Nuitka 产物, 只跑 WiX (调模板时省时间)",
+    )
     parser.add_argument("--smoke", metavar="BINARY", help="对产物跑 smoke 启动自检")
     args = parser.parse_args()
 
@@ -465,7 +504,7 @@ def main() -> None:
     if args.appimage:
         sys.exit(build_appimage())
     if args.msi:
-        sys.exit(build_msi())
+        sys.exit(build_msi(rebuild=not args.no_rebuild))
     if args.portable:
         sys.exit(build_portable_zip())
     sys.exit(build("onefile" if args.onefile else "standalone"))
