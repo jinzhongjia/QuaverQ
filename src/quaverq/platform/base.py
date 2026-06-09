@@ -99,10 +99,13 @@ class PlatformAdapter(Protocol):
         self,
         lyric_controller: Any,
         settings_controller: Any = None,
+        player_controller: Any = None,
     ) -> Any | None:
         """返回桌面悬浮歌词窗 controller (类似 QQ 音乐桌面歌词).
 
         ``settings_controller`` 用来同步锁定 / 字体 / 方向; 传 None 时窗口走默认值.
+        ``player_controller`` 用来同步播放状态 (是否真正在播放, 控制 wipe 插值是否启动);
+        不传的话窗口认为"始终未在播放", 永远不做 30fps 插值 (功能降级但不出 wall-clock 鬼影).
 
         - Windows: 唯一支持平台. 返 ``DesktopLyricsController``.
         - Linux: **不支持** —— Wayland 下 frameless + transparent + input-passthrough

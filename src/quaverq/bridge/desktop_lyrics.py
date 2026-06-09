@@ -35,11 +35,13 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QTimer, Slot
 from PySide6.QtGui import (
+    QBrush,
     QColor,
     QFont,
     QFontMetrics,
     QGuiApplication,
     QHideEvent,
+    QLinearGradient,
     QMouseEvent,
     QPainter,
     QPainterPath,
@@ -55,9 +57,16 @@ logger = logging.getLogger(__name__)
 _ORIENTATIONS = ("horizontal", "vertical")
 _DEFAULT_COLOR_BASE = QColor("#FFFFFF")
 _DEFAULT_COLOR_HIGHLIGHT = QColor("#FFA200")  # 深琥珀 / QQ Music 风格暖橙
-_OUTLINE_COLOR = QColor(0, 0, 0, 220)
-_OUTLINE_WIDTH = 5
+_OUTLINE_COLOR = QColor(0, 0, 0)  # 不透明纯黑, 收 220 alpha 让边沿更锐
+_OUTLINE_WIDTH = 3  # 5px 偏粗会"吞"字形细节, 3px 与 QQ Music 参考视觉接近
+# 填色 vertical gradient: 上端 = 用户色, 下端 = 微暗版, 让字有"舞台灯"立体感.
+_FILL_GRADIENT_DARKEN = 115  # QColor.darker(115) = 亮度降 15%, 微妙不抢戏
 _WIPE_TIMER_INTERVAL_MS = 33  # ~30 FPS 插值, 比 MediaPlayer 100ms tick 更平滑
+# 插值最长外推时长: 超过此值仍没收到新 position tick -> 冻在 anchor 不再外推.
+# 防止加载 / 缓冲 / 暂停态 wall-clock 自顾自把字"唱过去", 等真实 positionChanged 一来
+# anchor 重置就跳回 (用户实测复现).
+# MediaPlayer FFmpeg backend 正常 100ms tick 一次; 150ms 留 50ms 缓冲, 不抖.
+_MAX_INTERP_DELTA_MS = 150
 # 斜体常见 shear ~12°, tan(12°) ≈ 0.213. 用此值把 wipe 边沿做成平行四边形,
 # 匹配 italic 字形倾斜, 避免垂直 clip 把字劈成楔形伪影 (上半字被切歪一刀).
 _ITALIC_SHEAR = 0.213
@@ -84,7 +93,9 @@ class DesktopLyricsWindow(QWidget):
         self._sung_count = 0
         self._locked = True
         self._orientation = "horizontal"
-        self._font = QFont("Microsoft YaHei UI", 32, QFont.Weight.Bold)
+        # 默认 Black (900) 比 Bold (700) 字脚更壮, OSD 大字号下"印刷"感更强;
+        # family 没 Black 字重时 Qt 自动 fallback 到家族最接近的字重 (通常 Bold).
+        self._font = QFont("Microsoft YaHei UI", 32, QFont.Weight.Black)
         self._font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, _LETTER_SPACING_PERCENT)
         self._color_base = QColor(_DEFAULT_COLOR_BASE)
         self._color_highlight = QColor(_DEFAULT_COLOR_HIGHLIGHT)
@@ -93,8 +104,11 @@ class DesktopLyricsWindow(QWidget):
         # 平滑动画: 外部 set_progress_ms 设 anchor, 定时器 30fps 插值
         # _effective_ms() = anchor + (perf_counter - anchor_perf) * 1000
         # 当无 active wipe (无 word 正在 0<f<1) 时定时器停, 不浪费 CPU
+        # _is_playing: 仅在播放中允许插值, 否则即便 ms 落在 active word 范围内, timer 也不启动 ——
+        # 修启动期 / 暂停态歌没播 wipe 却自己往前跑 (wall-clock 推进) 的 bug.
         self._anchor_ms = 0
         self._anchor_perf = time.perf_counter()
+        self._is_playing = False
         self._wipe_timer = QTimer(self)
         self._wipe_timer.setInterval(_WIPE_TIMER_INTERVAL_MS)
         self._wipe_timer.timeout.connect(self._on_wipe_tick)
@@ -105,6 +119,9 @@ class DesktopLyricsWindow(QWidget):
     # ------------------------------------------------------------------ 状态查询
     def is_locked(self) -> bool:
         return self._locked
+
+    def is_playing(self) -> bool:
+        return self._is_playing
 
     def orientation(self) -> str:
         return self._orientation
@@ -164,6 +181,26 @@ class DesktopLyricsWindow(QWidget):
         self._sung_count = new_count
         self._toggle_wipe_timer()
         self.update()
+
+    def set_playing(self, playing: bool) -> None:
+        """切播放态. 暂停 / 停止时 -> 停 timer + 不再插值 (effective_ms = anchor_ms).
+
+        修启动期 / 暂停时 wipe 自己往前跑的 bug: 之前 timer 只看 wall-clock,
+        不管歌实际是否在播 -> 出现"字向前亮起接着突然回到开头"的鬼影.
+
+        **故意不在 playing=True 时 re-anchor perf**: anchor_perf 必须与 anchor_ms
+        来源同步 (上次 set_progress_ms 时刻). 强行重置 perf 会让外推从一个旧 anchor_ms
+        开始计 delta, 真实 positionChanged 一到就跳回去. 由 _MAX_INTERP_DELTA_MS cap 兜底.
+        """
+        playing = bool(playing)
+        if self._is_playing == playing:
+            return
+        self._is_playing = playing
+        if playing:
+            self._toggle_wipe_timer()
+        else:
+            self._wipe_timer.stop()
+            self.update()
 
     def set_colors(self, base: QColor, highlight: QColor) -> None:
         if not isinstance(base, QColor) or not base.isValid():
@@ -257,11 +294,18 @@ class DesktopLyricsWindow(QWidget):
         return word_idx < self._sung_count
 
     def _effective_ms(self) -> int:
-        """anchor + 插值时间. 定时器不跑时 = anchor (静止状态)."""
-        if not self._wipe_timer.isActive():
+        """anchor + 插值时间. 暂停 / 停止时或 timer 不跑时 = anchor (静止状态),
+        避免 wall-clock 把字"自己唱过去".
+
+        外推有上限 ``_MAX_INTERP_DELTA_MS`` (150ms = 1.5 个 MediaPlayer tick 间隔):
+        超过仍没新 position 视为 loading / buffer / 真停了, 冻在 anchor 不让字往前飞.
+        """
+        if not self._is_playing or not self._wipe_timer.isActive():
             return self._anchor_ms
-        delta = (time.perf_counter() - self._anchor_perf) * 1000.0
-        return int(self._anchor_ms + delta)
+        delta_ms = (time.perf_counter() - self._anchor_perf) * 1000.0
+        if delta_ms > _MAX_INTERP_DELTA_MS:
+            return self._anchor_ms
+        return int(self._anchor_ms + delta_ms)
 
     def _word_fractions(self) -> list[tuple[str, float]]:
         """当前帧每个 word 的 (text, fill_fraction).
@@ -301,18 +345,28 @@ class DesktopLyricsWindow(QWidget):
         return False
 
     def _toggle_wipe_timer(self) -> None:
-        """根据当前是否有 active wipe 决定 timer 起 / 停.
-        隐藏时由 ``hideEvent`` 统一停掉, 不再在这里依赖 ``isVisible()``
-        (避免构造后未 show 的状态下永远启动不了, 测试也更稳)."""
-        if self._has_active_wipe():
+        """根据当前是否有 active wipe + 是否在播放 决定 timer 起 / 停.
+        - 不在播 (暂停 / 停止 / 启动期) -> 一律停, 即便 ms 落在 word 中段也不允许 timer 自驱前进
+        - 隐藏 (hideEvent) 已统一停 timer, 这里不再判 isVisible() 防测试构造期假阴性
+        """
+        if self._is_playing and self._has_active_wipe():
             if not self._wipe_timer.isActive():
                 self._wipe_timer.start()
         elif self._wipe_timer.isActive():
             self._wipe_timer.stop()
 
     def _on_wipe_tick(self) -> None:
-        """定时器 33ms 回调: 检查是否还有 active wipe; 没有则停, 否则重绘."""
+        """定时器 33ms 回调: 没 active wipe / 外推超时 -> 自停; 否则重绘.
+
+        外推超时检测: 若距 anchor_perf > cap, 说明 player 没在前进 (loading / pause /
+        外部代码忘了推 position), 不再 30fps 空转浪费 CPU. 下次 set_progress_ms 触发 toggle 重启.
+        """
         if not self._has_active_wipe():
+            self._wipe_timer.stop()
+            self.update()
+            return
+        delta_ms = (time.perf_counter() - self._anchor_perf) * 1000.0
+        if delta_ms > _MAX_INTERP_DELTA_MS:
             self._wipe_timer.stop()
         self.update()
 
@@ -388,7 +442,7 @@ class DesktopLyricsWindow(QWidget):
 
             # base 色铺底
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._color_base)
+            painter.setBrush(self._fill_brush(highlight=False))
             painter.drawPath(word_path)
 
             # 高亮色 wipe (斜体时 clip 跟着 shear, 避免楔形伪影)
@@ -397,7 +451,7 @@ class DesktopLyricsWindow(QWidget):
                 clip_w = max(1.0, word_w * fraction)
                 clip_path = self._make_horizontal_wipe_clip(x, clip_w, float(baseline))
                 painter.setClipPath(clip_path)
-                painter.setBrush(self._color_highlight)
+                painter.setBrush(self._fill_brush(highlight=True))
                 painter.drawPath(word_path)
                 painter.restore()
 
@@ -434,7 +488,7 @@ class DesktopLyricsWindow(QWidget):
             # 描边 + base 色
             self._draw_outline(painter, word_path)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._color_base)
+            painter.setBrush(self._fill_brush(highlight=False))
             painter.drawPath(word_path)
 
             # 高亮 wipe (top-down)
@@ -444,11 +498,24 @@ class DesktopLyricsWindow(QWidget):
                 clip_h = max(1, int(round(word_h * fraction)))
                 painter.save()
                 painter.setClipRect(0, top_y, self.width(), clip_h)
-                painter.setBrush(self._color_highlight)
+                painter.setBrush(self._fill_brush(highlight=True))
                 painter.drawPath(word_path)
                 painter.restore()
 
             char_idx += len(text)
+
+    def _fill_brush(self, *, highlight: bool) -> QBrush:
+        """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
+
+        效果类似 QQ Music 的"舞台灯": 字体上半明下半略沉, 立体感强于纯色.
+        渐变跨窗口高度而非字形 bbox -> 文字越大 / 行越靠中, 渐变越平滑.
+        """
+        color = self._color_highlight if highlight else self._color_base
+        h = max(1, self.height())
+        gradient = QLinearGradient(0.0, 0.0, 0.0, float(h))
+        gradient.setColorAt(0.0, color)
+        gradient.setColorAt(1.0, color.darker(_FILL_GRADIENT_DARKEN))
+        return QBrush(gradient)
 
     def _draw_outline(self, painter: QPainter, path: QPainterPath) -> None:
         pen = QPen(_OUTLINE_COLOR, _OUTLINE_WIDTH)
@@ -488,12 +555,14 @@ class DesktopLyricsWindow(QWidget):
 
 
 class DesktopLyricsController(QObject):
-    """连接 LyricController + SettingsController -> DesktopLyricsWindow.
+    """连接 LyricController + SettingsController + PlayerController -> DesktopLyricsWindow.
 
     数据流:
     - ``LyricController.currentLineChanged`` -> 重读 activeIndex + lyricModel.lineAt(idx) ->
       把 (text, words) 推给窗口; 同时立即按当前 positionMs 算 sung_count.
     - ``LyricController.positionMsChanged`` -> 推 positionMs 给窗口; 窗口内部跨字才重绘.
+    - ``PlayerController.playbackStateChanged`` -> 推 is_playing 给窗口, 控制 wipe 插值;
+      不接的话会出现"暂停 / 启动期歌没播但 wipe 自己往前跑"的 bug.
     - ``SettingsController.settingsChanged`` -> 全量 pull 锁定 / 字体 / 方向 / 颜色.
     """
 
@@ -501,11 +570,13 @@ class DesktopLyricsController(QObject):
         self,
         lyric_controller: Any,
         settings_controller: Any = None,
+        player_controller: Any = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._lyric_controller = lyric_controller
         self._settings_controller = settings_controller
+        self._player_controller = player_controller
         self._window = DesktopLyricsWindow()
         self._lyric_controller.currentLineChanged.connect(self._on_line_changed)
         # positionMsChanged 是 player tick 100ms 推一次 (LyricController 透传), 量大
@@ -513,6 +584,12 @@ class DesktopLyricsController(QObject):
         position_signal = getattr(self._lyric_controller, "positionMsChanged", None)
         if position_signal is not None:
             position_signal.connect(self._on_position_changed)
+        if self._player_controller is not None:
+            pb_signal = getattr(self._player_controller, "playbackStateChanged", None)
+            if pb_signal is not None:
+                pb_signal.connect(self._on_playback_state_changed)
+            # 启动期同步一次当前播放态 (避免初始默认 False 与实际 "playing" 不符)
+            self._on_playback_state_changed()
         if self._settings_controller is not None:
             self._settings_controller.settingsChanged.connect(self._on_settings_changed)
             self._on_settings_changed()  # 启动期同步一次
@@ -589,6 +666,15 @@ class DesktopLyricsController(QObject):
     @Slot()
     def _on_position_changed(self) -> None:
         self._sync_position()
+
+    @Slot()
+    def _on_playback_state_changed(self) -> None:
+        """playbackState ∈ {playing, paused, stopped, loading, ...} -> 只在 'playing' 时插值."""
+        pc = self._player_controller
+        if pc is None:
+            return
+        state = str(getattr(pc, "playbackState", "") or "")
+        self._window.set_playing(state == "playing")
 
     @Slot()
     def _on_settings_changed(self) -> None:

@@ -59,6 +59,7 @@ class _NullPlatform:
         self,
         lyric_controller: Any,  # noqa: ARG002
         settings_controller: Any = None,  # noqa: ARG002
+        player_controller: Any = None,  # noqa: ARG002
     ) -> Any | None:
         return None
 

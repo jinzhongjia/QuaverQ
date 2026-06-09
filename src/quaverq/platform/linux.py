@@ -61,6 +61,7 @@ class LinuxPlatform:
         self,
         lyric_controller: Any,  # noqa: ARG002
         settings_controller: Any = None,  # noqa: ARG002
+        player_controller: Any = None,  # noqa: ARG002
     ) -> Any | None:
         # Linux 故意不实现:
         # - Wayland (Mutter/KWin/Hyprland) 下 frameless + transparent + input-passthrough

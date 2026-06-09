@@ -359,7 +359,11 @@ def main() -> None:
     # 必须保留引用防 GC, 否则 Qt 会回收 QWidget + signal 连接断.
     # 可见性由 SettingsController.desktopLyricsEnabled 驱动: 构造时 _on_settings_changed
     # 自动 pull 一次, enabled=True 时 apply_settings 会调 window.show(); 不再显式 .show().
-    desktop_lyrics_controller = pal.desktop_lyrics(lyric_controller, settings_controller)
+    desktop_lyrics_controller = pal.desktop_lyrics(
+        lyric_controller,
+        settings_controller,
+        player_controller=player_controller,
+    )
 
     # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
     # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.

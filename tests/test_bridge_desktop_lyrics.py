@@ -451,10 +451,12 @@ def test_word_fractions_after_word_end(qapp):
 
 
 def test_wipe_timer_starts_when_word_active(qapp):
-    """有 word 正在 wipe 时, 内部 30fps 定时器自动启动以插值平滑动画."""
+    """有 word 正在 wipe 时, 内部 30fps 定时器自动启动以插值平滑动画.
+    必须先 set_playing(True) 才允许 timer 跑."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
+    w.set_playing(True)
     w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
     w.set_progress_ms(100)  # 中段
     assert w._wipe_timer.isActive()
@@ -499,6 +501,35 @@ def test_horizontal_wipe_clip_skewed_when_italic(qapp):
     assert abs(rect.height() - 100.0) < 0.01
 
 
+def test_outline_width_is_thin(qapp):
+    """描边收细到 3px (粗描边遮字, 像贴纸)."""
+    from quaverq.bridge import desktop_lyrics as dl
+
+    assert dl._OUTLINE_WIDTH == 3
+
+
+def test_default_font_is_extra_bold(qapp):
+    """默认字重应到 Black (900) 区间; 字号大时字脚才有"印刷"质感.
+    family 缺 Black 时 Qt 会自动 fallback 到家族最接近的字重 (通常是 Bold)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    weight = w.current_font().weight()
+    assert weight >= 800  # ExtraBold(800) 或 Black(900) 都算合格
+
+
+def test_fill_brush_for_gradient(qapp):
+    """填色 brush 应该是 LinearGradient (单色 + 微暗下半截), 不是纯色."""
+    from PySide6.QtCore import Qt as Qt_
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    brush = w._fill_brush(highlight=True)
+    # 渐变 brush 的 style != SolidPattern
+    assert brush.style() == Qt_.BrushStyle.LinearGradientPattern
+
+
 def test_font_has_letter_spacing(qapp):
     """默认字体应当带 PercentageSpacing > 100, 让字之间不挤."""
     from PySide6.QtGui import QFont
@@ -525,11 +556,110 @@ def test_set_font_config_preserves_letter_spacing(qapp):
     assert abs(f.letterSpacing() - original_spacing) < 0.01
 
 
+def test_default_not_playing(qapp):
+    """初始默认 playing=False, 避免启动期 timer 自己往前跑."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    assert w.is_playing() is False
+
+
+def test_set_playing_false_blocks_wipe_timer(qapp):
+    """playing=False 时即使 active wipe 也不该启动 timer."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_playing(False)
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
+    w.set_progress_ms(100)  # active wipe 中段
+    assert not w._wipe_timer.isActive()
+
+
+def test_set_playing_true_starts_wipe_timer(qapp):
+    """playing=True 时 active wipe 自动启 timer."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_playing(True)
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
+    w.set_progress_ms(100)
+    assert w._wipe_timer.isActive()
+
+
+def test_effective_ms_no_interpolation_when_paused(qapp):
+    """暂停时 effective_ms == anchor_ms, 不允许 wall-clock 把字"自己唱过去"."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_playing(False)
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
+    w.set_progress_ms(100)
+    # 即使 perf_counter 走了, 仍返 anchor_ms
+    import time
+
+    time.sleep(0.05)
+    assert w._effective_ms() == 100
+
+
+def test_effective_ms_caps_extrapolation_when_no_recent_tick(qapp):
+    """超过 _MAX_INTERP_DELTA_MS 没新 position tick -> 冻在 anchor, 不让 wall-clock 把字"自己唱过去".
+
+    场景: 用户点播放 -> playbackState=playing -> set_playing(True) 但 positionMs 还停在 0
+    (音乐在加载). 30fps timer 不允许靠 perf_counter 一路推到 effective_ms=N 秒,
+    否则真实 positionChanged 来时 anchor 重置, 视觉跳回起点.
+    """
+    import time
+
+    from quaverq.bridge import desktop_lyrics as dl
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_playing(True)
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 5000}])
+    w.set_progress_ms(100)
+    # 立刻取: 与 anchor 差距很小
+    assert abs(w._effective_ms() - 100) < 30
+    # 等到超过 cap 没新 tick -> 应冻在 anchor=100, 不外推到几百
+    time.sleep((dl._MAX_INTERP_DELTA_MS + 50) / 1000.0)
+    assert w._effective_ms() == 100
+
+
+def test_wipe_timer_stops_when_position_tick_stale(qapp):
+    """timer tick 中发现已 stale (无新 position 超过 cap) -> 自动停, 等下一次 set_progress_ms 重启."""
+    import time
+
+    from quaverq.bridge import desktop_lyrics as dl
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_playing(True)
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 5000}])
+    w.set_progress_ms(100)
+    assert w._wipe_timer.isActive()
+    time.sleep((dl._MAX_INTERP_DELTA_MS + 50) / 1000.0)
+    qapp.processEvents()  # 让 timer tick 跑一次, 应当自停
+    assert not w._wipe_timer.isActive()
+
+
+def test_set_playing_false_stops_running_timer(qapp):
+    """播放中暂停: timer 立刻停 (不允许暂停后还 30fps 跑)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_playing(True)
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
+    w.set_progress_ms(100)
+    assert w._wipe_timer.isActive()
+    w.set_playing(False)
+    assert not w._wipe_timer.isActive()
+
+
 def test_wipe_timer_stops_on_hide(qapp):
     """窗口隐藏时定时器停 (即便有 active word)."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
+    w.set_playing(True)
     w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
     w.show()
     qapp.processEvents()

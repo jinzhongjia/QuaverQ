@@ -61,7 +61,12 @@ class WindowsPlatform:
         self,
         lyric_controller: Any,
         settings_controller: Any = None,
+        player_controller: Any = None,
     ) -> Any | None:
         from ..bridge.desktop_lyrics import DesktopLyricsController
 
-        return DesktopLyricsController(lyric_controller, settings_controller)
+        return DesktopLyricsController(
+            lyric_controller,
+            settings_controller,
+            player_controller=player_controller,
+        )
