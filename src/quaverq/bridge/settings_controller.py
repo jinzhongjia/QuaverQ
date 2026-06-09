@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 _THEME_MODES = {"system", "light", "dark"}
 _QUALITY_PREFERENCES = {"standard", "balanced", "high"}
 _LYRIC_FONT_WEIGHTS = {"regular", "medium", "bold"}
+_DESKTOP_LYRIC_ORIENTATIONS = {"horizontal", "vertical"}
+# 桌面歌词字体大小 (默认 32, 比歌词面板大, 配大字号 OSD 风格)
+_DESKTOP_LYRIC_FONT_SIZE_MIN = 14
+_DESKTOP_LYRIC_FONT_SIZE_MAX = 72
+_DESKTOP_LYRIC_FONT_SIZE_DEFAULT = 32
 
 # 封面缓存默认上限 256 MB (设为 0 表示不限). 封面多为 30–80 KB 的 jpg,
 # 256 MB 可缓存数千张, 正常使用不会触及; 用户可在设置页调整或关闭.
@@ -87,6 +92,26 @@ class SettingsController(QObject):
         self._lyric_font_italic = self._read_bool("lyrics/italic", False)
         self._available_lyric_fonts: list[str] | None = None
 
+        # 桌面悬浮歌词 (Windows-only feature; 字段持久化跨平台无伤大雅, 反正非 Windows
+        # 不会实例化 DesktopLyricsController, 这些值就不会被读到).
+        self._desktop_lyrics_locked = self._read_bool("desktopLyrics/locked", True)
+        self._desktop_lyrics_font_family = str(
+            self._settings.value("desktopLyrics/fontFamily", "") or ""
+        )
+        self._desktop_lyrics_font_size = self._read_int_clamped(
+            "desktopLyrics/fontSize",
+            _DESKTOP_LYRIC_FONT_SIZE_DEFAULT,
+            _DESKTOP_LYRIC_FONT_SIZE_MIN,
+            _DESKTOP_LYRIC_FONT_SIZE_MAX,
+        )
+        self._desktop_lyrics_bold = self._read_bool("desktopLyrics/bold", True)
+        self._desktop_lyrics_italic = self._read_bool("desktopLyrics/italic", False)
+        self._desktop_lyrics_orientation = self._read_str(
+            "desktopLyrics/orientation",
+            "horizontal",
+            _DESKTOP_LYRIC_ORIENTATIONS,
+        )
+
     @Property(str, notify=settingsChanged)
     def themeMode(self) -> str:
         return self._theme_mode
@@ -119,6 +144,32 @@ class SettingsController(QObject):
     @Property(bool, notify=settingsChanged)
     def lyricFontItalic(self) -> bool:
         return self._lyric_font_italic
+
+    # ------------------------------------------------------------------ 桌面悬浮歌词 (Windows-only)
+
+    @Property(bool, notify=settingsChanged)
+    def desktopLyricsLocked(self) -> bool:
+        return self._desktop_lyrics_locked
+
+    @Property(str, notify=settingsChanged)
+    def desktopLyricsFontFamily(self) -> str:
+        return self._desktop_lyrics_font_family
+
+    @Property(int, notify=settingsChanged)
+    def desktopLyricsFontSize(self) -> int:
+        return self._desktop_lyrics_font_size
+
+    @Property(bool, notify=settingsChanged)
+    def desktopLyricsBold(self) -> bool:
+        return self._desktop_lyrics_bold
+
+    @Property(bool, notify=settingsChanged)
+    def desktopLyricsItalic(self) -> bool:
+        return self._desktop_lyrics_italic
+
+    @Property(str, notify=settingsChanged)
+    def desktopLyricsOrientation(self) -> str:
+        return self._desktop_lyrics_orientation
 
     @Property("QStringList", constant=True)
     def availableLyricFonts(self) -> list[str]:
@@ -205,6 +256,72 @@ class SettingsController(QObject):
             return
         self._lyric_font_italic = value
         self._settings.setValue("lyrics/italic", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    # ------------------------------------------------------------------ 桌面悬浮歌词 setters
+
+    @Slot(bool)
+    def setDesktopLyricsLocked(self, locked: bool) -> None:
+        value = bool(locked)
+        if self._desktop_lyrics_locked == value:
+            return
+        self._desktop_lyrics_locked = value
+        self._settings.setValue("desktopLyrics/locked", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str)
+    def setDesktopLyricsFontFamily(self, family: str) -> None:
+        value = str(family or "").strip()
+        if self._desktop_lyrics_font_family == value:
+            return
+        self._desktop_lyrics_font_family = value
+        self._settings.setValue("desktopLyrics/fontFamily", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(int)
+    def setDesktopLyricsFontSize(self, size: int) -> None:
+        try:
+            value = int(size)
+        except (TypeError, ValueError):
+            return
+        value = max(_DESKTOP_LYRIC_FONT_SIZE_MIN, min(_DESKTOP_LYRIC_FONT_SIZE_MAX, value))
+        if self._desktop_lyrics_font_size == value:
+            return
+        self._desktop_lyrics_font_size = value
+        self._settings.setValue("desktopLyrics/fontSize", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setDesktopLyricsBold(self, bold: bool) -> None:
+        value = bool(bold)
+        if self._desktop_lyrics_bold == value:
+            return
+        self._desktop_lyrics_bold = value
+        self._settings.setValue("desktopLyrics/bold", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setDesktopLyricsItalic(self, italic: bool) -> None:
+        value = bool(italic)
+        if self._desktop_lyrics_italic == value:
+            return
+        self._desktop_lyrics_italic = value
+        self._settings.setValue("desktopLyrics/italic", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str)
+    def setDesktopLyricsOrientation(self, orientation: str) -> None:
+        value = orientation if orientation in _DESKTOP_LYRIC_ORIENTATIONS else "horizontal"
+        if self._desktop_lyrics_orientation == value:
+            return
+        self._desktop_lyrics_orientation = value
+        self._settings.setValue("desktopLyrics/orientation", value)
         self._settings.sync()
         self.settingsChanged.emit()
 

@@ -101,8 +101,13 @@ def _setup_tray(
     app: QApplication,
     engine: QQmlApplicationEngine,
     player_controller: PlayerController,
+    *,
+    desktop_lyrics_settings: SettingsController | None = None,
 ) -> QSystemTrayIcon:
     """系统托盘: 左键 / 「显示」恢复窗口, 「退出」才真正退出 app.
+
+    菜单顺序: 显示 → ── → 播放控制 → ── → 桌面歌词锁定 (仅 Windows) → ── → 退出.
+    桌面歌词子菜单只放最常用的 **锁定** 开关; 字体 / 方向等放设置页, 不挤托盘.
 
     triggered 会带 checked 参数, 用 ``lambda *_`` 吸收.
     """
@@ -115,6 +120,22 @@ def _setup_tray(
     menu.addAction("播放 / 暂停").triggered.connect(lambda *_: player_controller.togglePlayPause())
     menu.addAction("下一首").triggered.connect(lambda *_: player_controller.next())
     menu.addAction("上一首").triggered.connect(lambda *_: player_controller.prev())
+
+    # 桌面歌词锁定 (仅 Windows 才接 SettingsController; 其他平台 desktop_lyrics_settings=None 跳)
+    if desktop_lyrics_settings is not None:
+        menu.addSeparator()
+        lock_action = menu.addAction("锁定桌面歌词")
+        lock_action.setCheckable(True)
+        lock_action.setChecked(bool(desktop_lyrics_settings.desktopLyricsLocked))
+        lock_action.toggled.connect(
+            lambda checked: desktop_lyrics_settings.setDesktopLyricsLocked(bool(checked))
+        )
+        # settings 从其他入口 (设置页) 改时同步勾选状态
+        desktop_lyrics_settings.settingsChanged.connect(
+            lambda: lock_action.setChecked(bool(desktop_lyrics_settings.desktopLyricsLocked))
+        )
+        tray._desktop_lyrics_lock_action = lock_action  # 持有引用, 防 QAction 被 GC
+
     menu.addSeparator()
     menu.addAction("退出 QuaverQ").triggered.connect(lambda *_: app.quit())
     tray.setContextMenu(menu)
@@ -301,16 +322,6 @@ def main() -> None:
         logger.error("QML load failed: %s", qml_path)
         sys.exit(1)
 
-    # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
-    # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.
-    # _setup_tray 内部 QSystemTrayIcon(parent=app) + tray._menu=menu 已持有引用, 此处不存
-    if QSystemTrayIcon.isSystemTrayAvailable():
-        app.setQuitOnLastWindowClosed(False)
-        engine.rootObjects()[0].setProperty("closeToTray", True)
-        _setup_tray(app, engine, player_controller)
-    else:
-        logger.info("系统托盘不可用, 关闭窗口将退出程序")
-
     # 媒体会话 (Linux: MPRIS2; Windows: SMTC; macOS: TODO Stage 4) + 歌词外发 (Linux: D-Bus).
     # None 时 _shutdown / start 钩子都已 None-guard, 应用功能不受影响.
     # cover_cache 仅 Windows SMTC 使用 (本地 file:// URI -> Now Playing 卡片 Thumbnail).
@@ -327,9 +338,28 @@ def main() -> None:
     )
     # 桌面悬浮歌词 (Windows 默认开启 QQ 音乐风格悬浮窗; Linux 走 MPRIS 不内嵌).
     # 必须保留引用防 GC, 否则 Qt 会回收 QWidget + signal 连接断.
-    desktop_lyrics_controller = pal.desktop_lyrics(lyric_controller)
+    desktop_lyrics_controller = pal.desktop_lyrics(lyric_controller, settings_controller)
     if desktop_lyrics_controller is not None:
         desktop_lyrics_controller.show()
+
+    # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
+    # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.
+    # _setup_tray 内部 QSystemTrayIcon(parent=app) + tray._menu=menu 已持有引用, 此处不存.
+    # 在 desktop_lyrics 之后建 tray, 这样仅 Windows 路径 (desktop_lyrics_controller != None)
+    # 才把 settings_controller 灌进托盘菜单插入「锁定桌面歌词」, 保持「退出」永远在最底.
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        app.setQuitOnLastWindowClosed(False)
+        engine.rootObjects()[0].setProperty("closeToTray", True)
+        _setup_tray(
+            app,
+            engine,
+            player_controller,
+            desktop_lyrics_settings=(
+                settings_controller if desktop_lyrics_controller is not None else None
+            ),
+        )
+    else:
+        logger.info("系统托盘不可用, 关闭窗口将退出程序")
     logger.info("QuaverQ started with QML: %s", qml_path)
     with loop:
         loop.create_task(

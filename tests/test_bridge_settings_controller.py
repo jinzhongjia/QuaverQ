@@ -325,3 +325,63 @@ def test_reset_lyric_font_noop_when_already_default(tmp_path):
     controller.resetLyricFont()
 
     assert emitted == []  # 全部已是默认值, 不发信号
+
+
+# ============================================================== 桌面悬浮歌词 (Windows-only)
+
+
+def test_desktop_lyrics_defaults(tmp_path):
+    """默认: 锁定 / 字体家族空 (Window 端用 Microsoft YaHei UI 默认) / 32 size / bold / 不斜体 / 横向."""
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    assert controller.desktopLyricsLocked is True
+    assert controller.desktopLyricsFontFamily == ""
+    assert controller.desktopLyricsFontSize == 32
+    assert controller.desktopLyricsBold is True
+    assert controller.desktopLyricsItalic is False
+    assert controller.desktopLyricsOrientation == "horizontal"
+
+
+def test_desktop_lyrics_setters_persist(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    controller.setDesktopLyricsLocked(False)
+    controller.setDesktopLyricsFontFamily("SimHei")
+    controller.setDesktopLyricsFontSize(40)
+    controller.setDesktopLyricsBold(False)
+    controller.setDesktopLyricsItalic(True)
+    controller.setDesktopLyricsOrientation("vertical")
+
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.desktopLyricsLocked is False
+    assert reloaded.desktopLyricsFontFamily == "SimHei"
+    assert reloaded.desktopLyricsFontSize == 40
+    assert reloaded.desktopLyricsBold is False
+    assert reloaded.desktopLyricsItalic is True
+    assert reloaded.desktopLyricsOrientation == "vertical"
+
+
+def test_desktop_lyrics_font_size_clamped(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    controller.setDesktopLyricsFontSize(1000)
+    assert controller.desktopLyricsFontSize == 72
+    controller.setDesktopLyricsFontSize(-5)
+    assert controller.desktopLyricsFontSize == 14
+
+
+def test_desktop_lyrics_orientation_rejects_invalid(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    controller.setDesktopLyricsOrientation("diagonal")
+    assert controller.desktopLyricsOrientation == "horizontal"
+
+
+def test_desktop_lyrics_setters_no_redundant_signal(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    emitted: list[int] = []
+    controller.settingsChanged.connect(lambda: emitted.append(1))
+
+    controller.setDesktopLyricsLocked(True)
+    controller.setDesktopLyricsOrientation("horizontal")
+    assert emitted == []
+
+    controller.setDesktopLyricsLocked(False)
+    assert len(emitted) == 1

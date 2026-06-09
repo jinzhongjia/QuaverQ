@@ -57,7 +57,11 @@ class LinuxPlatform:
             player_controller=player_controller,
         )
 
-    def desktop_lyrics(self, lyric_controller: Any) -> Any | None:  # noqa: ARG002
+    def desktop_lyrics(
+        self,
+        lyric_controller: Any,  # noqa: ARG002
+        settings_controller: Any = None,  # noqa: ARG002
+    ) -> Any | None:
         # Linux 故意不实现:
         # - Wayland (Mutter/KWin/Hyprland) 下 frameless + transparent + input-passthrough
         #   组合在不同 compositor 行为不一致 (焦点抢占 / z-order 错位 / 透明合成怪异),

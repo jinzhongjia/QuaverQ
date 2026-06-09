@@ -121,3 +121,123 @@ def test_paint_event_no_crash_with_empty(qapp):
     w.resize(800, 100)
     pixmap = w.grab()
     assert not pixmap.isNull()
+
+
+# ============================================================== Lock / Unlock 切换
+
+
+def test_default_is_locked_with_input_passthrough(qapp):
+    """默认锁定: 鼠标穿透."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    assert w.is_locked() is True
+    assert w.windowFlags() & Qt.WindowType.WindowTransparentForInput
+
+
+def test_unlock_removes_input_passthrough(qapp):
+    """解锁: 去掉鼠标穿透 flag, 用户能拖动 / 右键菜单."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_locked(False)
+    assert w.is_locked() is False
+    assert not (w.windowFlags() & Qt.WindowType.WindowTransparentForInput)
+
+
+def test_relock_restores_input_passthrough(qapp):
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_locked(False)
+    w.set_locked(True)
+    assert w.is_locked() is True
+    assert w.windowFlags() & Qt.WindowType.WindowTransparentForInput
+
+
+# ============================================================== Font 设置
+
+
+def test_set_font_applies(qapp):
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_font_config(family="SimHei", size=40, bold=True, italic=False)
+    f = w.current_font()
+    assert f.family() == "SimHei"
+    assert f.pointSize() == 40
+    assert f.bold() is True
+    assert f.italic() is False
+
+
+def test_set_font_with_italic(qapp):
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_font_config(family="Microsoft YaHei UI", size=28, bold=False, italic=True)
+    f = w.current_font()
+    assert f.italic() is True
+    assert f.bold() is False
+
+
+# ============================================================== Orientation
+
+
+def test_default_orientation_horizontal(qapp):
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    assert w.orientation() == "horizontal"
+
+
+def test_set_orientation_vertical(qapp):
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    assert w.orientation() == "vertical"
+
+
+def test_set_orientation_unknown_rejected(qapp):
+    """非 horizontal/vertical 的值应当被拒绝, 保持原值."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("diagonal")  # 不识别
+    assert w.orientation() == "horizontal"
+
+
+def test_vertical_orientation_paint_does_not_crash(qapp):
+    """竖向画 CJK 多字不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("离别的眼泪我还不懂")
+    w.resize(80, 600)
+    pixmap = w.grab()
+    assert not pixmap.isNull()
+
+
+# ============================================================== Controller
+
+
+def test_controller_apply_settings(qapp):
+    """controller.apply_settings 应该同时设字体 / 方向 / 锁定."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    ctrl.apply_settings(
+        locked=False,
+        font_family="SimHei",
+        font_size=30,
+        bold=True,
+        italic=False,
+        orientation="vertical",
+    )
+    f = ctrl.window.current_font()
+    assert f.family() == "SimHei"
+    assert f.pointSize() == 30
+    assert ctrl.window.orientation() == "vertical"
+    assert ctrl.window.is_locked() is False

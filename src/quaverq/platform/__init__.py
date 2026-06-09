@@ -55,7 +55,11 @@ class _NullPlatform:
     ) -> Any | None:
         return None
 
-    def desktop_lyrics(self, lyric_controller: Any) -> Any | None:  # noqa: ARG002
+    def desktop_lyrics(
+        self,
+        lyric_controller: Any,  # noqa: ARG002
+        settings_controller: Any = None,  # noqa: ARG002
+    ) -> Any | None:
         return None
 
 
