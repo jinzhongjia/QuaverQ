@@ -131,6 +131,49 @@ async def test_start_initial_read_and_stop_clean(qapp, monkeypatch):
     await w.stop()
 
 
+async def test_start_connects_color_scheme_signal(qapp, monkeypatch):
+    """start() 应当接 QStyleHints.colorSchemeChanged 信号; stop() 摘掉.
+    PySide6 6.x 的 installNativeEventFilter 在 frameless QML 窗口下不可靠,
+    改走 Qt 高层信号 (内部已钩 WM_SETTINGCHANGE), 我们当 trigger 用."""
+    import winreg
+
+    from quaverq.platform._windows_system_theme import WindowsSystemThemeWatcher
+
+    monkeypatch.setattr(winreg, "QueryValueEx", lambda _key, _name: (1, winreg.REG_DWORD))
+    w = WindowsSystemThemeWatcher()
+    assert w._connected is False
+    await w.start()
+    assert w._connected is True
+    await w.stop()
+    assert w._connected is False
+
+
+async def test_color_scheme_signal_triggers_reread(qapp, monkeypatch):
+    """模拟系统主题切换: 注册表先返浅色, 触发信号后改返深色, dark 应同步翻转."""
+    import winreg
+
+    from PySide6.QtGui import QGuiApplication
+
+    from quaverq.platform._windows_system_theme import WindowsSystemThemeWatcher
+
+    state = {"value": 1}  # 初始浅色
+    monkeypatch.setattr(winreg, "QueryValueEx", lambda _k, _n: (state["value"], winreg.REG_DWORD))
+
+    w = WindowsSystemThemeWatcher()
+    await w.start()
+    assert w.dark is False
+
+    # 模拟 OS 改主题: 改注册表值 + emit Qt 信号
+    state["value"] = 0  # 切深色
+    QGuiApplication.instance().styleHints().colorSchemeChanged.emit(
+        QGuiApplication.instance().styleHints().colorScheme()
+    )
+    qapp.processEvents()
+    assert w.dark is True
+
+    await w.stop()
+
+
 # ============================================================== Protocol / Platform 接入
 
 

@@ -91,6 +91,27 @@ LLM 约定：
 - Python `open()` 默认用 `locale.getpreferredencoding()`, Windows 中文 locale 是 `cp936` (GBK)。**所有文本 IO 必须显式 `encoding="utf-8"`**, 否则保存含 Ø / 中文 nickname / Unicode cookie 的 JSON 会 `UnicodeEncodeError`。
 - 已修过的实例: `core/state.py` 会话快照 + `core/service.py` 凭据 (现已迁 keyring)。grep `\bopen\(` 找新引入的漏网。
 
+### Windows 系统主题事件: 用 Qt 高层 signal, 不要自己钩 `WM_SETTINGCHANGE`
+
+实测过的失败路径 (don't repeat):
+
+- ❌ **`QAbstractNativeEventFilter` + `installNativeEventFilter` 自己解 `WM_SETTINGCHANGE`**:
+  PySide6 6.x 在 frameless QML 窗口 (我们这套 chrome) 下, Python 子类的
+  ``nativeEventFilter`` 方法**完全不被 Qt 调到** —— 加日志确认是真的 0 次调用,
+  不是 lParam 解码错. 应该跟 Qt 派发逻辑 + PySide6 绑定有关, 深挖成本太高.
+- ❌ **`QTimer` 2s 轮询注册表**: 能用, 但有 1-2s 延迟 + 静止期空转 CPU + 违反
+  ["禁止轮询" 规则](#开发禁止做的事).
+- ✅ **订阅 `QGuiApplication.styleHints().colorSchemeChanged` 信号 + 回调里重读注册表**:
+  Qt 自己内部已经钩了 ``WM_SETTINGCHANGE`` / ``WM_THEMECHANGED``, 系统主题变时它
+  emit 此信号. 我们**只把它当 trigger** —— 回调里 ``_read_registry()`` 拿
+  ``AppsUseLightTheme`` 准确值, 因为 Qt 自身的 ``colorScheme()`` 在某些环境上
+  会把值错映射 (我们也只信任 SIGNAL 的 fire 时机, 不信任它的值). 实现见
+  ``src/quaverq/platform/_windows_system_theme.py``.
+
+教训: 遇到 "Windows 上需要事件驱动" 的需求, **先看 Qt 有没有包好的高层 signal**
+(``QStyleHints`` / ``QGuiApplication`` / ``QSystemTrayIcon`` 等), 不要上来就 ctypes
+解 WM 消息. Qt 内部多半已经替你接好了, 暴露成 Python-friendly signal.
+
 ### Qt `QApplication` 配置 (Windows 路径双层 / 大小写一致)
 
 - `setApplicationName("quaverq")` (**小写, 与 platformdirs appname 完全一致**); Linux case-sensitive, 大小写不一致会分裂出两个目录。
@@ -192,6 +213,13 @@ LLM 约定：
 - **禁止往 `dist/` / `.venv/` / 真实 `CONFIG_DIR` / `CACHE_DIR` 写测试夹具**: 测试只用 `tmp_path` fixture, 不污染用户真实配置 / 缓存目录 (Linux `~/.config/quaverq` + `~/.cache/quaverq`, Windows `%APPDATA%\quaverq` + `%LOCALAPPDATA%\quaverq\Cache`, macOS `~/Library/...`).
 - **禁止往用户真实 keyring 写凭据**: `tests/conftest.py` 的 `fake_keyring` autouse fixture 已把后端替成进程内 dict; 测试不要主动 `keyring.set_keyring(real_backend)` 绕开它, 否则会污染 Windows Credential Manager / Secret Service / Keychain.
 - **禁止假设非标准 Linux DE**: 不要为 headless Linux / 无 D-Bus 的最小化 WM 写"明文文件兜底"; keyring / MPRIS / 单实例 失败时降级到 no-op + log warning 即可. 软件未发布无历史用户, 无需写迁移逻辑.
+- **禁止用轮询监听外部变化**: 任何"等 X 变化"的场景**先找事件 / 信号 / 通知**, 不要默认 `QTimer` / `while True: sleep()` 轮询.
+  - 系统主题变化 -> Windows 走 `WM_SETTINGCHANGE` (`QAbstractNativeEventFilter` 钩); Linux 走 freedesktop portal `Settings.SettingChanged` D-Bus signal. **不轮询注册表 / `gsettings`**.
+  - 注册表 / 文件变化 -> Windows 用 `RegNotifyChangeKeyValue` / `ReadDirectoryChangesW`; Linux 用 `inotify` / `QFileSystemWatcher`.
+  - 进程内状态变化 -> `Signal` / `asyncio.Event` / 回调. 不要在 slot 里设标志位然后另起 timer 检查.
+  - 唯一合法的轮询场景: **被监听方主动不暴露事件且无 OS 级通知**, 且经过文档明确取舍 (例如 SMTC 某些 winrt 属性). 这种地方注释里必须写"为什么不能事件化".
+  - **Why**: 轮询 = 用户感知延迟 (1-5s 起) + 静止期空转 CPU + 测试要 sleep 拖时间. 事件驱动 = 0 延迟 + 0 空转 + 测试用 mock signal 触发, 又快又准.
+  - **How to apply**: 加任何"周期性检查外部状态"的代码前, 先 grep 该状态在 OS / 库里是否暴露 signal / D-Bus / WM / fd; 找不到再考虑轮询, 并在 PR 里说明.
 
 ## Readme 维护
 
