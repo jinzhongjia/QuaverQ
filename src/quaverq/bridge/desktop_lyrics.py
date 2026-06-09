@@ -30,19 +30,22 @@ Qt 实现要点:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
-from PySide6.QtCore import QObject, QPoint, Qt, Slot
+from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QTimer, Slot
 from PySide6.QtGui import (
     QColor,
     QFont,
     QFontMetrics,
     QGuiApplication,
+    QHideEvent,
     QMouseEvent,
     QPainter,
     QPainterPath,
     QPaintEvent,
     QPen,
+    QShowEvent,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -54,6 +57,10 @@ _DEFAULT_COLOR_BASE = QColor("#FFFFFF")
 _DEFAULT_COLOR_HIGHLIGHT = QColor("#FFA200")  # 深琥珀 / QQ Music 风格暖橙
 _OUTLINE_COLOR = QColor(0, 0, 0, 220)
 _OUTLINE_WIDTH = 5
+_WIPE_TIMER_INTERVAL_MS = 33  # ~30 FPS 插值, 比 MediaPlayer 100ms tick 更平滑
+# 斜体常见 shear ~12°, tan(12°) ≈ 0.213. 用此值把 wipe 边沿做成平行四边形,
+# 匹配 italic 字形倾斜, 避免垂直 clip 把字劈成楔形伪影 (上半字被切歪一刀).
+_ITALIC_SHEAR = 0.213
 
 
 class DesktopLyricsWindow(QWidget):
@@ -78,6 +85,15 @@ class DesktopLyricsWindow(QWidget):
         self._color_base = QColor(_DEFAULT_COLOR_BASE)
         self._color_highlight = QColor(_DEFAULT_COLOR_HIGHLIGHT)
         self._drag_origin: QPoint | None = None
+
+        # 平滑动画: 外部 set_progress_ms 设 anchor, 定时器 30fps 插值
+        # _effective_ms() = anchor + (perf_counter - anchor_perf) * 1000
+        # 当无 active wipe (无 word 正在 0<f<1) 时定时器停, 不浪费 CPU
+        self._anchor_ms = 0
+        self._anchor_perf = time.perf_counter()
+        self._wipe_timer = QTimer(self)
+        self._wipe_timer.setInterval(_WIPE_TIMER_INTERVAL_MS)
+        self._wipe_timer.timeout.connect(self._on_wipe_tick)
 
         self._apply_window_flags()
         self._set_default_geometry()
@@ -105,6 +121,7 @@ class DesktopLyricsWindow(QWidget):
         self._text = text
         self._words = []
         self._sung_count = 0
+        self._wipe_timer.stop()
         self.update()
 
     def set_line(self, text: str, words: list[dict[str, Any]] | None) -> None:
@@ -116,16 +133,23 @@ class DesktopLyricsWindow(QWidget):
         self._text = text
         self._words = words
         self._sung_count = 0  # 新行重算; 接着会有 set_progress_ms 推上来
+        self._anchor_ms = 0
+        self._anchor_perf = time.perf_counter()
+        self._wipe_timer.stop()
         self.update()
 
     def set_progress_ms(self, position_ms: int) -> None:
-        """根据当前 ms 算出 ``sung_count``; 跨字才 update, 不每帧重绘."""
+        """根据当前 ms 算出 ``sung_count`` + anchor; 启动 / 停 wipe 定时器."""
         try:
             ms = int(position_ms)
         except (TypeError, ValueError):
             return
         if not self._words:
             return
+        # anchor 用于 wipe 插值; 每次外部 update 都重设
+        self._anchor_ms = ms
+        self._anchor_perf = time.perf_counter()
+        # _sung_count 用 ms (binary "started count" 给 controller / 测试看)
         new_count = 0
         for w in self._words:
             start = w.get("startMs", 0)
@@ -133,9 +157,9 @@ class DesktopLyricsWindow(QWidget):
                 new_count += 1
             else:
                 break  # words 已按 startMs 升序
-        if new_count != self._sung_count:
-            self._sung_count = new_count
-            self.update()
+        self._sung_count = new_count
+        self._toggle_wipe_timer()
+        self.update()
 
     def set_colors(self, base: QColor, highlight: QColor) -> None:
         if not isinstance(base, QColor) or not base.isValid():
@@ -228,21 +252,65 @@ class DesktopLyricsWindow(QWidget):
             return True
         return word_idx < self._sung_count
 
-    def _segments(self) -> list[tuple[str, bool]]:
-        """把当前文本切成 (片段, 是否已唱) 列表, 用于绘制 (横向 / 竖向通用).
+    def _effective_ms(self) -> int:
+        """anchor + 插值时间. 定时器不跑时 = anchor (静止状态)."""
+        if not self._wipe_timer.isActive():
+            return self._anchor_ms
+        delta = (time.perf_counter() - self._anchor_perf) * 1000.0
+        return int(self._anchor_ms + delta)
 
-        无 ``words`` 数据 -> 整句一个片段, 一律已唱 (上层取高亮色绘制).
-        有 ``words`` -> 按 word 切; 每 word 内部不再细分.
+    def _word_fractions(self) -> list[tuple[str, float]]:
+        """当前帧每个 word 的 (text, fill_fraction).
+
+        无 ``words`` 数据 -> 整句作单段 fraction=1.0 (整体高亮色).
+        有 ``words`` -> 每段按 ``elapsed/durationMs`` 算 0..1.
         """
         if not self._words:
-            return [(self._text, True)] if self._text else []
-        out: list[tuple[str, bool]] = []
-        for i, w in enumerate(self._words):
+            return [(self._text, 1.0)] if self._text else []
+        ms = self._effective_ms()
+        out: list[tuple[str, float]] = []
+        for w in self._words:
             text = str(w.get("text", ""))
             if not text:
                 continue
-            out.append((text, i < self._sung_count))
+            start = int(w.get("startMs", 0))
+            dur = max(1, int(w.get("durationMs", 0)))
+            if ms < start:
+                f = 0.0
+            elif ms >= start + dur:
+                f = 1.0
+            else:
+                f = (ms - start) / dur
+            out.append((text, f))
         return out
+
+    def _has_active_wipe(self) -> bool:
+        """是否有 word 正在 0<f<1 范围 (需要定时器持续插值)."""
+        if not self._words:
+            return False
+        ms = self._effective_ms()
+        for w in self._words:
+            start = int(w.get("startMs", 0))
+            dur = int(w.get("durationMs", 0))
+            if start <= ms < start + dur:
+                return True
+        return False
+
+    def _toggle_wipe_timer(self) -> None:
+        """根据当前是否有 active wipe 决定 timer 起 / 停.
+        隐藏时由 ``hideEvent`` 统一停掉, 不再在这里依赖 ``isVisible()``
+        (避免构造后未 show 的状态下永远启动不了, 测试也更稳)."""
+        if self._has_active_wipe():
+            if not self._wipe_timer.isActive():
+                self._wipe_timer.start()
+        elif self._wipe_timer.isActive():
+            self._wipe_timer.stop()
+
+    def _on_wipe_tick(self) -> None:
+        """定时器 33ms 回调: 检查是否还有 active wipe; 没有则停, 否则重绘."""
+        if not self._has_active_wipe():
+            self._wipe_timer.stop()
+        self.update()
 
     # ------------------------------------------------------------------ 鼠标 (仅解锁时)
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -264,6 +332,16 @@ class DesktopLyricsWindow(QWidget):
             self._drag_origin = None
         super().mouseReleaseEvent(event)
 
+    # ------------------------------------------------------------------ 显隐
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._toggle_wipe_timer()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        # 隐藏后立刻停 timer, 不浪费 CPU 重绘看不见的内容
+        self._wipe_timer.stop()
+        super().hideEvent(event)
+
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -279,57 +357,94 @@ class DesktopLyricsWindow(QWidget):
             self._paint_horizontal(painter)
 
     def _paint_horizontal(self, painter: QPainter) -> None:
-        """横向: 按 word 切, 每段独立 path; 整句先描黑边再分段填色, 边到边对齐."""
+        """横向: 按 word 切, 整句单次描边; 每段先画 base 色, 再按 fraction 用 clipRect
+        wipe 出高亮色 (QQ Music 风格"从左到右一字一字亮起")."""
         fm = QFontMetrics(self._font)
-        segments = self._segments()
-        if not segments:
+        fractions = self._word_fractions()
+        if not fractions:
             return
-        # 整句宽度 = 各段宽度之和; 居中起点
-        total_w = sum(fm.horizontalAdvance(seg) for seg, _ in segments)
+        total_w = sum(fm.horizontalAdvance(t) for t, _ in fractions)
         x0 = (self.width() - total_w) // 2
         baseline = (self.height() + fm.ascent() - fm.descent()) // 2
 
-        # 先一次性把整句路径描边, 跨段连续 (Round join 让接缝不豁口)
+        # 整句单次描边 (跨段 round join 不豁口)
         full_path = QPainterPath()
         x = float(x0)
-        for seg, _ in segments:
-            full_path.addText(x, float(baseline), self._font, seg)
-            x += fm.horizontalAdvance(seg)
+        for text, _ in fractions:
+            full_path.addText(x, float(baseline), self._font, text)
+            x += fm.horizontalAdvance(text)
         self._draw_outline(painter, full_path)
 
-        # 再按段填色
+        # 分段填色 + wipe
         x = float(x0)
-        for seg, sung in segments:
-            seg_path = QPainterPath()
-            seg_path.addText(x, float(baseline), self._font, seg)
-            self._fill_path(painter, seg_path, sung)
-            x += fm.horizontalAdvance(seg)
+        for text, fraction in fractions:
+            word_w = fm.horizontalAdvance(text)
+            word_path = QPainterPath()
+            word_path.addText(x, float(baseline), self._font, text)
+
+            # base 色铺底
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._color_base)
+            painter.drawPath(word_path)
+
+            # 高亮色 wipe (斜体时 clip 跟着 shear, 避免楔形伪影)
+            if fraction > 0.0:
+                painter.save()
+                clip_w = max(1.0, word_w * fraction)
+                clip_path = self._make_horizontal_wipe_clip(x, clip_w, float(baseline))
+                painter.setClipPath(clip_path)
+                painter.setBrush(self._color_highlight)
+                painter.drawPath(word_path)
+                painter.restore()
+
+            x += word_w
 
     def _paint_vertical(self, painter: QPainter) -> None:
-        """竖向: 每字独立绘制, 字色随 word 是否已唱; 描边按字单独描 (字间不连)."""
+        """竖向: 按 word 切, 每 word 内多字按 fraction 自上而下 wipe.
+        word 之间字符顺序排列 (新行)."""
         fm = QFontMetrics(self._font)
         line_h = fm.ascent() + fm.descent() + 2
-        # 展平: [(char, sung)]
-        flat: list[tuple[str, bool]] = []
-        for seg, sung in self._segments():
-            for ch in seg:
-                flat.append((ch, sung))
-        if not flat:
+        fractions = self._word_fractions()
+        if not fractions:
             return
-        total_h = line_h * len(flat)
+        total_chars = sum(len(t) for t, _ in fractions)
+        if total_chars == 0:
+            return
+        total_h = line_h * total_chars
         start_y = max(fm.ascent(), (self.height() - total_h) // 2 + fm.ascent())
         cx = self.width() // 2
 
-        for i, (ch, sung) in enumerate(flat):
-            char_w = fm.horizontalAdvance(ch)
-            x = cx - char_w // 2
-            y = start_y + i * line_h
-            if y - fm.ascent() > self.height():
-                break  # 超出窗口高度, 不画
-            path = QPainterPath()
-            path.addText(float(x), float(y), self._font, ch)
-            self._draw_outline(painter, path)
-            self._fill_path(painter, path, sung)
+        char_idx = 0
+        for text, fraction in fractions:
+            # 字符 path (整个 word 一起, wipe clipRect 一次性应用)
+            word_path = QPainterPath()
+            first_y = start_y + char_idx * line_h
+            for i, ch in enumerate(text):
+                char_w = fm.horizontalAdvance(ch)
+                x = cx - char_w // 2
+                y = start_y + (char_idx + i) * line_h
+                if y - fm.ascent() > self.height():
+                    break
+                word_path.addText(float(x), float(y), self._font, ch)
+
+            # 描边 + base 色
+            self._draw_outline(painter, word_path)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._color_base)
+            painter.drawPath(word_path)
+
+            # 高亮 wipe (top-down)
+            if fraction > 0.0:
+                top_y = first_y - fm.ascent()
+                word_h = line_h * len(text)
+                clip_h = max(1, int(round(word_h * fraction)))
+                painter.save()
+                painter.setClipRect(0, top_y, self.width(), clip_h)
+                painter.setBrush(self._color_highlight)
+                painter.drawPath(word_path)
+                painter.restore()
+
+            char_idx += len(text)
 
     def _draw_outline(self, painter: QPainter, path: QPainterPath) -> None:
         pen = QPen(_OUTLINE_COLOR, _OUTLINE_WIDTH)
@@ -339,10 +454,33 @@ class DesktopLyricsWindow(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 
-    def _fill_path(self, painter: QPainter, path: QPainterPath, sung: bool) -> None:
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self._color_highlight if sung else self._color_base)
-        painter.drawPath(path)
+    def _is_slanted_font(self) -> bool:
+        """斜体 / 倾斜样式都需要 clip 也跟着倾斜, 否则垂直 clip 把字劈成楔形."""
+        return self._font.italic() or self._font.style() == QFont.Style.StyleOblique
+
+    def _make_horizontal_wipe_clip(
+        self, x_left: float, width_px: float, baseline: float
+    ) -> QPainterPath:
+        """横向 wipe 的 clip 路径. 直立字体 -> 矩形; 斜体 -> 与字形 shear 匹配的平行四边形.
+
+        斜体字形在基线上方右移 shear*Δy, 下方左移; clip 边沿必须同向 shear, 否则
+        垂直切线会把字劈成楔形 (上半 / 下半各被剪掉一刀, 视觉极差).
+        """
+        path = QPainterPath()
+        h = float(self.height())
+        if not self._is_slanted_font():
+            path.addRect(x_left, 0.0, width_px, h)
+            return path
+        # 基线到上 / 下边各 shear 一段距离;
+        # 上半 (y < baseline) 右偏 (baseline - y) * shear, 下半 (y > baseline) 左偏 (y - baseline) * shear.
+        top_dx = baseline * _ITALIC_SHEAR
+        bot_dx = -(h - baseline) * _ITALIC_SHEAR
+        path.moveTo(QPointF(x_left + top_dx, 0.0))
+        path.lineTo(QPointF(x_left + width_px + top_dx, 0.0))
+        path.lineTo(QPointF(x_left + width_px + bot_dx, h))
+        path.lineTo(QPointF(x_left + bot_dx, h))
+        path.closeSubpath()
+        return path
 
 
 class DesktopLyricsController(QObject):

@@ -410,6 +410,110 @@ def test_controller_pushes_line_with_words(qapp):
     assert ctrl.window._sung_count == 2
 
 
+def test_word_fractions_no_words(qapp):
+    """无 word -> 整句作为单段, fraction=1.0 (始终高亮色填充)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("整行", [])
+    fractions = w._word_fractions()
+    assert fractions == [("整行", 1.0)]
+
+
+def test_word_fractions_partial_wipe(qapp):
+    """ms 在 word 中段时, fraction 介于 0~1 (按 elapsed/duration 比例)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    words = [
+        {"text": "啊", "startMs": 0, "durationMs": 200},
+        {"text": "我", "startMs": 200, "durationMs": 200},
+    ]
+    w.set_line("啊我", words)
+    w.set_progress_ms(100)  # 第一个字过了一半
+    fractions = w._word_fractions()
+    # 由于 effective_ms 可能因 timer 已启动而稍微超过 100, 容忍 ±0.05
+    assert fractions[0][0] == "啊"
+    assert 0.45 <= fractions[0][1] <= 0.6
+    assert fractions[1] == ("我", 0.0)  # 还没开始
+
+
+def test_word_fractions_after_word_end(qapp):
+    """word 结束后 fraction = 1.0."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    words = [{"text": "啊", "startMs": 0, "durationMs": 100}]
+    w.set_line("啊", words)
+    w.set_progress_ms(200)
+    fractions = w._word_fractions()
+    assert fractions[0] == ("啊", 1.0)
+
+
+def test_wipe_timer_starts_when_word_active(qapp):
+    """有 word 正在 wipe 时, 内部 30fps 定时器自动启动以插值平滑动画."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
+    w.set_progress_ms(100)  # 中段
+    assert w._wipe_timer.isActive()
+
+
+def test_wipe_timer_stops_when_no_active_word(qapp):
+    """无 word 正在 wipe (全过完 / 全没到) -> 定时器停, 不浪费 CPU."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 100}])
+    w.set_progress_ms(200)  # 完全过了
+    assert not w._wipe_timer.isActive()
+
+
+def test_horizontal_wipe_clip_rectangle_when_upright(qapp):
+    """直立字体: wipe clip 退化为矩形 (顶 / 底 dx = 0)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_font_config(family="Microsoft YaHei UI", size=32, bold=True, italic=False)
+    w.resize(800, 100)
+    path = w._make_horizontal_wipe_clip(100.0, 50.0, 60.0)
+    rect = path.boundingRect()
+    # 直立矩形: 宽 = width_px, 高 = widget.height
+    assert abs(rect.width() - 50.0) < 0.01
+    assert abs(rect.height() - 100.0) < 0.01
+
+
+def test_horizontal_wipe_clip_skewed_when_italic(qapp):
+    """斜体: clip 是平行四边形, bounding rect 比矩形宽 (上下边各 shear 一段)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_font_config(family="Microsoft YaHei UI", size=32, bold=True, italic=True)
+    w.resize(800, 100)
+    path = w._make_horizontal_wipe_clip(100.0, 50.0, 60.0)
+    rect = path.boundingRect()
+    # 斜体: bounding 比矩形多了 (baseline*shear + (h-baseline)*shear) = h * shear
+    # h=100, shear≈0.213 -> 多了 ~21.3, 总宽 > 70
+    assert rect.width() > 65.0
+    assert abs(rect.height() - 100.0) < 0.01
+
+
+def test_wipe_timer_stops_on_hide(qapp):
+    """窗口隐藏时定时器停 (即便有 active word)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("啊", [{"text": "啊", "startMs": 0, "durationMs": 500}])
+    w.show()
+    qapp.processEvents()
+    w.set_progress_ms(100)
+    assert w._wipe_timer.isActive()
+    w.hide()
+    qapp.processEvents()
+    assert not w._wipe_timer.isActive()
+
+
 def test_controller_apply_enabled_false_hides_window(qapp):
     """apply_settings(enabled=False) -> 隐藏窗口."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsController
