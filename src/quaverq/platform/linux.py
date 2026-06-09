@@ -57,6 +57,11 @@ class LinuxPlatform:
             player_controller=player_controller,
         )
 
+    def power_saver(self, player_controller: Any) -> Any | None:  # noqa: ARG002
+        # Linux 不实现: PulseAudio / DE (GNOME / KDE 等) 在音频流活跃时已自动 inhibit
+        # 屏幕保护 + 待机, 我们不再叠加. 极少数最小化 WM 用户自行配置.
+        return None
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,  # noqa: ARG002

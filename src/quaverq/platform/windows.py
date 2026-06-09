@@ -57,6 +57,11 @@ class WindowsPlatform:
     ) -> Any | None:
         return None
 
+    def power_saver(self, player_controller: Any) -> Any | None:
+        from ._windows_power_saver import WindowsPowerSaver
+
+        return WindowsPowerSaver(player_controller)
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,

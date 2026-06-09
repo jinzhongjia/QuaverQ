@@ -15,9 +15,12 @@
 
 | 能力 | Linux | Windows | macOS |
 | --- | --- | --- | --- |
-| `single_instance()` | D-Bus well-known name (`SingleInstanceGuard`) | ❌ None (TODO Stage 3 命名 Mutex) | ❌ None (TODO Stage 4 文件锁) |
-| `system_theme()` | freedesktop portal `color-scheme` (`SystemThemeWatcher`) | ❌ None (TODO Stage 3 注册表 + WM_SETTINGCHANGE) | ❌ None (TODO Stage 4 NSAppearance) |
-| `media_session(player)` | MPRIS2 D-Bus (`MprisController`) | ❌ None (TODO Stage 3 SMTC via winrt) | ❌ None (TODO Stage 4 MPNowPlayingInfoCenter) |
+| `single_instance()` | D-Bus well-known name (`SingleInstanceGuard`) | ✅ `LockFileEx` byte-range lock (`WindowsSingleInstance`) | ❌ None (TODO Stage 4 文件锁) |
+| `system_theme()` | freedesktop portal `color-scheme` (`SystemThemeWatcher`) | ✅ 注册表 `AppsUseLightTheme` + 2s 轮询 (`WindowsSystemThemeWatcher`) | ❌ None (TODO Stage 4 NSAppearance) |
+| `media_session(player)` | MPRIS2 D-Bus (`MprisController`) | ✅ SMTC via ctypes COM (`WindowsMediaSession`) | ❌ None (TODO Stage 4 MPNowPlayingInfoCenter) |
+| `lyric_publisher(...)` | `org.quaverq.Lyrics1` D-Bus (`LyricsDBusController`) | ❌ None (无对等机制 / Stage 3+ 不打算做) | ❌ None |
+| `desktop_lyrics(...)` | ❌ None (Wayland 跨 compositor 不一致, 走 MPRIS 接现成工具) | ✅ Qt frameless + transparent + input-passthrough (`DesktopLyricsController`) | ❌ None |
+| `power_saver(player)` | ❌ None (PulseAudio / DE 已自动 inhibit) | ✅ `SetThreadExecutionState` 阻止待机 (`WindowsPowerSaver`) | ❌ None (Stage 4 IOPMAssertion) |
 
 返回 `None` 表示能力不可用，调用方必须容忍（应用功能降级，不能崩）。
 

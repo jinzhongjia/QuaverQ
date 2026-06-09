@@ -55,6 +55,9 @@ class _NullPlatform:
     ) -> Any | None:
         return None
 
+    def power_saver(self, player_controller: Any) -> Any | None:  # noqa: ARG002
+        return None
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,  # noqa: ARG002

@@ -183,6 +183,35 @@ def test_platform_adapter_protocol_accepts_stub():
     assert stub.desktop_lyrics(None) is None
 
 
+# ============================================================== power_saver
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+def test_windows_power_saver_returns_qobject():
+    """Windows: power_saver(player) 返回 QObject, 接 playbackStateChanged 自动起 / 撤 inhibit."""
+    from PySide6.QtCore import QObject
+    from PySide6.QtWidgets import QApplication
+
+    from quaverq.platform import get_platform
+
+    _ = QApplication.instance() or QApplication([])
+    pal = get_platform()
+    fake_player = _FakePlayerController()
+    saver = pal.power_saver(fake_player)
+    assert isinstance(saver, QObject)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="non-Windows: power_saver 返 None")
+def test_non_windows_power_saver_returns_none():
+    """Linux 走 PulseAudio + D-Bus screensaver inhibit, macOS 暂未实现; 返 None 即可."""
+    from quaverq.platform import get_platform
+
+    pal = get_platform()
+    fake_player = _FakePlayerController()
+    saver = pal.power_saver(fake_player)
+    assert saver is None
+
+
 # ============================================================== helpers
 
 

@@ -263,6 +263,12 @@ def main() -> None:
     )
     _install_qt_message_filter()
     _silence_ffmpeg_logs()  # 必须在 QMediaPlayer 实例化前, 关 ffmpeg 全局日志免每次切歌刷 stderr
+    # Windows AUMID: 让任务栏图标 / SMTC / Jump List 正确分组到本应用 (而非 python.exe);
+    # 必须在 QApplication / 任何窗口 / SMTC 创建前调. 非 Windows 静默跳过.
+    if sys.platform == "win32":
+        from .platform._windows_app_id import set_app_user_model_id
+
+        set_app_user_model_id(resources.APP_ID)
     load_config()
     orphan_caches = purge_orphan_caches()
     if orphan_caches:
@@ -408,6 +414,11 @@ def main() -> None:
         settings_controller,
         player_controller=player_controller,
     )
+    # Windows 防睡眠 (SetThreadExecutionState): 播放时阻止 OS 待机. 非 Windows 返 None.
+    # 必须保留引用防 GC; 退出前显式 release 撤销 inhibit.
+    power_saver = pal.power_saver(player_controller)
+    if power_saver is not None:
+        app.aboutToQuit.connect(power_saver.release)
 
     # 系统托盘 + 关闭到托盘: 托盘可用时关闭仅隐藏窗口, 仅托盘/MPRIS「退出」才真正退出;
     # 托盘不可用则保持默认 (关闭即退出), 避免窗口隐藏后无处召回成僵尸进程.

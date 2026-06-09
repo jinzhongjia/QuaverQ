@@ -95,6 +95,18 @@ class PlatformAdapter(Protocol):
         """
         ...
 
+    def power_saver(self, player_controller: Any) -> Any | None:
+        """返回防睡眠 controller (QObject); 实现需订阅 player_controller.playbackStateChanged
+        播放时阻止 OS 进入待机, 暂停时撤销.
+
+        - Windows: ``WindowsPowerSaver`` 走 ``SetThreadExecutionState``.
+        - Linux: 返 None (PulseAudio / DE 已经自动管理 idle inhibit).
+        - macOS: 暂返 None (Stage 4 可实现 IOPMAssertion).
+
+        返 None 时调用方什么也不做, 应用不崩.
+        """
+        ...
+
     def desktop_lyrics(
         self,
         lyric_controller: Any,
