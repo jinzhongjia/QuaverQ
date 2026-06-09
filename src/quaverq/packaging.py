@@ -388,7 +388,7 @@ def build_msi(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     return rc
 
 
-def build_portable_zip(output_dir: str = "dist") -> int:
+def build_portable_zip(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     """Nuitka standalone 产物 ``dist/quaverq_entry.dist/`` -> ``dist/QuaverQ-{version}-portable.zip``.
 
     用户解压后双击 ``QuaverQ.exe`` 即跑, 不需要安装 / admin 权限. 适合 U 盘携带 /
@@ -396,16 +396,24 @@ def build_portable_zip(output_dir: str = "dist") -> int:
 
     zip 内部顶层目录命名为 ``QuaverQ-{version}/``, 解压不会污染当前目录 (避免
     "解压到这里" 把上百个 dll 喷一地).
+
+    ``rebuild=False`` (CLI ``--no-rebuild``): 复用已存在的 Nuitka 产物, 只跑 zip
+    那段; CI 里 ``--msi`` 已经把 Nuitka 跑过一遍, 紧接着 ``--portable --no-rebuild``
+    复用即可, 省 5 分钟链接 + 250MB 复制.
     """
     import zipfile
 
     root = resources.project_root()
     version = project_version()
-    # 复用 build() 走完 standalone + ICO 嵌入
-    rc = build("standalone", output_dir=output_dir)
-    if rc != 0:
-        return rc
     dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
+    exe_name = "QuaverQ.exe" if sys.platform == "win32" else "QuaverQ"
+
+    if rebuild or not (dist_dir / exe_name).exists():
+        rc = build("standalone", output_dir=output_dir)
+        if rc != 0:
+            return rc
+    else:
+        print(f"[portable] 复用已有 Nuitka 产物: {dist_dir} (--no-rebuild)")
     if not dist_dir.is_dir():
         print(f"[portable] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
         return 1
@@ -492,7 +500,7 @@ def main() -> None:
     parser.add_argument(
         "--no-rebuild",
         action="store_true",
-        help="跟 --msi 一起用: 复用已存在的 Nuitka 产物, 只跑 WiX (调模板时省时间)",
+        help="跟 --msi / --portable 一起用: 复用已存在的 Nuitka 产物, 只跑后续打包步骤 (省时间)",
     )
     parser.add_argument("--smoke", metavar="BINARY", help="对产物跑 smoke 启动自检")
     args = parser.parse_args()
@@ -506,7 +514,7 @@ def main() -> None:
     if args.msi:
         sys.exit(build_msi(rebuild=not args.no_rebuild))
     if args.portable:
-        sys.exit(build_portable_zip())
+        sys.exit(build_portable_zip(rebuild=not args.no_rebuild))
     sys.exit(build("onefile" if args.onefile else "standalone"))
 
 
