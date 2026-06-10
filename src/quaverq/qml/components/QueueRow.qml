@@ -55,7 +55,7 @@ Rectangle {
         width: 3
         visible: root.current
         radius: width / 2
-        color: ThemeTokens.Palette.primary
+        color: ThemeTokens.Palette.primaryFg
     }
 
     Rectangle {
@@ -77,7 +77,7 @@ Rectangle {
         Label {
             Layout.preferredWidth: 24
             text: root.current ? "♪" : (root.index >= 0 ? String(root.index + 1) : "")
-            color: root.current ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+            color: root.current ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
             font.weight: root.current ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
@@ -119,7 +119,7 @@ Rectangle {
                     Label {
                         anchors.centerIn: parent
                         text: qsTr("播放中")
-                        color: ThemeTokens.Palette.primary
+                        color: ThemeTokens.Palette.primaryFg
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         font.weight: ThemeTokens.TypeScale.medium
                     }

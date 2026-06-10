@@ -152,7 +152,7 @@ ColumnLayout {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: libTab.modelData
                         color: libTab.current
-                            ? ThemeTokens.Palette.primary
+                            ? ThemeTokens.Palette.primaryFg
                             : (libTabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
                         font.pixelSize: ThemeTokens.TypeScale.body
                         font.weight: libTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
@@ -165,7 +165,7 @@ ColumnLayout {
                         height: 2
                         radius: 1
                         visible: libTab.current
-                        color: ThemeTokens.Palette.primary
+                        color: ThemeTokens.Palette.primaryFg
                     }
 
                     Rectangle {
@@ -216,6 +216,9 @@ ColumnLayout {
                     libraryController: root.libraryController
                     coverController: root.coverController
                     songDetailController: root.songDetailController
+                    selected: root.playerController
+                        && root.playerController.currentSong
+                        && root.playerController.currentSong.mid === song.mid
                     onActivated: function(songData, row) {
                         if (root.playerController && root.libraryController)
                             root.playerController.playFromModel(root.libraryController.likedModel, row)

@@ -48,7 +48,7 @@ Rectangle {
     property int lastRevealedIndex: -1
     // 逐字高亮: 当前播放位置 + 已唱/未唱字色 (hex, 供 RichText <font>)
     readonly property int positionMs: root.lyricController ? root.lyricController.positionMs : 0
-    readonly property string sungHex: String(ThemeTokens.Palette.primary)
+    readonly property string sungHex: String(ThemeTokens.Palette.primaryFg)
     readonly property string mutedHex: String(root.mutedLineColor)
 
     function escapeHtml(value) {
@@ -180,7 +180,7 @@ Rectangle {
             Label {
                 visible: root.lyricController && root.lyricController.hasTranslation
                 text: qsTr("翻译")
-                color: ThemeTokens.Palette.primary
+                color: ThemeTokens.Palette.primaryFg
                 font.pixelSize: ThemeTokens.TypeScale.caption
             }
         }
@@ -260,7 +260,7 @@ Rectangle {
                             color: lyricDelegate.creditLine
                                 ? (lyricDelegate.activeLine ? root.creditActiveColor : root.creditLineColor)
                                 : (lyricDelegate.activeLine
-                                    ? (root.compact ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.primary)
+                                    ? (root.compact ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.primaryFg)
                                     : root.mutedLineColor)
                             horizontalAlignment: root.compact ? Text.AlignLeft : Text.AlignHCenter
                             font.family: root.lyricFontFamily.length > 0 ? root.lyricFontFamily : lyricText.font.family
@@ -304,7 +304,7 @@ Rectangle {
                             Layout.fillWidth: true
                             visible: lyricDelegate.translation.length > 0
                             text: lyricDelegate.translation
-                            color: lyricDelegate.strongActive ? ThemeTokens.Palette.primary : root.mutedLineColor
+                            color: lyricDelegate.strongActive ? ThemeTokens.Palette.primaryFg : root.mutedLineColor
                             horizontalAlignment: root.compact ? Text.AlignLeft : Text.AlignHCenter
                             font.family: root.lyricFontFamily.length > 0 ? root.lyricFontFamily : translationText.font.family
                             font.italic: root.lyricFontItalic

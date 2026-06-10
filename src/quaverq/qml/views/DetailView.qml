@@ -147,7 +147,7 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     text: root.kindLabel(root.displayKind)
-                    color: ThemeTokens.Palette.primary
+                    color: ThemeTokens.Palette.primaryFg
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -310,7 +310,7 @@ ColumnLayout {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: tabItem.modelData
                         color: tabItem.current
-                            ? ThemeTokens.Palette.primary
+                            ? ThemeTokens.Palette.primaryFg
                             : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
                         font.pixelSize: ThemeTokens.TypeScale.body
                         font.weight: tabItem.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
@@ -323,7 +323,7 @@ ColumnLayout {
                         height: 2
                         radius: 1
                         visible: tabItem.current
-                        color: ThemeTokens.Palette.primary
+                        color: ThemeTokens.Palette.primaryFg
                     }
                 }
             }

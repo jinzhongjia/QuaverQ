@@ -24,7 +24,8 @@
 | 组件 | 作用 |
 | --- | --- |
 | `SearchField.qml` | 搜索框 `FocusScope`。`searchRequested(text)` / `editingCancelled()` 信号，`loading` 时显示状态。 |
-| `IconButton.qml` | 统一的工具按钮：≥44 px 命中区、焦点环、Enter/Space 触发；`text` 当无障碍名，`iconText` 当字形（图标按钮 tooltip 不能替代 `Accessible.name`）。 |
+| `IconButton.qml` | 统一的工具按钮：≥44 px 命中区、焦点环（`visualFocus`，仅键盘聚焦显示）、Enter/Space 触发；`text` 同时当无障碍名和 hover ToolTip（经 `AppToolTip`），`iconText` 当字形。 |
+| `AppToolTip.qml` | 统一样式 ToolTip：token 配色 + 600ms 延迟；显示前按 parent 的窗口位置自动选上方 / 下方，避免被窗口顶 / 底边裁掉。供 `IconButton`、`PlayerBar` 歌曲信息等复用。 |
 | `LikeButton.qml` | 喜欢按钮。绑 `libraryController.isLiked(mid)` + `likedRevision`，自动随同步状态变化。 |
 | `Snackbar.qml` | **轻量状态提示**。`show()` 触发，`autoHideMs` 后自动收起；`kind` ∈ `info` / `error` / `warning` / `success`。 |
 | `Banner.qml` | **持久提示**：带恢复动作（`actionText`）、不自动关闭；`message` 非空即显示。用于"凭据过期，点此重登"这类场景。 |

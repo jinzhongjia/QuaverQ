@@ -79,7 +79,7 @@ Item {
         anchors.centerIn: parent
         visible: !root.hasImage
         text: root.iconText
-        color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+        color: root.active ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText
         font.pixelSize: root.iconSize
         font.weight: ThemeTokens.TypeScale.medium
     }
@@ -108,7 +108,7 @@ Item {
         visible: !root.hasImage
         radius: root.circular ? width / 2 : (root.hasImage ? root.coverRadius : root.placeholderRadius)
         color: "transparent"
-        border.color: root.active ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outlineMuted
+        border.color: root.active ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.outlineMuted
         border.width: 1
     }
 }

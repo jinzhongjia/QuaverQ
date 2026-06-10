@@ -146,7 +146,7 @@ ColumnLayout {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: typeTab.modelData.label
                         color: typeTab.current
-                            ? ThemeTokens.Palette.primary
+                            ? ThemeTokens.Palette.primaryFg
                             : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
                         font.pixelSize: ThemeTokens.TypeScale.body
                         font.weight: typeTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
@@ -159,7 +159,7 @@ ColumnLayout {
                         height: 2
                         radius: 1
                         visible: typeTab.current
-                        color: ThemeTokens.Palette.primary
+                        color: ThemeTokens.Palette.primaryFg
                     }
 
                     Rectangle {

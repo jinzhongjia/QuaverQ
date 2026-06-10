@@ -414,6 +414,13 @@ ApplicationWindow {
             }
         }
 
+        // 桌面惯例: 双击标题栏切换最大化 / 还原 (按钮在上层, 不受影响)
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            gesturePolicy: TapHandler.DragThreshold
+            onDoubleTapped: root.toggleMaximized()
+        }
+
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right

@@ -27,6 +27,12 @@ AbstractButton {
     Keys.onEnterPressed: control.clicked()
     Keys.onSpacePressed: control.clicked()
 
+    // 字形图标含义不自明 (⇄ / ☰ / 词 等), hover 出无障碍名作提示
+    AppToolTip {
+        visible: control.hovered && control.text.length > 0
+        text: control.text
+    }
+
     background: Rectangle {
         radius: control.cornerRadius
         color: control.down
@@ -35,7 +41,8 @@ AbstractButton {
 
         Rectangle {
             anchors.fill: parent
-            visible: control.activeFocus
+            // visualFocus: 仅键盘聚焦时画环, 鼠标点击不残留
+            visible: control.visualFocus
             radius: parent.radius
             color: "transparent"
             border.color: ThemeTokens.Palette.focusRing

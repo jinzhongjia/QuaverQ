@@ -55,7 +55,7 @@ Rectangle {
             Layout.preferredWidth: root.compact ? parent.width : ThemeTokens.Spacing.s5
             text: root.iconText || root.text.slice(0, 1)
             horizontalAlignment: Text.AlignHCenter
-            color: root.selected ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+            color: root.selected ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText
             font.pixelSize: ThemeTokens.TypeScale.body
             font.weight: ThemeTokens.TypeScale.medium
         }

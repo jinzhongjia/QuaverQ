@@ -454,6 +454,9 @@ ScrollView {
                     libraryController: section.libraryController
                     coverController: section.coverController
                     songDetailController: section.songDetailController
+                    selected: root.playerController
+                        && root.playerController.currentSong
+                        && root.playerController.currentSong.mid === song.mid
                     onActivated: function(songData, row) {
                         section.songRequested(row)
                     }

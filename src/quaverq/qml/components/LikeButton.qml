@@ -28,7 +28,7 @@ Button {
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         color: root.enabled
-            ? (root.liked ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText)
+            ? (root.liked ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText)
             : ThemeTokens.Palette.stateDisabled
         font.pixelSize: ThemeTokens.TypeScale.h2
         font.weight: root.liked ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular

@@ -29,6 +29,10 @@ QtObject {
     readonly property color primary: "#31c27c"
     readonly property color primaryHover: Theme.dark ? "#3ace8a" : "#2caf6f"
     readonly property color primaryActive: Theme.dark ? "#2cb074" : "#28a065"
+    // 品牌绿直接作前景 (文字 / 字形图标 / 下划线 / 选中指示条) 时用这个:
+    // #31c27c 在白底只有 ~2.3:1, 亮色压暗到 ~3.6:1; 深色底品牌绿 >7:1 直接复用.
+    // 大色块填充 (播放键 / 登录按钮 / 进度条) 仍用 primary 保持品牌观感.
+    readonly property color primaryFg: Theme.dark ? "#31c27c" : "#1d9a60"
     readonly property color primaryText: "#ffffff"
     readonly property color primaryContainer: Theme.dark ? "#173c2c" : "#e7f7ef"
 
@@ -50,6 +54,6 @@ QtObject {
     readonly property color statePressed: Theme.dark ? "#34363d" : "#ebebeb"
     readonly property color stateSelected: primaryContainer
     readonly property color stateDisabled: Theme.dark ? "#34363b" : "#e0e0e0"
-    readonly property color focusRing: primary
+    readonly property color focusRing: primaryFg
     readonly property color scrim: Theme.dark ? "#99000000" : "#66000000"
 }

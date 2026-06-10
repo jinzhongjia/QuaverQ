@@ -177,10 +177,9 @@ Rectangle {
                 enabled: root.hasSong
             }
 
-            ToolTip {
+            AppToolTip {
                 parent: songInfo
                 visible: songInfoHover.hovered && root.hasSong
-                delay: 600
                 text: root.songTitle + qsTr(" — ") + root.songMeta
             }
 
@@ -248,7 +247,7 @@ Rectangle {
                         iconText: root.modeGlyph(root.mode)
                         iconSize: ThemeTokens.TypeScale.body
                         iconColor: root.mode !== "sequence"
-                            ? ThemeTokens.Palette.primary
+                            ? ThemeTokens.Palette.primaryFg
                             : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
                         onClicked: root.modeRequested(root.nextModeName(root.mode))
@@ -292,7 +291,7 @@ Rectangle {
 
                             Rectangle {
                                 anchors.fill: parent
-                                visible: playButton.activeFocus
+                                visible: playButton.visualFocus
                                 radius: width / 2
                                 color: "transparent"
                                 border.color: ThemeTokens.Palette.focusRing

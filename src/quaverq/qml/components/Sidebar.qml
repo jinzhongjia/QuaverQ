@@ -91,7 +91,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: !root.compact
             iconText: "♥"
-            iconColor: ThemeTokens.Palette.primary
+            iconColor: ThemeTokens.Palette.primaryFg
             label: qsTr("我喜欢")
             onActivated: root.routeRequested("library")
         }

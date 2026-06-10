@@ -194,7 +194,7 @@ Rectangle {
         width: 3
         visible: root.selected
         radius: width / 2
-        color: ThemeTokens.Palette.primary
+        color: ThemeTokens.Palette.primaryFg
     }
 
     Rectangle {
@@ -219,7 +219,7 @@ Rectangle {
                 ? "♪"
                 : (hoverHandler.hovered ? "▶" : (root.index >= 0 ? String(root.index + 1) : ""))
             color: (root.selected || hoverHandler.hovered)
-                ? ThemeTokens.Palette.primary
+                ? ThemeTokens.Palette.primaryFg
                 : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
