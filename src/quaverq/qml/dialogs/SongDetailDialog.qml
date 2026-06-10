@@ -17,7 +17,7 @@ Dialog {
     property var libraryController
     property var playerController
 
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     objectName: "songDetailDialog"
     modal: true
@@ -282,7 +282,10 @@ Dialog {
                 contentWidth: loadedScroll.availableWidth
                 // 给右侧滚动条预留 gutter, 内容不会被压在滚动条下
                 rightPadding: ThemeTokens.Spacing.s4
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                // 内容超高时滚动条常显: AsNeeded 不滚不出现, 用户发现不了下面还有内容
+                ScrollBar.vertical.policy: loadedScroll.contentHeight > loadedScroll.height
+                    ? ScrollBar.AlwaysOn
+                    : ScrollBar.AlwaysOff
 
                 ColumnLayout {
                     width: loadedScroll.availableWidth
@@ -513,11 +516,11 @@ Dialog {
                                 meta: relCell.meta
                                 coverController: root.coverController
                                 onActivated: {
-                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle)
+                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle, relCell.coverUrl)
                                     root.close()
                                 }
                                 onPlayRequested: {
-                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle)
+                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle, relCell.coverUrl)
                                     root.close()
                                 }
                             }

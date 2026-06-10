@@ -11,6 +11,8 @@ class _FakeDetailService:
     def __init__(self) -> None:
         self.connected = False
         self.is_authenticated = True
+        self.playlist_cover = ""
+        self.artist_avatar = "http://a.jpg"
         self.similar_singers_calls: list[str] = []
         self.singer_songs_calls: list[str] = []
         self.singer_albums_calls: list[str] = []
@@ -30,6 +32,7 @@ class _FakeDetailService:
             name="百听不厌",
             description="经典歌单",
             creator="编辑",
+            cover_url=self.playlist_cover,
             song_count=2,
             songs=[
                 Song(mid="p1", name="七里香", singers=[Singer(mid="s1", name="周杰伦")]),
@@ -49,7 +52,7 @@ class _FakeDetailService:
 
     async def get_artist_detail(self, singer_mid: str) -> ArtistDetail:
         return ArtistDetail(
-            singer=Singer(mid=singer_mid, name="周杰伦", avatar_url="http://a.jpg"),
+            singer=Singer(mid=singer_mid, name="周杰伦", avatar_url=self.artist_avatar),
             description="艺人简介",
             hot_songs=[Song(mid="ar1", name="稻香")],
         )
@@ -115,7 +118,8 @@ async def test_load_artist_detail_uses_hot_songs():
 
     assert controller.kind == "artist"
     assert controller.title == "周杰伦"
-    assert controller.subtitle == "艺人"
+    # subtitle 不再是 "艺人": 页面 kind 标签已写明, 重复两行
+    assert controller.subtitle == ""
     assert controller.coverUrl == "http://a.jpg"
     assert controller.songModel.songAt(0)["name"] == "稻香"
 
@@ -156,6 +160,57 @@ async def test_load_detail_empty_id_resets_loading_state():
     await controller.load_detail_async("playlist", "")
 
     assert controller.loading is False
+
+
+# ============================================================== B1 头图封面兜底
+# 入口卡片的封面经 pushDetail 透传; 加载期间立即显示, 详情接口没给封面时保留.
+
+
+async def test_load_detail_fallback_cover_shows_immediately_and_survives_empty_api():
+    service = _FakeDetailService()  # playlist_cover 默认空
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = DetailController(service_controller)
+    seen_covers: list[str] = []
+    controller.detailChanged.connect(lambda: seen_covers.append(controller.coverUrl))
+
+    await controller.load_detail_async("playlist", "p1", fallback_cover_url="http://card-cover.jpg")
+
+    # 加载一开始 (重置阶段) 就用卡片封面, 不闪占位
+    assert seen_covers[0] == "http://card-cover.jpg"
+    # API 没返回封面 → 保留卡片封面
+    assert controller.coverUrl == "http://card-cover.jpg"
+
+
+async def test_load_detail_prefers_api_cover_over_fallback():
+    service = _FakeDetailService()
+    service.playlist_cover = "http://api-cover.jpg"
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = DetailController(service_controller)
+
+    await controller.load_detail_async("playlist", "p1", fallback_cover_url="http://card-cover.jpg")
+
+    assert controller.coverUrl == "http://api-cover.jpg"
+
+
+async def test_artist_empty_avatar_falls_back_to_card_cover():
+    service = _FakeDetailService()
+    service.artist_avatar = ""
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = DetailController(service_controller)
+
+    await controller.load_detail_async("artist", "s1", fallback_cover_url="http://card-cover.jpg")
+
+    assert controller.coverUrl == "http://card-cover.jpg"
+
+
+async def test_load_detail_without_fallback_keeps_previous_behavior():
+    service = _FakeDetailService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = DetailController(service_controller)
+
+    await controller.load_detail_async("playlist", "p1")
+
+    assert controller.coverUrl == ""
 
 
 # ============================================================== 2.2 歌手 tab 懒加载

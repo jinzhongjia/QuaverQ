@@ -39,7 +39,7 @@ Rectangle {
 
     signal activated(var songData, int row)
     // 菜单里"查看歌手 / 查看专辑"的导航请求, 各 view 接到 detailRequested 上 → 走 root.pushDetail
-    signal navigationRequested(string kind, string detailId, string title, string subtitle)
+    signal navigationRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     implicitHeight: 64
     radius: ThemeTokens.Spacing.radiusMd
@@ -154,6 +154,7 @@ Rectangle {
                         "artist",
                         root.firstSinger.mid,
                         root.firstSinger.name || "",
+                        "",
                         ""
                     )
                 }
@@ -169,7 +170,8 @@ Rectangle {
                         "album",
                         root.song.albumMid,
                         root.song.albumName || "",
-                        ""
+                        "",
+                        root.coverUrl
                     )
                 }
             }

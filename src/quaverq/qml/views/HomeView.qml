@@ -29,7 +29,7 @@ ScrollView {
 
     signal loginRequested()
     signal searchRequested(string keyword)
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
     signal nowPlayingRequested()
 
     contentWidth: availableWidth
@@ -143,8 +143,8 @@ ScrollView {
             errorMessage: root.homeController ? root.homeController.playlistErrorMessage : ""
             emptyText: qsTr("暂无推荐歌单")
             coverController: root.coverController
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -171,8 +171,8 @@ ScrollView {
                 if (root.playerController && root.homeController)
                     root.playerController.playFromModel(root.homeController.newSongModel, row)
             }
-            onNavigationRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -188,8 +188,8 @@ ScrollView {
             errorMessage: root.homeController ? root.homeController.topErrorMessage : ""
             emptyText: qsTr("暂无排行榜")
             coverController: root.coverController
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -402,7 +402,7 @@ ScrollView {
 
         signal actionRequested()
         signal songRequested(int row)
-        signal navigationRequested(string kind, string detailId, string title, string subtitle)
+        signal navigationRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         Layout.preferredHeight: songColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
@@ -460,8 +460,8 @@ ScrollView {
                     onActivated: function(songData, row) {
                         section.songRequested(row)
                     }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        section.navigationRequested(kind, detailId, title, subtitle)
+                    onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                        section.navigationRequested(kind, detailId, title, subtitle, coverUrl)
                     }
                 }
             }
@@ -480,7 +480,7 @@ ScrollView {
         property var coverController
         readonly property bool hasCards: section.model && section.model.count > 0
 
-        signal cardRequested(string kind, string detailId, string title, string subtitle)
+        signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         Layout.preferredHeight: cardColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
@@ -556,8 +556,8 @@ ScrollView {
                             coverUrl: cardCell.coverUrl
                             meta: cardCell.meta
                             coverController: section.coverController
-                            onActivated: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
-                            onPlayRequested: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                            onActivated: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
+                            onPlayRequested: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
                         }
                     }
                 }

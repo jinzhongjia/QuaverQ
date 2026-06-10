@@ -125,6 +125,13 @@ def _cover_url(album_mid: str, size: int = 300) -> str:
     return f"https://y.qq.com/music/photo_new/T002R{size}x{size}M000{album_mid}.jpg"
 
 
+def _singer_avatar_url(singer_mid: str, size: int = 300) -> str:
+    """歌手头像 CDN 模板 (T001); 接口偶尔不回 SingerPic, 用 mid 兜底."""
+    if not singer_mid:
+        return ""
+    return f"https://y.qq.com/music/photo_new/T001R{size}x{size}M000{singer_mid}.jpg"
+
+
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
@@ -572,7 +579,7 @@ class QuaverService:
                 Singer(
                     mid=mid,
                     name=getattr(s, "name", "") or "",
-                    avatar_url=getattr(s, "singer_pic", "") or "",
+                    avatar_url=(getattr(s, "singer_pic", "") or "") or _singer_avatar_url(mid),
                 )
             )
         return out
@@ -637,7 +644,11 @@ class QuaverService:
             if singer_obj
             else ""
         )
-        s = Singer(mid=singer_mid, name=name or "", avatar_url=avatar or "")
+        s = Singer(
+            mid=singer_mid,
+            name=name or "",
+            avatar_url=(avatar or "") or _singer_avatar_url(singer_mid),
+        )
 
         # tab_resp 是 HomepageTabDetailResponse; SONG tab 内的歌曲在 song_tab.list
         raw_songs = self._extract_artist_hot_songs(tab_resp)

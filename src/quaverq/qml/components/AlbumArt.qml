@@ -20,6 +20,11 @@ Item {
             ? ThemeTokens.Spacing.radiusSm
             : Math.max(ThemeTokens.Spacing.radiusSm, Math.min(6, Math.round(root.imageSize * 0.1)))
     readonly property int placeholderRadius: compact ? ThemeTokens.Spacing.radiusMd : ThemeTokens.Spacing.radiusLg
+    // 换封面 URL 时保留旧图直到新图就绪 (详情页头图: 卡片图 → 接口高清图的无缝升级);
+    // 列表行 delegate 复用时旧图属于别的歌, 保持 false 立即回占位
+    property bool retainOnSwitch: false
+    // 最近一次"已就绪"的 provider source; retainOnSwitch 时新封面下载期间不清空
+    property string displaySource: ""
     readonly property bool coverCached: root.coverUrl.length > 0
         && root.coverController
         && root.imageRevision >= 0
@@ -27,7 +32,7 @@ Item {
     readonly property string imageSource: root.coverCached
         ? "image://covers/" + encodeURIComponent(root.coverUrl) + "|" + root.imageSize + "|" + root.coverRadius + "|" + root.imageRevision
         : ""
-    readonly property bool hasImage: root.coverCached && coverImage.status === Image.Ready
+    readonly property bool hasImage: root.displaySource.length > 0 && coverImage.status === Image.Ready
 
     implicitWidth: compact ? 36 : 52
     implicitHeight: implicitWidth
@@ -35,6 +40,14 @@ Item {
     function requestCover() {
         if (root.coverUrl.length > 0 && root.coverController)
             root.coverController.fetchCover(root.coverUrl)
+    }
+
+    function syncDisplaySource() {
+        if (root.imageSource.length > 0) {
+            root.displaySource = root.imageSource
+        } else if (!root.retainOnSwitch) {
+            root.displaySource = ""
+        }
     }
 
     function updateImageSize() {
@@ -49,10 +62,12 @@ Item {
     Component.onCompleted: {
         root.updateImageSize()
         root.requestCover()
+        root.syncDisplaySource()
     }
 
     onWidthChanged: root.updateImageSize()
     onHeightChanged: root.updateImageSize()
+    onImageSourceChanged: root.syncDisplaySource()
 
     onCoverUrlChanged: {
         root.imageRevision += 1
@@ -86,20 +101,26 @@ Item {
 
     Item {
         anchors.fill: parent
-        visible: root.coverCached
+        visible: root.displaySource.length > 0
 
         Image {
             id: coverImage
 
             anchors.fill: parent
             opacity: root.hasImage ? 1 : 0
-            source: root.imageSource
+            source: root.displaySource
             sourceSize.width: root.imageSize
             sourceSize.height: root.imageSize
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: false
             mipmap: true
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: ThemeTokens.Motion.durFast
+                }
+            }
         }
     }
 

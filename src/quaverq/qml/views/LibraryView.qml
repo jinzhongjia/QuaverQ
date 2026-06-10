@@ -18,7 +18,7 @@ ColumnLayout {
     property int currentTab: 0
 
     signal loginRequested()
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     spacing: 0
 
@@ -223,8 +223,8 @@ ColumnLayout {
                         if (root.playerController && root.libraryController)
                             root.playerController.playFromModel(root.libraryController.likedModel, row)
                     }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        root.detailRequested(kind, detailId, title, subtitle)
+                    onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                        root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                     }
                 }
 
@@ -293,8 +293,8 @@ ColumnLayout {
             emptyText: qsTr("暂无歌单")
             loggedOutText: qsTr("登录后显示我的歌单")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -306,8 +306,8 @@ ColumnLayout {
             emptyText: qsTr("暂无收藏歌单")
             loggedOutText: qsTr("登录后显示收藏歌单")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -319,8 +319,8 @@ ColumnLayout {
             emptyText: qsTr("暂无专辑")
             loggedOutText: qsTr("登录后显示收藏专辑")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -332,8 +332,8 @@ ColumnLayout {
             emptyText: qsTr("暂无艺人")
             loggedOutText: qsTr("登录后显示关注艺人")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -350,7 +350,7 @@ ColumnLayout {
         readonly property bool hasCards: tab.model && tab.model.count > 0
 
         signal loginRequested()
-        signal cardRequested(string kind, string detailId, string title, string subtitle)
+        signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         Layout.fillWidth: true
         Layout.fillHeight: true
@@ -394,8 +394,8 @@ ColumnLayout {
                     coverUrl: libCell.coverUrl
                     meta: libCell.meta
                     coverController: tab.coverController
-                    onActivated: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle)
-                    onPlayRequested: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle)
+                    onActivated: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle, libCell.coverUrl)
+                    onPlayRequested: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle, libCell.coverUrl)
                 }
             }
         }

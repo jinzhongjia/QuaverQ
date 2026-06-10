@@ -1417,3 +1417,43 @@ async def test_get_artist_detail_combines_info_and_hot_songs():
     assert ad.singer.mid == "j"
     assert ad.singer.name == "周杰伦"
     assert len(ad.hot_songs) == 2
+
+
+async def test_get_artist_detail_falls_back_to_cdn_avatar_when_pic_missing():
+    """接口未返回 SingerPic 时用 T001 CDN 模板兜底, 避免艺人页头像永远占位."""
+    svc = QuaverService()
+
+    async def fake_info(mid):
+        return SimpleNamespace(singer=SimpleNamespace(name="周杰伦", singer_pic=""))
+
+    async def fake_tab_detail(mid, tab_type, page, num):
+        return SimpleNamespace(song_tab=SimpleNamespace(list=[]))
+
+    svc._client = SimpleNamespace(
+        singer=SimpleNamespace(get_info=fake_info, get_tab_detail=fake_tab_detail),
+        credential=None,
+    )
+    ad = await svc.get_artist_detail("0025NhlN2yWrP4")
+    assert ad.singer.avatar_url == (
+        "https://y.qq.com/music/photo_new/T001R300x300M0000025NhlN2yWrP4.jpg"
+    )
+
+
+async def test_get_similar_singers_falls_back_to_cdn_avatar():
+    svc = QuaverService()
+
+    async def fake_similar(mid, number):
+        return SimpleNamespace(
+            singerlist=[
+                SimpleNamespace(mid="m1", name="林俊杰", singer_pic="http://pic/1.jpg"),
+                SimpleNamespace(mid="m2", name="王力宏", singer_pic=""),
+            ]
+        )
+
+    svc._client = SimpleNamespace(
+        singer=SimpleNamespace(get_similar=fake_similar),
+        credential=None,
+    )
+    singers = await svc.get_similar_singers("j")
+    assert singers[0].avatar_url == "http://pic/1.jpg"
+    assert singers[1].avatar_url == ("https://y.qq.com/music/photo_new/T001R300x300M000m2.jpg")

@@ -16,6 +16,6 @@
 ## 约定
 
 - **路由 + 控制器从外注入**：视图顶部一律是 `property string routeName: ...` + 一组 `property var xxxController`，由 `Main.qml` 在切路由时挂上去；视图内部不直接引用 context property。
-- **信号回上层**：`loginRequested()` / `searchRequested(keyword)` / `detailRequested(kind, id, title, subtitle)` / `nowPlayingRequested()` 这类导航意图通过信号抛给 `Main.qml`，由它决定路由切换。
+- **信号回上层**：`loginRequested()` / `searchRequested(keyword)` / `detailRequested(kind, id, title, subtitle, coverUrl)` / `nowPlayingRequested()` 这类导航意图通过信号抛给 `Main.qml`，由它决定路由切换。`coverUrl` 是入口卡片的封面，经 `pushDetail` 透传给 `DetailView` 作头图初始值（详情接口返回前立即显示，接口没给封面时保留兜底）。
 - **`pragma ComponentBehavior: Bound`** 全部开启。
 - **派生显示属性**：详情 / 首页这些视图用 `readonly property` 包一层 `xxxController.xxx`，给控制器尚未到位时一个安全默认值，避免初始化期空引用。

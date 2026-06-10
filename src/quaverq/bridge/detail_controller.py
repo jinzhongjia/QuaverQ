@@ -55,6 +55,8 @@ class DetailController(QObject):
         self._subtitle = ""
         self._description = ""
         self._cover_url = ""
+        # 入口卡片透传的封面: 加载期间立即显示, 详情接口没给封面时保留 (B1)
+        self._fallback_cover_url = ""
         self._loading = False
         self._error_message = ""
         self._load_generation = 0
@@ -136,19 +138,21 @@ class DetailController(QObject):
     def singerAlbumsLoaded(self) -> bool:
         return self._singer_albums_loaded
 
-    @asyncSlot(str, str, str, str)
+    @asyncSlot(str, str, str, str, str)
     async def loadDetail(
         self,
         kind: str,
         detail_id: str,
         fallback_title: str = "",
         fallback_subtitle: str = "",
+        fallback_cover_url: str = "",
     ) -> None:
         await self.load_detail_async(
             kind,
             detail_id,
             fallback_title=fallback_title,
             fallback_subtitle=fallback_subtitle,
+            fallback_cover_url=fallback_cover_url,
         )
 
     async def load_detail_async(
@@ -158,11 +162,13 @@ class DetailController(QObject):
         *,
         fallback_title: str = "",
         fallback_subtitle: str = "",
+        fallback_cover_url: str = "",
     ) -> None:
         normalized_kind = (kind or "playlist").strip()
         normalized_id = (detail_id or "").strip()
         self._load_generation += 1
         generation = self._load_generation
+        self._fallback_cover_url = (fallback_cover_url or "").strip()
         self._set_error_message("")
         self._set_detail(
             kind=normalized_kind,
@@ -170,7 +176,7 @@ class DetailController(QObject):
             title=fallback_title,
             subtitle=fallback_subtitle,
             description=fallback_subtitle,
-            cover_url="",
+            cover_url=self._fallback_cover_url,
         )
         self._set_songs([])
         # 切详情页时把所有歌手 tab 状态归零, 避免下一个 artist 看到上一个的残留
@@ -233,7 +239,7 @@ class DetailController(QObject):
             title=playlist.name,
             subtitle=playlist.creator or self._format_song_count(playlist.song_count),
             description=playlist.description,
-            cover_url=playlist.cover_url,
+            cover_url=playlist.cover_url or self._fallback_cover_url,
         )
         self._set_songs(playlist.songs)
 
@@ -245,7 +251,7 @@ class DetailController(QObject):
             title=album.name,
             subtitle=" · ".join(subtitle_parts),
             description=album.description,
-            cover_url=album.cover_url,
+            cover_url=album.cover_url or self._fallback_cover_url,
         )
         self._set_songs(album.songs)
 
@@ -254,9 +260,10 @@ class DetailController(QObject):
             kind="artist",
             detail_id=artist.singer.mid,
             title=artist.singer.name,
-            subtitle="艺人",
+            # kind 标签已写明"艺人", subtitle 再写一遍是重复; 留空让页面只显示名字
+            subtitle="",
             description=artist.description,
-            cover_url=artist.singer.avatar_url,
+            cover_url=artist.singer.avatar_url or self._fallback_cover_url,
         )
         self._set_songs(artist.hot_songs)
 

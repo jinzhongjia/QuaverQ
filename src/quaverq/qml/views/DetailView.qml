@@ -14,6 +14,8 @@ ColumnLayout {
     property string detailId: ""
     property string detailTitle: qsTr("详情")
     property string detailSubtitle: ""
+    // 入口卡片的封面 (B1): 详情接口返回前头图立即可显示
+    property string detailCoverUrl: ""
     property var coverController
     // 工厂模式: 每个 DetailView 实例自持 controller (见 AGENTS.md 「栈式视图必须自持状态」契约).
     property var detailControllerFactory
@@ -44,7 +46,7 @@ ColumnLayout {
 
     signal backRequested()
     signal searchRequested(string keyword)
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
     // 由 root.detailController.errorRaised 透传到 Main 的 globalSnackbar
     signal errorRaised(string message)
 
@@ -70,7 +72,8 @@ ColumnLayout {
             root.detailKind,
             root.detailId,
             root.detailTitle,
-            root.detailSubtitle
+            root.detailSubtitle,
+            root.detailCoverUrl
         )
     }
 
@@ -136,7 +139,12 @@ ColumnLayout {
                 iconText: root.displayKind === "artist" ? "◎" : root.displayKind === "top" ? "↗" : "♪"
                 iconSize: ThemeTokens.TypeScale.display
                 active: root.hasSongs
-                coverUrl: root.detailController ? root.detailController.coverUrl : ""
+                // controller 创建瞬间 coverUrl 为空, 退回卡片封面避免一帧空窗
+                coverUrl: root.detailController && root.detailController.coverUrl.length > 0
+                    ? root.detailController.coverUrl
+                    : root.detailCoverUrl
+                // 卡片图 → 接口高清图切换期间保留旧图, 不闪占位
+                retainOnSwitch: true
                 coverController: root.coverController
             }
 
@@ -165,10 +173,18 @@ ColumnLayout {
                 }
 
                 Label {
+                    // subtitle 与 kind 标签重复 (如"艺人") 时不再显示一遍;
+                    // 艺人页 subtitle 为空时直接隐藏, 不显示"暂无简介"占位
+                    readonly property string subtitleText: {
+                        const value = root.displaySubtitle
+                        if (value.length > 0 && value !== root.kindLabel(root.displayKind))
+                            return value
+                        return root.displayKind === "artist" ? "" : qsTr("暂无简介")
+                    }
+
                     Layout.fillWidth: true
-                    text: root.displaySubtitle.length > 0
-                        ? root.displaySubtitle
-                        : qsTr("暂无简介")
+                    visible: text.length > 0
+                    text: subtitleText
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
@@ -376,8 +392,8 @@ ColumnLayout {
                 hasItems: root.detailController
                     && root.detailController.singerAlbumsModel
                     && root.detailController.singerAlbumsModel.count > 0
-                onCardRequested: function(kind, detailId, title, subtitle) {
-                    root.detailRequested(kind, detailId, title, subtitle)
+                onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                    root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                 }
             }
 
@@ -391,8 +407,8 @@ ColumnLayout {
                 hasItems: root.detailController
                     && root.detailController.similarSingersModel
                     && root.detailController.similarSingersModel.count > 0
-                onCardRequested: function(kind, detailId, title, subtitle) {
-                    root.detailRequested(kind, detailId, title, subtitle)
+                onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                    root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                 }
             }
         }
@@ -431,8 +447,8 @@ ColumnLayout {
                 onActivated: function(songData, row) {
                     songPage.playRequested(row)
                 }
-                onNavigationRequested: function(kind, detailId, title, subtitle) {
-                    root.detailRequested(kind, detailId, title, subtitle)
+                onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                    root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                 }
             }
 
@@ -501,7 +517,7 @@ ColumnLayout {
         property bool loading: false
         property bool hasItems: false
 
-        signal cardRequested(string kind, string detailId, string title, string subtitle)
+        signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         GridView {
             anchors.fill: parent
@@ -534,8 +550,8 @@ ColumnLayout {
                     coverUrl: cardCell.coverUrl
                     meta: cardCell.meta
                     coverController: root.coverController
-                    onActivated: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle)
-                    onPlayRequested: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                    onActivated: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
+                    onPlayRequested: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
                 }
             }
 

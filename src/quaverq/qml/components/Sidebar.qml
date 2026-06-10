@@ -16,7 +16,7 @@ Rectangle {
 
     signal loginRequested()
     signal routeRequested(string route)
-    signal openPlaylistRequested(string pid, string title)
+    signal openPlaylistRequested(string pid, string title, string coverUrl)
 
     readonly property bool authed: root.appController ? root.appController.authed : false
     readonly property var playlistModel: root.libraryController ? root.libraryController.playlistModel : null
@@ -129,7 +129,7 @@ Rectangle {
                 width: ListView.view ? ListView.view.width : implicitWidth
                 rowTitle: title
                 rowCover: coverUrl
-                onActivated: root.openPlaylistRequested(cardId, title)
+                onActivated: root.openPlaylistRequested(cardId, title, coverUrl)
             }
         }
 

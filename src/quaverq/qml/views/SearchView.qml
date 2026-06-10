@@ -16,7 +16,7 @@ ColumnLayout {
     property var songDetailController
     property string routeName: "search"
 
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     readonly property string searchType: root.serviceController ? root.serviceController.searchType : "songs"
     readonly property bool isSongs: root.searchType === "songs"
@@ -201,8 +201,8 @@ ColumnLayout {
                         if (root.playerController)
                             root.playerController.playFromModel(root.serviceController.songResults, row)
                     }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        root.detailRequested(kind, detailId, title, subtitle)
+                    onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                        root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                     }
                 }
 
@@ -318,8 +318,8 @@ ColumnLayout {
                         coverUrl: cardCell.coverUrl
                         meta: cardCell.meta
                         coverController: root.coverController
-                        onActivated: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
-                        onPlayRequested: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                        onActivated: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
+                        onPlayRequested: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
                     }
                 }
             }

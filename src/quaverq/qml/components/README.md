@@ -17,7 +17,7 @@
 | `Card.qml` | **内容卡片**（歌单 / 专辑 / 艺人 / 排行榜）：方形封面 + 播放量角标 + hover 浮出播放键 + 标题副标题。整卡点击 `activated()`（进详情），浮层 `playRequested()`（直接播放）。`circular` 给艺人卡用圆形。 |
 | `SongRow.qml` | 曲目列表行：序号、封面、歌名 + 歌手、专辑、时长、喜欢按钮、单曲操作。 |
 | `QueueRow.qml` | 播放队列行：高亮当前播放项，提供「定位到这首」和「从队列移除」。 |
-| `AlbumArt.qml` | 通用专辑封面：`active` 时附 hover 播放浮层，`compact` 切小尺寸，`circular` 切圆形（艺人用），失败 / 未加载时显示占位符。封面 URL 通过 `coverController` 间接走 `image://covers/...`。 |
+| `AlbumArt.qml` | 通用专辑封面：`active` 时附 hover 播放浮层，`compact` 切小尺寸，`circular` 切圆形（艺人用），失败 / 未加载时显示占位符。封面 URL 通过 `coverController` 间接走 `image://covers/...`。`retainOnSwitch: true` 时换 URL 期间保留旧图直到新图就绪（详情头图"卡片图 → 接口高清图"无缝升级用）；列表行 delegate 复用场景保持默认 false，立即回占位避免串图。 |
 
 ## 输入与反馈
 

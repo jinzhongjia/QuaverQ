@@ -118,14 +118,16 @@ ApplicationWindow {
         }
     }
 
-    function pushDetail(kind, detailId, title, subtitle) {
+    function pushDetail(kind, detailId, title, subtitle, coverUrl) {
         root.queuePanelOpen = false
         root.releaseTextFocus()
         contentStack.push(detailPageComponent, {
             detailKind: kind,
             detailId: detailId,
             detailTitle: title,
-            detailSubtitle: subtitle
+            detailSubtitle: subtitle,
+            // 入口卡片封面透传: 头图即刻显示, 详情接口的封面到了再升级 (B1)
+            detailCoverUrl: coverUrl || ""
         }, StackView.Immediate)
         root.currentDetailTitle = title
         root.currentRoute = "detail"
@@ -597,8 +599,8 @@ ApplicationWindow {
             onRouteRequested: function(route) {
                 root.navigate(route)
             }
-            onOpenPlaylistRequested: function(pid, title) {
-                root.pushDetail("playlist", pid, title, "")
+            onOpenPlaylistRequested: function(pid, title, coverUrl) {
+                root.pushDetail("playlist", pid, title, "", coverUrl)
             }
         }
 
@@ -676,8 +678,8 @@ ApplicationWindow {
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
             }
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
             onNowPlayingRequested: root.navigate("now-playing")
         }
@@ -692,8 +694,8 @@ ApplicationWindow {
             libraryController: root.libraryController
             coverController: root.coverController
             songDetailController: root.songDetailController
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -708,8 +710,8 @@ ApplicationWindow {
             playerController: root.playerController
             songDetailController: root.songDetailController
             onLoginRequested: loginDialog.open()
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -727,8 +729,8 @@ ApplicationWindow {
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
             }
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
             onErrorRaised: function(message) {
                 globalSnackbar.show(message, "error")
