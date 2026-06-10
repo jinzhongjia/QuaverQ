@@ -135,6 +135,8 @@ ColumnLayout {
             Components.AlbumArt {
                 Layout.preferredWidth: 168
                 Layout.preferredHeight: 168
+                // 顶部锚定: 文字列加载后变高时封面不再被重新垂直居中 (整个头部"呼吸"一下)
+                Layout.alignment: Qt.AlignTop
                 circular: root.displayKind === "artist"
                 iconText: root.displayKind === "artist" ? "◎" : root.displayKind === "top" ? "↗" : "♪"
                 iconSize: ThemeTokens.TypeScale.display
@@ -150,6 +152,7 @@ ColumnLayout {
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
                 spacing: ThemeTokens.Spacing.s3
 
                 Label {
@@ -174,16 +177,20 @@ ColumnLayout {
 
                 Label {
                     // subtitle 与 kind 标签重复 (如"艺人") 时不再显示一遍;
+                    // 加载中不冒充"暂无简介" (加载完会换成真值, 文字跳变);
                     // 艺人页 subtitle 为空时直接隐藏, 不显示"暂无简介"占位
                     readonly property string subtitleText: {
                         const value = root.displaySubtitle
                         if (value.length > 0 && value !== root.kindLabel(root.displayKind))
                             return value
+                        if (root.loading)
+                            return ""
                         return root.displayKind === "artist" ? "" : qsTr("暂无简介")
                     }
 
                     Layout.fillWidth: true
-                    visible: text.length > 0
+                    // 加载中即使无文字也占住一行, 防止内容到达时按钮 / 列表跳位
+                    visible: root.loading || text.length > 0
                     text: subtitleText
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
@@ -192,7 +199,8 @@ ColumnLayout {
 
                 Label {
                     Layout.fillWidth: true
-                    visible: root.displayDescription.length > 0
+                    // 同上: 加载中预留简介行位, 减小数据到达时的下移幅度
+                    visible: root.loading || root.displayDescription.length > 0
                     text: root.displayDescription
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
