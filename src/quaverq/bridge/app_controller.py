@@ -108,10 +108,7 @@ class AppController(QObject):
             task = self._login_task
             if task is not None and not task.done():
                 task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
+                await asyncio.wait([task])
         if self._service_controller is None:
             self._set_login_error("登录服务未初始化")
             return
