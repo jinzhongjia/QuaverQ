@@ -56,7 +56,8 @@ Rectangle {
             text: root.iconText || root.text.slice(0, 1)
             horizontalAlignment: Text.AlignHCenter
             color: root.selected ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText
-            font.pixelSize: ThemeTokens.TypeScale.body
+            // 紧凑模式只剩图标, 16px 在 64px 栏里太迷你, 提一档
+            font.pixelSize: root.compact ? ThemeTokens.TypeScale.h2 : ThemeTokens.TypeScale.body
             font.weight: ThemeTokens.TypeScale.medium
         }
 

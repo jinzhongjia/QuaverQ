@@ -350,7 +350,7 @@ Rectangle {
                             parent: overflowButton
                             x: parent.width - width
                             y: -height - ThemeTokens.Spacing.s2
-                            width: 248
+                            width: 224
                             margins: ThemeTokens.Spacing.s2
                             padding: ThemeTokens.Spacing.s2
 
@@ -360,12 +360,12 @@ Rectangle {
                                 border.color: ThemeTokens.Palette.outline
                             }
 
+                            // 与歌曲行右键菜单同一套语言: 纯文字行 + 分隔线, 不带图标列
                             contentItem: ColumnLayout {
                                 spacing: ThemeTokens.Spacing.s2
 
                                 OverflowRow {
                                     Layout.fillWidth: true
-                                    iconText: "词"
                                     label: qsTr("歌词")
                                     enabled: root.hasSong
                                     onActivated: {
@@ -376,7 +376,6 @@ Rectangle {
 
                                 OverflowRow {
                                     Layout.fillWidth: true
-                                    iconText: "☰"
                                     label: root.queueCount > 0
                                         ? qsTr("待播列表 (%1)").arg(root.queueCount > 99 ? "99+" : root.queueCount)
                                         : qsTr("待播列表")
@@ -386,10 +385,16 @@ Rectangle {
                                     }
                                 }
 
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: ThemeTokens.Palette.outlineMuted
+                                }
+
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Layout.leftMargin: ThemeTokens.Spacing.s3
-                                    Layout.rightMargin: ThemeTokens.Spacing.s3
+                                    Layout.leftMargin: ThemeTokens.Spacing.s4
+                                    Layout.rightMargin: ThemeTokens.Spacing.s4
                                     spacing: ThemeTokens.Spacing.s3
 
                                     Label {
@@ -605,16 +610,15 @@ Rectangle {
         }
     }
 
-    // 溢出菜单行: 图标 + 文字, hover 高亮 (窄窗口收纳 词/队列 用)
+    // 溢出菜单行: 纯文字 + hover 高亮, 样式对齐 SongRow 右键菜单 (窄窗口收纳 词/队列 用)
     component OverflowRow: Rectangle {
         id: overflowRow
 
-        property string iconText: ""
         property string label: ""
 
         signal activated()
 
-        implicitHeight: 40
+        implicitHeight: 36
         radius: ThemeTokens.Spacing.radiusSm
         color: overflowRowHover.hovered && overflowRow.enabled
             ? ThemeTokens.Palette.stateHover
@@ -652,27 +656,15 @@ Rectangle {
             border.width: 2
         }
 
-        RowLayout {
+        Label {
             anchors.fill: parent
-            anchors.leftMargin: ThemeTokens.Spacing.s3
-            anchors.rightMargin: ThemeTokens.Spacing.s3
-            spacing: ThemeTokens.Spacing.s3
-
-            Label {
-                Layout.preferredWidth: ThemeTokens.Spacing.s5
-                horizontalAlignment: Text.AlignHCenter
-                text: overflowRow.iconText
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: overflowRow.label
-                color: ThemeTokens.Palette.surfaceText
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
-                elide: Text.ElideRight
-            }
+            anchors.leftMargin: ThemeTokens.Spacing.s4
+            anchors.rightMargin: ThemeTokens.Spacing.s4
+            verticalAlignment: Text.AlignVCenter
+            text: overflowRow.label
+            color: ThemeTokens.Palette.surfaceText
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+            elide: Text.ElideRight
         }
     }
 }

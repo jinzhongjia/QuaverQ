@@ -184,6 +184,14 @@ Rectangle {
             Item { Layout.fillHeight: true }
         }
 
+        // 4c) 紧凑模式: 歌单区整体隐藏后没有弹性项, 多余空间会被平摊到各格子
+        // 把图标拉散; 这里补一个占位, 让导航钉在顶部 / 设置钉在底部
+        Item {
+            visible: root.compact
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+
         // 5) settings pinned at bottom
         NavItem {
             Layout.fillWidth: true

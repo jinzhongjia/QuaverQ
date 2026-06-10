@@ -481,8 +481,9 @@ ApplicationWindow {
                 id: searchField
 
                 Layout.fillWidth: true
-                Layout.maximumWidth: 500
-                // 宽窗口下搜索框到达 500px 上限后在剩余空间内居中,
+                // 随窗宽缩放 (45%, 上限 500): 窄窗口不再霸占大半个顶栏
+                Layout.maximumWidth: Math.min(500, Math.round(root.width * 0.45))
+                // 宽窗口下搜索框到达上限后在剩余空间内居中,
                 // 避免"控件全部左挤 + 中部真空"的失衡构图
                 Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 placeholderText: qsTr("搜索歌曲、歌手、专辑")
