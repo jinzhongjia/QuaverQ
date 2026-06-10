@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from PySide6.QtCore import QObject, Signal
@@ -219,10 +220,8 @@ async def test_cancel_login_stops_polling_and_resets_state():
     assert controller.loginState == "waiting"
 
     controller.cancelLogin()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
     assert controller.loggingIn is False
     assert controller.loginState == "idle"
@@ -303,10 +302,8 @@ async def test_switch_login_type_cancels_previous_and_starts_new():
     task_wx = asyncio.ensure_future(controller.login_by_qrcode_async(login_type="wx"))
     await asyncio.sleep(0)
     await asyncio.sleep(0)
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task_qq
-    except asyncio.CancelledError:
-        pass
     await task_wx
 
     assert controller.loginType == "wx"
