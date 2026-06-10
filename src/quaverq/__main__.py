@@ -14,7 +14,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from . import diagnostics, resources
+from . import diagnostics, diagnostics_crash, resources
 from .bridge import (
     AppController,
     CoverController,
@@ -262,6 +262,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     _install_qt_message_filter()
+    diagnostics_crash.install_crash_logger()  # 早装: 后续 import / 初始化崩了也能留 traceback
     _silence_ffmpeg_logs()  # 必须在 QMediaPlayer 实例化前, 关 ffmpeg 全局日志免每次切歌刷 stderr
     # Windows AUMID: 让任务栏图标 / SMTC / Jump List 正确分组到本应用 (而非 python.exe);
     # 必须在 QApplication / 任何窗口 / SMTC 创建前调. 非 Windows 静默跳过.

@@ -12,9 +12,6 @@ build/
 venv/
 env/
 
-# uv
-uv.lock
-
 # IDE
 .idea/
 .vscode/
@@ -30,6 +27,7 @@ Thumbs.db
 *.build/
 *.dist/
 *.onefile-build/
+nuitka-crash-report*.xml
 
 # QuaverQ
 *.cookie

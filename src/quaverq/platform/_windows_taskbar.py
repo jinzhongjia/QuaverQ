@@ -360,7 +360,7 @@ class WindowsTaskbar(QObject):
         self._subclass_proc: Any = None  # 必须持有引用防 GC, 否则 SUBCLASSPROC 变野指针
         self._thumbnail_hbm: int = 0  # 当前歌封面的 DIB HBITMAP, 切歌时替换 + DeleteObject
 
-        # 预渲染 4 个 HICON (无需 HWND, 可以提前做)
+        # 预渲染 4 个缩略图按钮 HICON (无需 HWND, 可以提前做)
         self._icon_prev = _render_glyph_icon("⏮")
         self._icon_play = _render_glyph_icon("⏵")
         self._icon_pause = _render_glyph_icon("⏸")

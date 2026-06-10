@@ -139,6 +139,39 @@ LLM 约定：
 - **`RandomAccessStreamReference.CreateFromUri` 不支持 `file://`** (只支持 `ms-appx://` / `ms-appdata://` / `http(s)://`); 本地图片走 `StreamProxy.local_file_url()` 包成 `http://127.0.0.1:port/_local/<token>/<file>` 才能塞给 SMTC Thumbnail。
 - **按钮事件 handler COM 对象**: `QueryInterface` 对 `INoMarshal` 必须返 `E_NOINTERFACE` (不是 `S_OK`), 否则 SMTC 视我们为 non-agile, 拒绝注册回调。
 
+### Windows 任务栏 GDI: HANDLE argtypes 必须显式声明
+
+- ❌ **不声明 `_gdi32.DeleteObject.argtypes`**: 64-bit Python 上 `HBITMAP` (`HANDLE` = `c_void_p`) 值是 8 字节, ctypes 默认按 `c_int` (32-bit signed) 转, handle 数值超界就 `OverflowError: int too long to convert`. 整套 GDI/User32 调用都得显式 `argtypes = [wintypes.HGDIOBJ]` / `wintypes.HICON` / `wintypes.HBITMAP`. 见 `_windows_taskbar.py`.
+- **`DwmSetIconicThumbnail` 只接 DIB section**: 不接 `CreateBitmap` 产的 DDB. 任务栏自定义缩略图 (DWM iconic representation) 必须走 `CreateDIBSection` + 32bpp BGRA top-down (`biHeight = -h`). DDB 给 `HICON` 用 (`CreateIconIndirect` 路径).
+- **`SetWindowSubclass` SUBCLASSPROC 必须持有引用**: `ctypes.WINFUNCTYPE` 包出来的 callback 一被 GC 立刻变野指针, 下次 Windows 派发 WM 消息直接崩进程. 把 `self._subclass_proc = proc` 存到对象上, 不要图省事用局部变量.
+
+### Nuitka + WiX 打包 (Windows MSI / Portable)
+
+**通用 Nuitka 配置 (`src/quaverq/packaging.py`)**:
+- **Python 3.13 不要 3.14**: Nuitka 4.1.2 对 3.14 标 experimental, 启动期刷 warning. `uv python pin 3.13` 一劳永逸.
+- **入口必须在包外**: 直接 `-m src/quaverq` 启动会让 `quaverq.__main__` 同时是"主程序"又是 `--include-package=quaverq` 子模块, Nuitka 去重打 INFO 警告刷屏. 用 `src/quaverq_entry.py` 包外 shim 调 `from quaverq.__main__ import main`. **副作用**: dist 目录名跟随入口名, 变 `quaverq_entry.dist` (不是 `quaverq.dist`), `build_*` 路径要用统一常量 `_NUITKA_DIST_DIRNAME`.
+- **`--include-qt-plugins=multimedia` 必带**: Nuitka 的 `sensible` 默认集**不含** QtMultimedia 后端插件, 不显式加, Windows 上启动报 "No QtMultimedia backends found" 不能播放. 自检 `_default_multimedia_probe` 不只 `import` 模块, 还查 `QLibraryInfo.PluginsPath/multimedia/` 真有插件文件, 防再误报 OK.
+- **`--windows-console-mode=disable`**: GUI 应用必加, 否则双击 exe 启动会弹黑色 cmd 窗口.
+- **`--include-windows-runtime-dlls=yes` 显式声明**: 默认行为是带 VC++ runtime (`vcruntime140.dll` 等), 显式声明只是消掉 Nuitka 提示. 保留 = 没装 VC++ Redist 的机器也能跑 portable. 不要 `=no` 否则部分用户启动直接缺 dll 崩.
+- **`--remove-output`**: 编译成功后清掉 `.build` 中间目录 (500MB-1GB 的 .o 文件), 只留 `.dist` 产物.
+- **Linux-only 包条件 include**: `dbus_next` 在 `pyproject` 有 `sys_platform == "linux"` marker, Windows 上没装. `--include-package=dbus_next` 在非 Linux 平台让 Nuitka 直接 `FATAL: failed to locate package`. `_FORCE_INCLUDE_PACKAGES` 跟 `_LINUX_ONLY_PACKAGES` 拆开, 按 `sys.platform == "linux"` 条件追加.
+- **`av_dump_format` stderr 输出绕过 Qt 日志**: FFmpeg C 库每次切歌 printf 元数据到 stderr, `_qt_message_handler` 抓不到. 启动期 ctypes 加载 `avutil-*.dll` (PySide6 自带) 调 `av_log_set_level(-8)` (AV_LOG_QUIET) 关掉; **必须在任何 `QMediaPlayer` 实例化前调**.
+
+**MSI 通过 WiX 5 打包 (`build_msi()`)**:
+- **WiX CLI 来源**: 推荐 `dotnet tool install --global wix` (需 .NET 6+); Scoop 装的 `wix` 也行 (`scoop install wixtoolset`).
+- ⚠️ **Scoop 装完 WiX 后还要加 UI 扩展**: Scoop / dotnet 装的 WiX 5 CLI **不含** UI/Bal/Util 等扩展, 必须显式加:
+  ```pwsh
+  wix extension add -g WixToolset.UI.wixext
+  ```
+  否则 `wix build -ext WixToolset.UI.wixext ...` 报 `WIX0144: The extension 'WixToolset.UI.wixext' could not be found`. `build_msi()` 里的 `_ensure_wix_extension(wix, "WixToolset.UI.wixext")` 会自动跑一次 `extension add -g` (幂等), 首次需要联网拉.
+- ❌ **不要在 wxs 里设 `ARPNOMODIFY` / `ARPNOREPAIR`**: `WixUI_InstallDir` UI 扩展内部已经声明这俩 Property (让 UI 自己接管 Modify / Repair 行为), 我们再设会 `WIX0091: Duplicate Property` 编译失败. 想禁掉 Modify/Repair 改 UI 扩展配置, 不要靠 ARP 标志.
+- ⚠️ **MSI 数据库默认 codepage 1252 不含中文**: 任何中文字符 (DowngradeErrorMessage / Shortcut Name / Description 等 Property 字符串) 都会让 `wix build` 报 `WIX0311: A string was provided with characters that are not available in the specified database code page '1252'`. 在 `<Package>` 上加 `Codepage="65001"` (UTF-8), Windows 10+ MSI 完全支持. 不要用 936 (GBK), 它只覆盖中文但混在 UTF-8 工程里别扭.
+- **UpgradeCode 固定 GUID**: 跨版本必须保持同一个 GUID, MSI 的 `MajorUpgrade` 才能识别"同一产品"自动卸旧装新. 改 GUID = Windows 视为新产品, 用户机器并存两套. 见 `_MSI_UPGRADE_CODE` 常量, **不要动**.
+- **WiX 模板不进运行时 bundle**: `assets/quaverq.wxs.tmpl` 是 MSI 构建时给 `build_msi()` 用的, `--include-data-dir=assets` 会把它拉进 Nuitka bundle. 显式 `--noinclude-data-files=assets/quaverq.wxs.tmpl` 踢掉.
+
+**调试 MSI 模板时省时间**:
+- `uv run python build.py --msi --no-rebuild` 跳过 5 分钟的 Nuitka 链接 + 250MB 文件复制, 只跑 WiX. 调 .wxs / UI 扩展配置错误时反复 iterate 用这个; Python 代码改了就别带 `--no-rebuild`.
+
 ## 项目使用的库
 
 ### 运行时依赖 (`[project] dependencies`)
@@ -177,7 +210,9 @@ LLM 约定：
 - `uv run python scripts/lint.py` — 跑 lint (ruff check + ruff format --check + pyside6-qmllint)
 - `uv run python scripts/lint.py --fix` — 自动修复可修的 ruff 问题并执行 `ruff format`
 - `uv run python scripts/lint.py --py` / `--qml` — 只跑其中一项
-- `uv run python build.py --appimage` — 打 AppImage (Nuitka standalone + linuxdeploy)
+- `uv run python build.py --appimage` — 打 AppImage (Linux: Nuitka standalone + linuxdeploy)
+- `uv run python build.py --portable` — 打 portable zip (跨平台: Nuitka standalone → `dist/QuaverQ-{version}-portable.zip`, 解压即跑)
+- `uv run python build.py --msi` — 打 MSI 安装包 (Windows: Nuitka standalone + WiX 5 → `dist/QuaverQ-{version}.msi`; 需 `dotnet tool install --global wix`)
 
 ## 项目使用的 Lint
 

@@ -50,7 +50,7 @@ jobs:
         run: uv run python build.py --appimage
 
       - name: Smoke test bundle (QML 加载 + 窗口创建)
-        run: uv run python -m quaverq.packaging --smoke dist/quaverq.dist/QuaverQ
+        run: uv run python -m quaverq.packaging --smoke dist/quaverq_entry.dist/QuaverQ
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
@@ -64,4 +64,55 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: 'dist/*.AppImage'
+          generate_release_notes: true
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync project (incl. build deps)
+        run: uv sync --dev
+
+      - name: Install WiX 5 CLI + UI extension
+        # dotnet tool install global -> wix.exe 进 PATH; UI 扩展默认不带, 显式加.
+        run: |
+          dotnet tool install --global wix
+          wix extension add -g WixToolset.UI.wixext
+
+      - name: Build MSI (Nuitka standalone + WiX 5)
+        run: uv run python build.py --msi
+
+      - name: Build portable ZIP (复用 MSI 已经跑过的 Nuitka 产物)
+        # --no-rebuild 跳过 5 分钟链接 + 250MB 复制, 只走 zip 那段
+        run: uv run python build.py --portable --no-rebuild
+
+      - name: Smoke test bundle (QML 加载 + 窗口创建)
+        # offscreen 平台启动, 不依赖 RDP / 显示器
+        run: uv run python -m quaverq.packaging --smoke dist/quaverq_entry.dist/QuaverQ.exe
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuaverQ-x86_64-MSI
+          path: 'dist/QuaverQ-*.msi'
+          if-no-files-found: error
+
+      - name: Upload portable ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuaverQ-x86_64-Portable
+          path: 'dist/QuaverQ-*-portable.zip'
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/QuaverQ-*.msi
+            dist/QuaverQ-*-portable.zip
           generate_release_notes: true

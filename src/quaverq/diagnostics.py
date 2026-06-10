@@ -41,10 +41,26 @@ def _safe(probe: Probe) -> bool:
 
 
 def _default_multimedia_probe() -> bool:
+    """检 ``PySide6.QtMultimedia`` 能 import **且** 后端插件目录非空.
+
+    Nuitka 打包时如果漏带 ``--include-qt-plugins=multimedia``, 模块本身能 import
+    (.pyd 在), 但运行时 ``QMediaPlayer`` 找不到 FFmpeg / WMF 等后端插件, 启动报
+    "No QtMultimedia backends found" 不能播放. 仅检 import 会误报 OK,
+    所以这里还要确认 ``<Qt 插件目录>/multimedia/`` 真的有插件文件.
+    """
     import importlib
+    from pathlib import Path
 
     importlib.import_module("PySide6.QtMultimedia")
-    return True
+    from PySide6.QtCore import QLibraryInfo
+
+    plugins_dir = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath))
+    multimedia_dir = plugins_dir / "multimedia"
+    if not multimedia_dir.is_dir():
+        return False
+    # 至少一个后端插件 (Windows: ffmpegmediaplugin.dll / qtwmfmediaplugin.dll;
+    # Linux: libgstreamermediaplugin.so / libffmpegmediaplugin.so 等)
+    return any(multimedia_dir.iterdir())
 
 
 def _default_dbus_probe() -> bool:

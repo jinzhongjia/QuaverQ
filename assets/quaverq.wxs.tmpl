@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  QuaverQ MSI 安装包 (WiX 5 schema).
+
+  占位符由 ``quaverq.packaging.build_msi`` 在构建时用 string.Template 替换:
+    $VERSION      - 项目版本, 来自 pyproject.toml [project] version
+    $UPGRADE_CODE - 固定 GUID, 给 MajorUpgrade 用 (跨版本同一个 -> 升级而非并存)
+    $ICON_PATH    - 256x256 ICO 路径, 用于 ARP (添加 / 删除程序) 列表显示图标
+    $DIST_DIR     - Nuitka standalone 产物根目录, 通常是 dist\quaverq.dist
+
+  安装策略: per-machine -> ProgramFiles64Folder, 需要 admin 提权 (UAC 弹窗).
+  Per-user 会落到 LocalAppData\Programs\, 但典型音乐播放器 (网易云 / QQ 音乐 / Spotify)
+  都是 per-machine, 与用户预期一致.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <!-- Codepage=65001 (UTF-8): 默认 1252 不含中文 (DowngradeErrorMessage / Shortcut Name
+       等 Property 字符串里都有汉字, 不设会 WIX0311 报错). Windows 10+ MSI 完全支持 UTF-8;
+       目标系统就是 Win 10/11, 无兼容顾虑. -->
+  <Package Name="QuaverQ"
+           Manufacturer="jinzhongjia"
+           Version="$VERSION"
+           UpgradeCode="$UPGRADE_CODE"
+           Codepage="65001"
+           Compressed="yes"
+           Scope="perMachine">
+
+    <SummaryInformation Description="QuaverQ Music Player" Keywords="music,player,qqmusic" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <MajorUpgrade
+        Schedule="afterInstallInitialize"
+        DowngradeErrorMessage="已安装的 QuaverQ 版本比当前要装的更新, 请先卸载现有版本." />
+
+    <!-- ARP (添加 / 删除程序) 列表显示.
+         ARPNOMODIFY / ARPNOREPAIR 故意不设: WixUI_InstallDir UI 扩展自己接管 Modify
+         (允许用户重新选安装路径) + Repair (重新部署文件), 我们再显式置 1 会与扩展
+         内部声明的 Property 冲突 (WIX0091 Duplicate Property). -->
+    <Icon Id="QuaverQ.exe" SourceFile="$ICON_PATH" />
+    <Property Id="ARPPRODUCTICON" Value="QuaverQ.exe" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/jinzhongjia/QuaverQ" />
+
+    <!-- 装到 %ProgramFiles%\QuaverQ -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="QuaverQ" />
+    </StandardDirectory>
+
+    <!-- 开始菜单快捷方式 (per-machine 共享给所有用户) -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="C9F4D3A1-7B6E-4F92-A1C5-3D8E2F0B5A91">
+        <Shortcut Id="QuaverQStartMenuShortcut"
+                  Name="QuaverQ"
+                  Description="QuaverQ Music Player"
+                  Target="[INSTALLFOLDER]QuaverQ.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="QuaverQ.exe" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\jinzhongjia\QuaverQ"
+                       Name="installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="QuaverQ" Level="1" AllowAdvertise="no">
+      <!-- 把 Nuitka standalone 产物整目录纳管, Subdirectory 指向 INSTALLFOLDER -->
+      <Files Include="$DIST_DIR\**" Subdirectory="INSTALLFOLDER" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- 简易 UI: 用户能选目录 / 看 EULA 占位 / 点 Install. 不用 EULA 文件则跳过该页 -->
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+  </Package>
+</Wix>

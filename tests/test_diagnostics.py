@@ -82,6 +82,31 @@ def test_default_probes_run_without_qapplication() -> None:
     assert all(isinstance(d, diagnostics.Diagnostic) for d in results)
 
 
+def test_default_multimedia_probe_validates_plugin_dir(tmp_path, monkeypatch) -> None:
+    """默认 multimedia probe 必须验证后端插件目录真有插件; 仅 import 不算数.
+
+    模拟 Nuitka 漏带 multimedia 插件场景: PySide6.QtMultimedia 能 import, 但
+    QLibraryInfo 给的插件目录下没 ``multimedia/`` 子目录 -> probe 返 False -> 报 critical.
+    """
+    from PySide6.QtCore import QLibraryInfo
+
+    # 把插件路径换成一个新建的空目录, 模拟"插件没部署"
+    monkeypatch.setattr(
+        QLibraryInfo,
+        "path",
+        staticmethod(lambda _kind: str(tmp_path)),
+    )
+    assert diagnostics._default_multimedia_probe() is False
+
+    # 创建空 multimedia/ 目录: 还是 False (空目录 = 没 backend)
+    (tmp_path / "multimedia").mkdir()
+    assert diagnostics._default_multimedia_probe() is False
+
+    # 放一个假后端插件文件: True
+    (tmp_path / "multimedia" / "ffmpegmediaplugin.dll").write_bytes(b"placeholder")
+    assert diagnostics._default_multimedia_probe() is True
+
+
 def test_include_dbus_false_skips_dbus_check() -> None:
     """Windows / macOS 调用方传 include_dbus=False 时不该跑 dbus check (D-Bus 在这些平台不适用)."""
     results = diagnostics.run_diagnostics(

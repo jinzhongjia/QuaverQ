@@ -32,8 +32,9 @@ def test_nuitka_command_force_includes_dynamic_import_packages():
 
 
 def test_nuitka_command_includes_qml_qt_plugins():
-    # QtQuick / QtMultimedia / Layouts 运行时模块（QML 加载需要）
-    assert "--include-qt-plugins=sensible,qml" in packaging.nuitka_command()
+    # QtQuick / Layouts (qml) + QMediaPlayer FFmpeg 后端 (multimedia) 都必须带,
+    # 否则 Windows 上启动报 "No QtMultimedia backends found" 不能播放.
+    assert "--include-qt-plugins=sensible,qml,multimedia" in packaging.nuitka_command()
 
 
 def test_nuitka_command_includes_assets_dir():
@@ -50,9 +51,11 @@ def test_nuitka_command_injects_version():
 def test_nuitka_command_modes_and_entrypoint():
     assert "--standalone" in packaging.nuitka_command("standalone")
     assert "--onefile" in packaging.nuitka_command("onefile")
-    # 以包目录为入口 + -m flag（relative import 需要包上下文）
-    assert "--python-flag=-m" in packaging.nuitka_command()
-    assert packaging.nuitka_command()[-1].endswith("quaverq")
+    cmd = packaging.nuitka_command()
+    # 入口走包外 shim ``src/quaverq_entry.py`` (避开 -m 与 --include-package=quaverq
+    # 的 __main__ 去重警告); 不再有 --python-flag=-m.
+    assert "--python-flag=-m" not in cmd
+    assert cmd[-1].endswith("quaverq_entry.py")
 
 
 def test_project_version_matches_pyproject():
