@@ -61,9 +61,9 @@ Rectangle {
 
             Repeater {
                 model: [
-                    { route: "home", label: qsTr("发现"), icon: "⌂" },
-                    { route: "search", label: qsTr("搜索"), icon: "⌕" },
-                    { route: "library", label: qsTr("资料库"), icon: "♬" }
+                    { route: "home", label: qsTr("发现"), icon: "../icons/home.svg" },
+                    { route: "search", label: qsTr("搜索"), icon: "../icons/search.svg" },
+                    { route: "library", label: qsTr("资料库"), icon: "../icons/library.svg" }
                 ]
 
                 delegate: NavItem {
@@ -71,7 +71,7 @@ Rectangle {
 
                     Layout.fillWidth: true
                     text: modelData.label
-                    iconText: modelData.icon
+                    iconSource: modelData.icon
                     compact: root.compact
                     selected: modelData.route === root.selectedRoute
                     onActivated: root.routeRequested(modelData.route)
@@ -196,7 +196,7 @@ Rectangle {
         NavItem {
             Layout.fillWidth: true
             text: qsTr("设置")
-            iconText: "⚙"
+            iconSource: "../icons/settings.svg"
             compact: root.compact
             selected: root.selectedRoute === "settings"
             onActivated: root.routeRequested("settings")
