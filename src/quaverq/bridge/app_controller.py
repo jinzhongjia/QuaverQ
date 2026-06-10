@@ -25,7 +25,13 @@ class AppController(QObject):
     qrcodeChanged = Signal()
     loginStateChanged = Signal()
     loginMessageChanged = Signal()
+    loginTypeChanged = Signal()
     errorRaised = Signal(str)
+
+    _LOGIN_TYPE_LABELS: dict[str, str] = {
+        "qq": "QQ",
+        "wx": "微信",
+    }
 
     def __init__(
         self,
@@ -42,6 +48,7 @@ class AppController(QObject):
         self._qrcode_kind = ""
         self._login_state = "idle"
         self._login_message = ""
+        self._login_type = "qq"
 
         if self._service_controller is not None:
             self._service_controller.authStateChanged.connect(self._sync_auth_state)
@@ -81,17 +88,35 @@ class AppController(QObject):
     def loginMessage(self) -> str:
         return self._login_message
 
+    @Property(str, notify=loginTypeChanged)
+    def loginType(self) -> str:
+        return self._login_type
+
+    def _login_type_label(self) -> str:
+        return self._LOGIN_TYPE_LABELS.get(self._login_type, "QQ")
+
     @asyncSlot()
     async def loginByQrCode(self) -> None:
         await self.login_by_qrcode_async()
 
-    async def login_by_qrcode_async(self) -> None:
+    @asyncSlot(str)
+    async def loginByQrCodeWithType(self, login_type: str) -> None:
+        await self.login_by_qrcode_async(login_type=login_type)
+
+    async def login_by_qrcode_async(self, login_type: str = "qq") -> None:
         if self._logging_in:
-            return
+            task = self._login_task
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
         if self._service_controller is None:
             self._set_login_error("登录服务未初始化")
             return
 
+        self._set_login_type(login_type)
         self._set_logging_in(True)
         self._login_task = asyncio.current_task()
         self._set_qrcode("", "")
@@ -101,9 +126,10 @@ class AppController(QObject):
             success = await self._service_controller.login_by_qrcode(
                 self._handle_qrcode,
                 self._handle_login_status,
+                login_type=login_type,
             )
         except asyncio.CancelledError:
-            logger.info("用户关闭窗口，二维码登录已取消")
+            logger.info("二维码登录已取消")
             self._set_login_state("idle")
             self._set_login_message("")
             self._set_qrcode("", "")
@@ -166,19 +192,21 @@ class AppController(QObject):
             f"data:{mimetype or 'image/png'};base64,{encoded}",
             kind,
         )
+        label = self._login_type_label()
         self._set_login_state("waiting")
-        self._set_login_message("请使用 QQ 音乐扫描二维码并确认登录")
+        self._set_login_message(f"请使用 {label} 扫描二维码并确认登录")
 
     def _handle_login_status(self, status: str) -> None:
+        label = self._login_type_label()
         if status in ("qrcode", "waiting"):
             self._set_login_state("waiting")
-            self._set_login_message("请使用 QQ 音乐扫描二维码并确认登录")
+            self._set_login_message(f"请使用 {label} 扫描二维码并确认登录")
         elif status == "scanned":
             self._set_login_state("scanned")
-            self._set_login_message("已扫码，请在手机上确认登录")
+            self._set_login_message(f"已扫码，请在 {label} 上确认登录")
         elif status == "confirm":
             self._set_login_state("confirming")
-            self._set_login_message("已确认，正在等待 QQ 音乐返回登录凭据")
+            self._set_login_message("已确认，正在等待返回登录凭据")
         elif status == "timeout":
             self._set_login_state("error")
             self._set_login_message("二维码已过期，请重新获取")
@@ -239,6 +267,12 @@ class AppController(QObject):
             return
         self._login_message = value
         self.loginMessageChanged.emit()
+
+    def _set_login_type(self, value: str) -> None:
+        if self._login_type == value:
+            return
+        self._login_type = value
+        self.loginTypeChanged.emit()
 
     def _set_login_error(self, message: str) -> None:
         text = f"登录失败：{message}" if message else "登录失败"
