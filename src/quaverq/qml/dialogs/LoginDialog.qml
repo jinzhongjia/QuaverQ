@@ -25,6 +25,10 @@ Dialog {
     }
 
     onOpened: startLogin(false)
+    onClosed: {
+        if (root.appController)
+            root.appController.cancelLogin()
+    }
 
     Connections {
         target: root.appController

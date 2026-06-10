@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from PySide6.QtCore import QObject, Signal
@@ -174,6 +175,43 @@ async def test_logout_clears_auth_state(caplog):
     assert controller.authed is False
     assert "logout requested" in caplog.text
     assert "logout completed" in caplog.text
+
+
+async def test_cancel_login_stops_polling_and_resets_state():
+    cancel_event = asyncio.Event()
+
+    class _HangingFakeService(_FakeServiceController):
+        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
+            on_qrcode(b"qr-bytes", "qq", "image/png")
+            if on_status is not None:
+                on_status("waiting")
+            await cancel_event.wait()
+            return False
+
+    controller = AppController(_HangingFakeService())  # type: ignore[arg-type]
+    task = asyncio.ensure_future(controller.login_by_qrcode_async())
+    await asyncio.sleep(0)
+
+    assert controller.loggingIn is True
+    assert controller.loginState == "waiting"
+
+    controller.cancelLogin()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    assert controller.loggingIn is False
+    assert controller.loginState == "idle"
+    assert controller.loginMessage == ""
+    assert controller.qrcodeDataUrl == ""
+    assert task.done()
+
+
+async def test_cancel_login_noop_when_not_logging_in():
+    controller = AppController(_FakeServiceController())  # type: ignore[arg-type]
+    controller.cancelLogin()
+    assert controller.loginState == "idle"
 
 
 async def test_credential_expired_updates_login_state_and_emits_signal():
