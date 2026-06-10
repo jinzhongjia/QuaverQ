@@ -14,6 +14,11 @@ ScrollView {
 
     signal loginRequested()
 
+    // 设置内容最大宽度: 宽窗口下行控件不随窗口无限拉开
+    readonly property int contentMaxWidth: 840
+    // 右侧值控件 (下拉框 / 字体选择器) 统一宽度, 右缘对齐成一列
+    readonly property int controlWidth: 200
+
     contentWidth: availableWidth
 
     Component.onCompleted: {
@@ -21,67 +26,15 @@ ScrollView {
             root.settingsController.refreshCoverCacheSize()
     }
 
-    function themeLabel(value) {
-        switch (value) {
-        case "light":
-            return qsTr("浅色")
-        case "dark":
-            return qsTr("深色")
-        default:
-            return qsTr("跟随系统")
-        }
-    }
-
-    function qualityLabel(value) {
-        switch (value) {
-        case "standard":
-            return qsTr("标准")
-        case "high":
-            return qsTr("高品质")
-        default:
-            return qsTr("均衡")
-        }
-    }
-
-    function weightLabel(value) {
-        switch (value) {
-        case "regular":
-            return qsTr("常规")
-        case "bold":
-            return qsTr("加粗")
-        default:
-            return qsTr("中等")
-        }
-    }
-
-    function fontFamilyLabel(value) {
-        return (value && value.length > 0) ? value : qsTr("系统默认")
-    }
-
-    function orientationLabel(value) {
-        return value === "vertical" ? qsTr("竖向") : qsTr("横向")
-    }
-
-    function onOffLabel(value) {
-        return value ? qsTr("开") : qsTr("关")
-    }
-
-    function cacheCapLabel(bytes) {
-        if (!bytes || bytes <= 0)
-            return qsTr("无限制")
-        var mb = bytes / (1024 * 1024)
-        if (mb >= 1024)
-            return (Math.round(mb / 1024 * 10) / 10) + " GB"
-        return Math.round(mb) + " MB"
-    }
-
     ColumnLayout {
         width: root.availableWidth
-        spacing: ThemeTokens.Spacing.s5
+        spacing: ThemeTokens.Spacing.s6
 
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.maximumWidth: root.contentMaxWidth
             Layout.margins: ThemeTokens.Spacing.s6
+            Layout.bottomMargin: 0
             spacing: ThemeTokens.Spacing.s2
 
             Label {
@@ -113,6 +66,8 @@ ScrollView {
                 title: qsTr("QQ 音乐账号")
                 value: root.appController && root.appController.authed ? qsTr("已同步账号") : qsTr("未登录")
                 actionText: root.appController && root.appController.authed ? qsTr("退出登录") : qsTr("登录")
+                destructive: root.appController && root.appController.authed
+                showSeparator: false
                 onActionRequested: {
                     if (root.appController && root.appController.authed) {
                         root.appController.logout()
@@ -132,12 +87,10 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("音质偏好")
-                value: root.settingsController
-                    ? root.qualityLabel(root.settingsController.qualityPreference)
-                    : root.qualityLabel("balanced")
                 model: [qsTr("标准"), qsTr("均衡"), qsTr("高品质")]
                 values: ["standard", "balanced", "high"]
                 currentValue: root.settingsController ? root.settingsController.qualityPreference : "balanced"
+                showSeparator: false
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setQualityPreference(value)
@@ -154,12 +107,10 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("主题")
-                value: root.settingsController
-                    ? root.themeLabel(root.settingsController.themeMode)
-                    : root.themeLabel("system")
                 model: [qsTr("跟随系统"), qsTr("浅色"), qsTr("深色")]
                 values: ["system", "light", "dark"]
                 currentValue: root.settingsController ? root.settingsController.themeMode : "system"
+                showSeparator: false
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setThemeMode(value)
@@ -187,7 +138,6 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("字号")
-                value: root.settingsController ? (root.settingsController.lyricFontSize + " px") : "22 px"
                 model: ["14 px", "16 px", "18 px", "20 px", "22 px", "24 px", "26 px", "28 px", "32 px", "36 px", "40 px"]
                 values: ["14", "16", "18", "20", "22", "24", "26", "28", "32", "36", "40"]
                 currentValue: root.settingsController ? String(root.settingsController.lyricFontSize) : "22"
@@ -200,7 +150,6 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("字重")
-                value: root.weightLabel(root.settingsController ? root.settingsController.lyricFontWeight : "medium")
                 model: [qsTr("常规"), qsTr("中等"), qsTr("加粗")]
                 values: ["regular", "medium", "bold"]
                 currentValue: root.settingsController ? root.settingsController.lyricFontWeight : "medium"
@@ -210,16 +159,13 @@ ScrollView {
                 }
             }
 
-            ChoiceRow {
+            SwitchRow {
                 Layout.fillWidth: true
                 title: qsTr("斜体")
-                value: (root.settingsController && root.settingsController.lyricFontItalic) ? qsTr("开") : qsTr("关")
-                model: [qsTr("关"), qsTr("开")]
-                values: ["off", "on"]
-                currentValue: (root.settingsController && root.settingsController.lyricFontItalic) ? "on" : "off"
-                onValueRequested: function(value) {
+                checked: root.settingsController ? root.settingsController.lyricFontItalic : false
+                onToggleRequested: function(newValue) {
                     if (root.settingsController)
-                        root.settingsController.setLyricFontItalic(value === "on")
+                        root.settingsController.setLyricFontItalic(newValue)
                 }
             }
 
@@ -228,6 +174,7 @@ ScrollView {
                 title: qsTr("重置歌词字体")
                 value: qsTr("恢复字体 / 字号 / 字重 / 斜体到默认值")
                 actionText: qsTr("重置")
+                showSeparator: false
                 onActionRequested: {
                     if (root.settingsController)
                         root.settingsController.resetLyricFont()
@@ -243,42 +190,29 @@ ScrollView {
             visible: Qt.platform.os === "windows"
             title: qsTr("桌面悬浮歌词")
 
-            ChoiceRow {
+            SwitchRow {
                 Layout.fillWidth: true
                 title: qsTr("启用")
-                value: root.settingsController
-                    ? root.onOffLabel(root.settingsController.desktopLyricsEnabled)
-                    : root.onOffLabel(true)
-                model: [qsTr("关"), qsTr("开")]
-                values: ["off", "on"]
-                currentValue: (root.settingsController && root.settingsController.desktopLyricsEnabled) ? "on" : "off"
-                onValueRequested: function(value) {
+                checked: root.settingsController ? root.settingsController.desktopLyricsEnabled : true
+                onToggleRequested: function(newValue) {
                     if (root.settingsController)
-                        root.settingsController.setDesktopLyricsEnabled(value === "on")
+                        root.settingsController.setDesktopLyricsEnabled(newValue)
                 }
             }
 
-            ChoiceRow {
+            SwitchRow {
                 Layout.fillWidth: true
                 title: qsTr("锁定 (鼠标穿透)")
-                value: root.settingsController
-                    ? root.onOffLabel(root.settingsController.desktopLyricsLocked)
-                    : root.onOffLabel(true)
-                model: [qsTr("开"), qsTr("关")]
-                values: ["on", "off"]
-                currentValue: (root.settingsController && root.settingsController.desktopLyricsLocked) ? "on" : "off"
-                onValueRequested: function(value) {
+                checked: root.settingsController ? root.settingsController.desktopLyricsLocked : true
+                onToggleRequested: function(newValue) {
                     if (root.settingsController)
-                        root.settingsController.setDesktopLyricsLocked(value === "on")
+                        root.settingsController.setDesktopLyricsLocked(newValue)
                 }
             }
 
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("方向")
-                value: root.settingsController
-                    ? root.orientationLabel(root.settingsController.desktopLyricsOrientation)
-                    : root.orientationLabel("horizontal")
                 model: [qsTr("横向"), qsTr("竖向")]
                 values: ["horizontal", "vertical"]
                 currentValue: root.settingsController ? root.settingsController.desktopLyricsOrientation : "horizontal"
@@ -304,7 +238,7 @@ ScrollView {
                 title: qsTr("字号")
                 fromValue: 14
                 toValue: 72
-                suffix: qsTr(" px")
+                suffix: qsTr("px")
                 currentValue: root.settingsController ? root.settingsController.desktopLyricsFontSize : 32
                 onValueRequested: function(value) {
                     if (root.settingsController)
@@ -312,33 +246,23 @@ ScrollView {
                 }
             }
 
-            ChoiceRow {
+            SwitchRow {
                 Layout.fillWidth: true
                 title: qsTr("粗体")
-                value: root.settingsController
-                    ? root.onOffLabel(root.settingsController.desktopLyricsBold)
-                    : root.onOffLabel(true)
-                model: [qsTr("关"), qsTr("开")]
-                values: ["off", "on"]
-                currentValue: (root.settingsController && root.settingsController.desktopLyricsBold) ? "on" : "off"
-                onValueRequested: function(value) {
+                checked: root.settingsController ? root.settingsController.desktopLyricsBold : true
+                onToggleRequested: function(newValue) {
                     if (root.settingsController)
-                        root.settingsController.setDesktopLyricsBold(value === "on")
+                        root.settingsController.setDesktopLyricsBold(newValue)
                 }
             }
 
-            ChoiceRow {
+            SwitchRow {
                 Layout.fillWidth: true
                 title: qsTr("斜体")
-                value: root.settingsController
-                    ? root.onOffLabel(root.settingsController.desktopLyricsItalic)
-                    : root.onOffLabel(false)
-                model: [qsTr("关"), qsTr("开")]
-                values: ["off", "on"]
-                currentValue: (root.settingsController && root.settingsController.desktopLyricsItalic) ? "on" : "off"
-                onValueRequested: function(value) {
+                checked: root.settingsController ? root.settingsController.desktopLyricsItalic : false
+                onToggleRequested: function(newValue) {
                     if (root.settingsController)
-                        root.settingsController.setDesktopLyricsItalic(value === "on")
+                        root.settingsController.setDesktopLyricsItalic(newValue)
                 }
             }
 
@@ -367,6 +291,7 @@ ScrollView {
                 title: qsTr("重置桌面歌词")
                 value: qsTr("字体 / 字号 / 颜色 / 方向 恢复默认 (不动锁定状态)")
                 actionText: qsTr("重置")
+                showSeparator: false
                 onActionRequested: {
                     if (root.settingsController)
                         root.settingsController.resetDesktopLyrics()
@@ -384,9 +309,6 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("封面缓存上限")
-                value: root.settingsController
-                    ? root.cacheCapLabel(root.settingsController.coverCacheMaxBytes)
-                    : root.cacheCapLabel(256 * 1024 * 1024)
                 model: [qsTr("128 MB"), qsTr("256 MB"), qsTr("512 MB"), qsTr("1 GB"), qsTr("2 GB"), qsTr("无限制")]
                 values: ["134217728", "268435456", "536870912", "1073741824", "2147483648", "0"]
                 currentValue: root.settingsController ? String(root.settingsController.coverCacheMaxBytes) : "268435456"
@@ -403,6 +325,7 @@ ScrollView {
                     ? root.settingsController.coverCacheSizeText
                     : qsTr("0 B")
                 actionText: qsTr("清理")
+                showSeparator: false
                 onActionRequested: clearCacheDialog.open()
             }
         }
@@ -429,52 +352,64 @@ ScrollView {
         }
     }
 
-    component SettingsSection: Rectangle {
+    // 分区: 小号灰标题在卡片外, 卡片只装行 (压缩单行分区的视觉体量)
+    component SettingsSection: ColumnLayout {
         id: section
 
         property string title: ""
         default property alias content: sectionColumn.data
 
-        implicitHeight: sectionColumn.implicitHeight + ThemeTokens.Spacing.s5 * 2
-        radius: ThemeTokens.Spacing.radiusLg
-        color: ThemeTokens.Palette.surfaceElevated
-        border.color: ThemeTokens.Palette.outlineMuted
+        Layout.maximumWidth: root.contentMaxWidth
+        spacing: ThemeTokens.Spacing.s3
 
-        ColumnLayout {
-            id: sectionColumn
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s3
+            text: section.title
+            color: ThemeTokens.Palette.surfaceVariantText
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+            font.weight: ThemeTokens.TypeScale.medium
+            elide: Text.ElideRight
+        }
 
-            anchors.fill: parent
-            anchors.margins: ThemeTokens.Spacing.s5
-            // 行间 0 间距让 SettingsRow 的 1px 底分隔线直接相邻成连续列表;
-            // 章节标题与首行的间距由标题 bottomMargin 单独给.
-            spacing: 0
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: sectionColumn.implicitHeight + ThemeTokens.Spacing.s2 * 2
+            radius: ThemeTokens.Spacing.radiusLg
+            color: ThemeTokens.Palette.surfaceElevated
+            border.color: ThemeTokens.Palette.outlineMuted
 
-            Label {
-                Layout.fillWidth: true
-                Layout.bottomMargin: ThemeTokens.Spacing.s3
-                text: section.title
-                color: ThemeTokens.Palette.surfaceText
-                font.pixelSize: ThemeTokens.TypeScale.h2
-                font.weight: ThemeTokens.TypeScale.bold
-                elide: Text.ElideRight
+            ColumnLayout {
+                id: sectionColumn
+
+                anchors.fill: parent
+                anchors.leftMargin: ThemeTokens.Spacing.s3
+                anchors.rightMargin: ThemeTokens.Spacing.s3
+                anchors.topMargin: ThemeTokens.Spacing.s2
+                anchors.bottomMargin: ThemeTokens.Spacing.s2
+                // 行间 0 间距让 SettingsRow 的 1px 底分隔线直接相邻成连续列表
+                spacing: 0
             }
         }
     }
 
-    // 行容器: 不再加边框 / 圆角背景 (section 卡已带), 改用 1px 底分隔线让多行连成一列.
-    // section 内最后一行 / 单行的多余分隔线被 section 下边距 / 圆角自然吸收, 视觉无歧义.
+    // 行容器: 左标题(+可选说明) + 右控件区, 行间 1px 内缩分隔线
     component SettingsRow: Item {
         id: row
 
         property string title: ""
         property string value: ""
         property string actionText: ""
-        property int rightReservedWidth: row.actionText.length > 0 ? 96 : 0
+        // 危险动作 (如退出登录) 文字用 error 色
+        property bool destructive: false
+        // 仅供浮层控件 (下拉 / 开关 / 色板) 占位; 行内动作按钮在布局流里, 不需要预留,
+        // 这样按钮右缘与其他值控件收在同一条线上
+        property int rightReservedWidth: 0
         property bool showSeparator: true
 
         signal actionRequested()
 
-        implicitHeight: 56
+        implicitHeight: 52
 
         RowLayout {
             anchors.fill: parent
@@ -490,7 +425,7 @@ ScrollView {
                     Layout.fillWidth: true
                     text: row.title
                     color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.body
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
                 }
@@ -509,7 +444,7 @@ ScrollView {
                 id: actionButton
 
                 Layout.preferredWidth: 86
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: 36
                 visible: row.actionText.length > 0
                 text: row.actionText
                 Accessible.name: text
@@ -519,8 +454,8 @@ ScrollView {
                     text: actionButton.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.caption
+                    color: row.destructive ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceText
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
                 }
@@ -531,19 +466,101 @@ ScrollView {
                         ? ThemeTokens.Palette.statePressed
                         : actionButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                     border.color: ThemeTokens.Palette.outlineMuted
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        visible: actionButton.visualFocus
+                        color: "transparent"
+                        border.color: ThemeTokens.Palette.focusRing
+                        border.width: 2
+                    }
                 }
             }
         }
 
-        // 1px 底分隔线: 把列表纵向连成一气 (vs. 每行独立 card)
+        // 1px 内缩底分隔线 (最后一行 showSeparator: false)
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
+            anchors.leftMargin: ThemeTokens.Spacing.s3
+            anchors.rightMargin: ThemeTokens.Spacing.s3
             height: 1
             color: ThemeTokens.Palette.outlineMuted
             opacity: 0.6
             visible: row.showSeparator
+        }
+    }
+
+    // 开关行: 二元设置用 Switch, 不用下拉框
+    component SwitchRow: SettingsRow {
+        id: switchRow
+
+        property bool checked: false
+
+        signal toggleRequested(bool newValue)
+
+        actionText: ""
+        rightReservedWidth: 56
+
+        Switch {
+            id: toggle
+
+            anchors.right: parent.right
+            anchors.rightMargin: ThemeTokens.Spacing.s3
+            anchors.verticalCenter: parent.verticalCenter
+            width: 40
+            height: 22
+            text: ""
+            Accessible.name: switchRow.title
+            onToggled: switchRow.toggleRequested(toggle.checked)
+
+            // 显式 Binding: 用户拨动后外部值变化 (如重置按钮) 仍能同步回来
+            Binding on checked {
+                value: switchRow.checked
+            }
+
+            indicator: Rectangle {
+                anchors.fill: parent
+                radius: height / 2
+                color: toggle.checked ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceContainerHigh
+                border.color: toggle.checked ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outline
+
+                Behavior on color {
+                    ColorAnimation {
+                        duration: ThemeTokens.Motion.durFast
+                    }
+                }
+
+                Rectangle {
+                    x: toggle.checked ? parent.width - width - 3 : 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 16
+                    height: 16
+                    radius: width / 2
+                    color: ThemeTokens.Palette.primaryText
+
+                    Behavior on x {
+                        NumberAnimation {
+                            duration: ThemeTokens.Motion.durFast
+                            easing.type: ThemeTokens.Motion.easeOut
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -3
+                    radius: height / 2
+                    visible: toggle.visualFocus
+                    color: "transparent"
+                    border.color: ThemeTokens.Palette.focusRing
+                    border.width: 2
+                }
+            }
+
+            contentItem: Item {}
         }
     }
 
@@ -554,7 +571,7 @@ ScrollView {
         property var values: []
         property string currentValue: ""
         property int popupMaxHeight: 0  // >0 时给下拉列表设上限, 避免长列表撑出窗口
-        property int comboWidth: 142
+        property int comboWidth: root.controlWidth
 
         signal valueRequested(string value)
 
@@ -570,11 +587,15 @@ ScrollView {
             width: row.comboWidth
             height: 36
             model: row.model
-            currentIndex: Math.max(0, row.values.indexOf(row.currentValue))
             Accessible.name: row.title
             onActivated: function(index) {
                 if (index >= 0 && index < row.values.length)
                     row.valueRequested(row.values[index])
+            }
+
+            // 显式 Binding: 用户选过一次后外部值变化 (如重置按钮) 仍能同步回来
+            Binding on currentIndex {
+                value: Math.max(0, row.values.indexOf(row.currentValue))
             }
 
             contentItem: Label {
@@ -601,17 +622,27 @@ ScrollView {
                 radius: ThemeTokens.Spacing.radiusMd
                 color: combo.down || combo.popup.visible
                     ? ThemeTokens.Palette.statePressed
-                    : combo.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
-                border.color: combo.activeFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
+                    : combo.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                border.color: combo.visualFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
             }
 
             popup: Popup {
                 y: combo.height + 4
                 width: combo.width
-                implicitHeight: row.popupMaxHeight > 0
-                    ? Math.min(listView.contentHeight, row.popupMaxHeight) + ThemeTokens.Spacing.s2
-                    : listView.contentHeight + ThemeTokens.Spacing.s2
+                // 设正边距让 Popup 在窗口内自动收高 / 上移, 而不是被窗口边缘裁掉
+                topMargin: ThemeTokens.Spacing.s3
+                bottomMargin: ThemeTokens.Spacing.s3
+                // 高度 = 内容 + 上下 padding 两边; 只加一边会让列表永远差 8px
+                // 形成隐形可滚动区, ComboBox 悬停自动滚入视野时菜单就会"动一下"
+                implicitHeight: (row.popupMaxHeight > 0
+                    ? Math.min(listView.contentHeight, row.popupMaxHeight)
+                    : listView.contentHeight) + ThemeTokens.Spacing.s2 * 2
                 padding: ThemeTokens.Spacing.s2
+                // 打开时把当前选中项滚入视野 (列表可滚动时)
+                onOpened: Qt.callLater(function() {
+                    if (combo.currentIndex >= 0)
+                        listView.positionViewAtIndex(combo.currentIndex, ListView.Center)
+                })
 
                 contentItem: ListView {
                     id: listView
@@ -619,8 +650,24 @@ ScrollView {
                     clip: true
                     implicitHeight: contentHeight
                     model: combo.popup.visible ? combo.delegateModel : null
-                    currentIndex: combo.highlightedIndex
+                    // 故意不绑 currentIndex / 不让 ListView 跟随高亮滚动:
+                    // hover 改变 highlightedIndex 时 ensure-visible 会和鼠标位置互相打架,
+                    // 表现为菜单来回滚动. 高亮视觉由 delegate 按 combo.highlightedIndex 自绘.
+                    highlightFollowsCurrentItem: false
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    HoverHandler {
+                        id: listHover
+                    }
+
+                    Connections {
+                        target: combo
+                        // 键盘上下导航时仍跟随滚动; 鼠标悬停 (listHover.hovered) 来源的高亮变化不滚
+                        function onHighlightedIndexChanged() {
+                            if (!listHover.hovered && combo.highlightedIndex >= 0)
+                                listView.positionViewAtIndex(combo.highlightedIndex, ListView.Contain)
+                        }
+                    }
                 }
 
                 background: Rectangle {
@@ -659,7 +706,7 @@ ScrollView {
         }
     }
 
-    // 数字输入行: 纯 TextField + 后缀, 不带 +/- 按钮 (用户偏好直接键盘输入).
+    // 数字输入行: TextField + 框外后缀, 不带 +/- 按钮 (用户偏好直接键盘输入)
     component SpinRow: SettingsRow {
         id: spinRow
 
@@ -673,59 +720,67 @@ ScrollView {
         actionText: ""
         rightReservedWidth: 110
 
-        TextField {
-            id: numField
-
+        RowLayout {
             anchors.right: parent.right
             anchors.rightMargin: ThemeTokens.Spacing.s3
             anchors.verticalCenter: parent.verticalCenter
-            width: 96
-            height: 32
-            horizontalAlignment: TextInput.AlignHCenter
-            verticalAlignment: TextInput.AlignVCenter
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
-            color: ThemeTokens.Palette.surfaceText
-            selectByMouse: true
-            inputMethodHints: Qt.ImhDigitsOnly
-            validator: IntValidator { bottom: spinRow.fromValue; top: spinRow.toValue }
-            text: spinRow.currentValue + spinRow.suffix
-            Accessible.name: spinRow.title
+            spacing: ThemeTokens.Spacing.s2
 
-            // currentValue 外部变化 (重置 / 其他入口) 时同步显示
-            property int _externalValue: spinRow.currentValue
-            onTextEdited: {} // 防止 binding loop, 实际同步走 _externalValue
-            Connections {
-                target: spinRow
-                function onCurrentValueChanged() {
-                    if (!numField.activeFocus)
-                        numField.text = spinRow.currentValue + spinRow.suffix
+            TextField {
+                id: numField
+
+                Layout.preferredWidth: 64
+                Layout.preferredHeight: 32
+                horizontalAlignment: TextInput.AlignHCenter
+                verticalAlignment: TextInput.AlignVCenter
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                color: ThemeTokens.Palette.surfaceText
+                selectByMouse: true
+                inputMethodHints: Qt.ImhDigitsOnly
+                validator: IntValidator { bottom: spinRow.fromValue; top: spinRow.toValue }
+                text: String(spinRow.currentValue)
+                Accessible.name: spinRow.title
+
+                // currentValue 外部变化 (重置 / 其他入口) 时同步显示
+                Connections {
+                    target: spinRow
+                    function onCurrentValueChanged() {
+                        if (!numField.activeFocus)
+                            numField.text = String(spinRow.currentValue)
+                    }
+                }
+
+                function commit() {
+                    var num = parseInt(text.trim())
+                    if (isNaN(num))
+                        num = spinRow.currentValue
+                    if (num < spinRow.fromValue) num = spinRow.fromValue
+                    if (num > spinRow.toValue) num = spinRow.toValue
+                    text = String(num)
+                    if (num !== spinRow.currentValue)
+                        spinRow.valueRequested(num)
+                }
+
+                onEditingFinished: commit()
+                Keys.onReturnPressed: numField.focus = false  // 触发 editingFinished
+                Keys.onEnterPressed: numField.focus = false
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: numField.activeFocus
+                        ? ThemeTokens.Palette.surface
+                        : numField.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                    border.color: numField.activeFocus
+                        ? ThemeTokens.Palette.focusRing
+                        : ThemeTokens.Palette.outlineMuted
                 }
             }
 
-            function commit() {
-                var raw = text.replace(spinRow.suffix, "").trim()
-                var num = parseInt(raw)
-                if (isNaN(num))
-                    num = spinRow.currentValue
-                if (num < spinRow.fromValue) num = spinRow.fromValue
-                if (num > spinRow.toValue) num = spinRow.toValue
-                text = num + spinRow.suffix
-                if (num !== spinRow.currentValue)
-                    spinRow.valueRequested(num)
-            }
-
-            onEditingFinished: commit()
-            Keys.onReturnPressed: numField.focus = false  // 触发 editingFinished
-            Keys.onEnterPressed: numField.focus = false
-
-            background: Rectangle {
-                radius: ThemeTokens.Spacing.radiusMd
-                color: numField.activeFocus
-                    ? ThemeTokens.Palette.surface
-                    : numField.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
-                border.color: numField.activeFocus
-                    ? ThemeTokens.Palette.focusRing
-                    : ThemeTokens.Palette.outlineMuted
+            Label {
+                text: spinRow.suffix
+                visible: text.length > 0
+                color: ThemeTokens.Palette.surfaceVariantText
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
         }
     }
@@ -774,14 +829,13 @@ ScrollView {
 
         property var families: []
         property string currentValue: ""
-        readonly property int triggerWidth: 200
+        readonly property int triggerWidth: root.controlWidth
         readonly property int popupHeight: 360
 
         signal valueRequested(string value)
 
         actionText: ""
         rightReservedWidth: pickerRow.triggerWidth + 12
-        value: pickerRow.currentValue.length > 0 ? pickerRow.currentValue : qsTr("系统默认")
 
         function refilter(query) {
             filteredModel.clear()
@@ -842,8 +896,8 @@ ScrollView {
                 radius: ThemeTokens.Spacing.radiusMd
                 color: trigger.down || fontPopup.visible
                     ? ThemeTokens.Palette.statePressed
-                    : trigger.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surface
-                border.color: trigger.activeFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
+                    : trigger.hovered ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+                border.color: trigger.visualFocus ? ThemeTokens.Palette.focusRing : ThemeTokens.Palette.outlineMuted
             }
         }
 
