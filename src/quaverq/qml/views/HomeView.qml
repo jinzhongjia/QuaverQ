@@ -524,7 +524,8 @@ ScrollView {
             GridLayout {
                 Layout.fillWidth: true
                 visible: section.hasCards
-                columns: root.availableWidth > 560 ? 4 : root.availableWidth > 380 ? 3 : 2
+                // 目标卡宽 ~180px 自适应列数 (2..8): 最大化窗口加列, 不再 4 列巨图
+                columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
                 columnSpacing: ThemeTokens.Spacing.s5
                 rowSpacing: ThemeTokens.Spacing.s5
 

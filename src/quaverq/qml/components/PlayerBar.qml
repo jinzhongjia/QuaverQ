@@ -308,6 +308,136 @@ Rectangle {
                         enabled: root.canControl
                         onClicked: root.nextRequested()
                     }
+
+                    // 第 5 槽: 与左端模式键对称, 让播放键正压进度条中轴;
+                    // 宽窗口纯占位, 窄窗口 (<920, 右区隐藏) 变成 "⋯" 溢出按钮收纳 词/队列/音量
+                    Item {
+                        Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+                        Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+
+                        IconButton {
+                            id: overflowButton
+
+                            anchors.fill: parent
+                            visible: root.width < 920
+                            text: qsTr("更多控制")
+                            iconText: "⋯"
+                            iconSize: ThemeTokens.TypeScale.h2
+                            iconColor: ThemeTokens.Palette.surfaceVariantText
+                            onClicked: overflowPopup.open()
+                            onVisibleChanged: {
+                                if (!visible)
+                                    overflowPopup.close()
+                            }
+                        }
+
+                        // 队列非空提示点 (窄窗口下队列入口收进了溢出菜单)
+                        Rectangle {
+                            visible: overflowButton.visible && root.queueCount > 0
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.rightMargin: 6
+                            anchors.topMargin: 8
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: ThemeTokens.Palette.primary
+                        }
+
+                        Popup {
+                            id: overflowPopup
+
+                            parent: overflowButton
+                            x: parent.width - width
+                            y: -height - ThemeTokens.Spacing.s2
+                            width: 248
+                            margins: ThemeTokens.Spacing.s2
+                            padding: ThemeTokens.Spacing.s2
+
+                            background: Rectangle {
+                                radius: ThemeTokens.Spacing.radiusMd
+                                color: ThemeTokens.Palette.surfaceElevated
+                                border.color: ThemeTokens.Palette.outline
+                            }
+
+                            contentItem: ColumnLayout {
+                                spacing: ThemeTokens.Spacing.s2
+
+                                OverflowRow {
+                                    Layout.fillWidth: true
+                                    iconText: "词"
+                                    label: qsTr("歌词")
+                                    enabled: root.hasSong
+                                    onActivated: {
+                                        overflowPopup.close()
+                                        root.nowPlayingRequested()
+                                    }
+                                }
+
+                                OverflowRow {
+                                    Layout.fillWidth: true
+                                    iconText: "☰"
+                                    label: root.queueCount > 0
+                                        ? qsTr("待播列表 (%1)").arg(root.queueCount > 99 ? "99+" : root.queueCount)
+                                        : qsTr("待播列表")
+                                    onActivated: {
+                                        overflowPopup.close()
+                                        root.queueRequested()
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: ThemeTokens.Spacing.s3
+                                    Layout.rightMargin: ThemeTokens.Spacing.s3
+                                    spacing: ThemeTokens.Spacing.s3
+
+                                    Label {
+                                        text: "♪"
+                                        color: ThemeTokens.Palette.surfaceVariantText
+                                        font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                    }
+
+                                    Slider {
+                                        id: overflowVolumeSlider
+
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 24
+                                        from: 0
+                                        to: 1
+                                        value: root.volume
+                                        Accessible.name: qsTr("音量")
+                                        onMoved: root.volumeRequested(value)
+
+                                        background: Rectangle {
+                                            x: overflowVolumeSlider.leftPadding
+                                            y: overflowVolumeSlider.topPadding + overflowVolumeSlider.availableHeight / 2 - height / 2
+                                            width: overflowVolumeSlider.availableWidth
+                                            height: 4
+                                            radius: height / 2
+                                            color: ThemeTokens.Palette.outline
+
+                                            Rectangle {
+                                                width: overflowVolumeSlider.visualPosition * parent.width
+                                                height: parent.height
+                                                radius: parent.radius
+                                                color: ThemeTokens.Palette.primary
+                                            }
+                                        }
+
+                                        handle: Rectangle {
+                                            x: overflowVolumeSlider.leftPadding + overflowVolumeSlider.visualPosition * (overflowVolumeSlider.availableWidth - width)
+                                            y: overflowVolumeSlider.topPadding + overflowVolumeSlider.availableHeight / 2 - height / 2
+                                            width: 12
+                                            height: 12
+                                            radius: width / 2
+                                            color: ThemeTokens.Palette.primary
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 RowLayout {
@@ -471,6 +601,77 @@ Rectangle {
                     radius: width / 2
                     color: ThemeTokens.Palette.primary
                 }
+            }
+        }
+    }
+
+    // 溢出菜单行: 图标 + 文字, hover 高亮 (窄窗口收纳 词/队列 用)
+    component OverflowRow: Rectangle {
+        id: overflowRow
+
+        property string iconText: ""
+        property string label: ""
+
+        signal activated()
+
+        implicitHeight: 40
+        radius: ThemeTokens.Spacing.radiusSm
+        color: overflowRowHover.hovered && overflowRow.enabled
+            ? ThemeTokens.Palette.stateHover
+            : "transparent"
+        opacity: overflowRow.enabled ? 1 : 0.45
+
+        Accessible.role: Accessible.Button
+        Accessible.name: overflowRow.label
+        activeFocusOnTab: true
+
+        HoverHandler {
+            id: overflowRowHover
+        }
+
+        TapHandler {
+            enabled: overflowRow.enabled
+            onTapped: overflowRow.activated()
+        }
+
+        Keys.onReturnPressed: {
+            if (overflowRow.enabled)
+                overflowRow.activated()
+        }
+        Keys.onSpacePressed: {
+            if (overflowRow.enabled)
+                overflowRow.activated()
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: overflowRow.activeFocus
+            radius: parent.radius
+            color: "transparent"
+            border.color: ThemeTokens.Palette.focusRing
+            border.width: 2
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: ThemeTokens.Spacing.s3
+            anchors.rightMargin: ThemeTokens.Spacing.s3
+            spacing: ThemeTokens.Spacing.s3
+
+            Label {
+                Layout.preferredWidth: ThemeTokens.Spacing.s5
+                horizontalAlignment: Text.AlignHCenter
+                text: overflowRow.iconText
+                color: ThemeTokens.Palette.surfaceVariantText
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: overflowRow.label
+                color: ThemeTokens.Palette.surfaceText
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                elide: Text.ElideRight
             }
         }
     }

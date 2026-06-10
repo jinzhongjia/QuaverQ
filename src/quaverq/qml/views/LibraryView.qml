@@ -361,7 +361,7 @@ ColumnLayout {
             anchors.fill: parent
             clip: true
 
-            readonly property int cols: Math.max(2, Math.ceil(width / 180))
+            readonly property int cols: Math.max(2, Math.min(8, Math.floor(width / 180)))
             cellWidth: cardGrid.cols > 0 ? Math.floor(width / cardGrid.cols) : width
             cellHeight: cellWidth + 44
             model: tab.model

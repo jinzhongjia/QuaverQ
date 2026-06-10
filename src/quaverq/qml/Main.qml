@@ -482,6 +482,9 @@ ApplicationWindow {
 
                 Layout.fillWidth: true
                 Layout.maximumWidth: 500
+                // 宽窗口下搜索框到达 500px 上限后在剩余空间内居中,
+                // 避免"控件全部左挤 + 中部真空"的失衡构图
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 placeholderText: qsTr("搜索歌曲、歌手、专辑")
                 loading: root.serviceController ? root.serviceController.loading : false
                 onSearchRequested: function(keyword) {

@@ -528,10 +528,15 @@ ColumnLayout {
         signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         GridView {
+            id: gridView
+
+            // 与首页/搜索同一套自适应: 目标卡宽 ~180px, 列数 2..8
+            readonly property int cols: Math.max(2, Math.min(8, Math.floor(width / 180)))
+
             anchors.fill: parent
             clip: true
-            cellWidth: 168
-            cellHeight: 220
+            cellWidth: gridView.cols > 0 ? Math.floor(width / gridView.cols) : width
+            cellHeight: cellWidth + 52
             model: gridPage.model
             boundsBehavior: Flickable.StopAtBounds
             reuseItems: true
