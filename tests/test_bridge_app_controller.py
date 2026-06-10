@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from PySide6.QtCore import QObject, Signal
@@ -21,13 +22,15 @@ class _FakeServiceController(QObject):
         self.login_result = True
         self.login_calls = 0
         self.logout_calls = 0
+        self.last_login_type = None
 
     async def start(self) -> None:
         self.started = True
 
-    async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
+    async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
         self.login_calls += 1
-        on_qrcode(b"qr-bytes", "qq", "image/png")
+        self.last_login_type = login_type
+        on_qrcode(b"qr-bytes", login_type, "image/png")
         if on_status is not None:
             on_status("scan")
             on_status("confirm")
@@ -80,8 +83,8 @@ async def test_login_by_qrcode_failure_keeps_user_logged_out():
 
 async def test_login_by_qrcode_updates_waiting_and_scanned_messages():
     class _SlowFakeService(_FakeServiceController):
-        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
-            on_qrcode(b"qr-bytes", "qq", "image/png")
+        async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+            on_qrcode(b"qr-bytes", login_type, "image/png")
             if on_status is not None:
                 on_status("waiting")
                 on_status("scanned")
@@ -94,8 +97,28 @@ async def test_login_by_qrcode_updates_waiting_and_scanned_messages():
 
     await controller.login_by_qrcode_async()
 
-    assert "请使用 QQ 音乐扫描二维码并确认登录" in messages
-    assert "已扫码，请在手机上确认登录" in messages
+    assert any("QQ" in m and "扫描二维码" in m for m in messages)
+    assert any("已扫码" in m and "确认登录" in m for m in messages)
+
+
+async def test_login_by_qrcode_wx_updates_waiting_and_scanned_messages():
+    class _SlowFakeService(_FakeServiceController):
+        async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+            on_qrcode(b"qr-bytes", login_type, "image/png")
+            if on_status is not None:
+                on_status("waiting")
+                on_status("scanned")
+            self.authed = False
+            return False
+
+    controller = AppController(_SlowFakeService())  # type: ignore[arg-type]
+    messages: list[str] = []
+    controller.loginMessageChanged.connect(lambda: messages.append(controller.loginMessage))
+
+    await controller.login_by_qrcode_async(login_type="wx")
+
+    assert any("微信" in m and "扫描二维码" in m for m in messages)
+    assert any("已扫码" in m and "微信" in m for m in messages)
 
 
 def test_handle_login_status_maps_qq_events_to_ui_states():
@@ -104,11 +127,12 @@ def test_handle_login_status_maps_qq_events_to_ui_states():
 
     controller._handle_login_status("waiting")
     assert controller.loginState == "waiting"
-    assert controller.loginMessage == "请使用 QQ 音乐扫描二维码并确认登录"
+    assert "QQ" in controller.loginMessage
+    assert "扫描二维码" in controller.loginMessage
 
     controller._handle_login_status("scanned")
     assert controller.loginState == "scanned"
-    assert controller.loginMessage == "已扫码，请在手机上确认登录"
+    assert "已扫码" in controller.loginMessage
 
     controller._handle_login_status("done")
     assert controller.loginState == "authenticated"
@@ -116,8 +140,8 @@ def test_handle_login_status_maps_qq_events_to_ui_states():
 
 async def test_login_by_qrcode_timeout_sets_retryable_state():
     class _TimeoutFakeService(_FakeServiceController):
-        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
-            on_qrcode(b"qr-bytes", "qq", "image/png")
+        async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+            on_qrcode(b"qr-bytes", login_type, "image/png")
             if on_status is not None:
                 on_status("timeout")
             self.authed = False
@@ -134,8 +158,8 @@ async def test_login_by_qrcode_timeout_sets_retryable_state():
 
 async def test_login_by_qrcode_refuse_sets_cancelled_reason():
     class _RefuseFakeService(_FakeServiceController):
-        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
-            on_qrcode(b"qr-bytes", "qq", "image/png")
+        async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+            on_qrcode(b"qr-bytes", login_type, "image/png")
             if on_status is not None:
                 on_status("refuse")
             self.authed = False
@@ -181,8 +205,8 @@ async def test_cancel_login_stops_polling_and_resets_state():
     cancel_event = asyncio.Event()
 
     class _HangingFakeService(_FakeServiceController):
-        async def login_by_qrcode(self, on_qrcode, on_status=None) -> bool:
-            on_qrcode(b"qr-bytes", "qq", "image/png")
+        async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+            on_qrcode(b"qr-bytes", login_type, "image/png")
             if on_status is not None:
                 on_status("waiting")
             await cancel_event.wait()
@@ -196,10 +220,8 @@ async def test_cancel_login_stops_polling_and_resets_state():
     assert controller.loginState == "waiting"
 
     controller.cancelLogin()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
     assert controller.loggingIn is False
     assert controller.loginState == "idle"
@@ -212,6 +234,81 @@ async def test_cancel_login_noop_when_not_logging_in():
     controller = AppController(_FakeServiceController())  # type: ignore[arg-type]
     controller.cancelLogin()
     assert controller.loginState == "idle"
+
+
+async def test_login_by_qrcode_wx_passes_login_type_and_uses_wx_messages():
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+    messages: list[str] = []
+    controller.loginMessageChanged.connect(lambda: messages.append(controller.loginMessage))
+
+    await controller.login_by_qrcode_async(login_type="wx")
+
+    assert service.last_login_type == "wx"
+    assert controller.authed is True
+    assert any("微信" in m for m in messages)
+    assert not any("QQ" in m for m in messages)
+
+
+async def test_login_by_qrcode_qq_uses_qq_messages():
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+    messages: list[str] = []
+    controller.loginMessageChanged.connect(lambda: messages.append(controller.loginMessage))
+
+    await controller.login_by_qrcode_async(login_type="qq")
+
+    assert service.last_login_type == "qq"
+    assert controller.authed is True
+    assert any("QQ" in m for m in messages)
+
+
+async def test_login_type_property_updates_on_login():
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+
+    assert controller.loginType == "qq"
+
+    await controller.login_by_qrcode_async(login_type="wx")
+    assert controller.loginType == "wx"
+
+
+async def test_switch_login_type_cancels_previous_and_starts_new():
+    cancel_event = asyncio.Event()
+
+    class _HangingFakeService(_FakeServiceController):
+        async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+            self.last_login_type = login_type
+            on_qrcode(b"qr-bytes", login_type, "image/png")
+            if on_status is not None:
+                on_status("waiting")
+            if login_type == "qq":
+                await cancel_event.wait()
+                return False
+            self.authed = True
+            self.authStateChanged.emit()
+            if on_status is not None:
+                on_status("done")
+            return True
+
+    service = _HangingFakeService()
+    controller = AppController(service)  # type: ignore[arg-type]
+
+    task_qq = asyncio.ensure_future(controller.login_by_qrcode_async(login_type="qq"))
+    await asyncio.sleep(0)
+    assert controller.loggingIn is True
+    assert controller.loginType == "qq"
+
+    task_wx = asyncio.ensure_future(controller.login_by_qrcode_async(login_type="wx"))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    with contextlib.suppress(asyncio.CancelledError):
+        await task_qq
+    await task_wx
+
+    assert controller.loginType == "wx"
+    assert controller.authed is True
+    assert service.last_login_type == "wx"
 
 
 async def test_credential_expired_updates_login_state_and_emits_signal():

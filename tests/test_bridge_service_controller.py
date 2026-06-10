@@ -107,7 +107,7 @@ class _FakeAuthService(_FakeService):
     async def get_song_url(self, song: Song, *, quality_preference: str):
         return None
 
-    async def login_by_qrcode(self) -> bool:
+    async def login_by_qrcode(self, login_type=None) -> bool:
         if self.on_qrcode is not None:
             self.on_qrcode(b"qr", "qq", "image/png")
         if self.on_login_status is not None:

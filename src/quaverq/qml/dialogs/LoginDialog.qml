@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -20,11 +21,16 @@ Dialog {
     function startLogin(force) {
         if (!force && root.appController && root.appController.loginState === "expired")
             return
-        if (root.appController && !root.appController.authed && !root.appController.loggingIn)
-            root.appController.loginByQrCode()
+        if (root.appController && !root.appController.authed) {
+            let loginType = loginTabBar.currentIndex === 0 ? "qq" : "wx"
+            root.appController.loginByQrCodeWithType(loginType)
+        }
     }
 
-    onOpened: startLogin(false)
+    onOpened: {
+        loginTabBar.currentIndex = 0
+        startLogin(false)
+    }
     onClosed: {
         if (root.appController)
             root.appController.cancelLogin()
@@ -58,7 +64,7 @@ Dialog {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("登录 QQ 音乐")
+                    text: qsTr("扫码登录")
                     color: ThemeTokens.Palette.surfaceText
                     font.pixelSize: ThemeTokens.TypeScale.h2
                     font.weight: ThemeTokens.TypeScale.bold
@@ -96,6 +102,74 @@ Dialog {
                     color: closeButton.down
                         ? ThemeTokens.Palette.statePressed
                         : closeButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                }
+            }
+        }
+
+        RowLayout {
+            id: loginTabBar
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 36
+            spacing: ThemeTokens.Spacing.s3
+
+            property int currentIndex: 0
+
+            Repeater {
+                model: [
+                    { label: qsTr("QQ 登录"), type: "qq" },
+                    { label: qsTr("微信登录"), type: "wx" }
+                ]
+
+                delegate: Button {
+                    id: tabButton
+
+                    required property var modelData
+                    required property int index
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 36
+                    text: modelData.label
+                    Accessible.name: text
+
+                    onClicked: {
+                        // qmllint disable unqualified
+                        if (loginTabBar.currentIndex === index)
+                            return
+                        loginTabBar.currentIndex = index
+                        root.startLogin(true)
+                        // qmllint enable unqualified
+                    }
+
+                    contentItem: Label {
+                        text: tabButton.text
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        // qmllint disable unqualified
+                        color: loginTabBar.currentIndex === tabButton.index
+                            ? ThemeTokens.Palette.primaryText
+                            : ThemeTokens.Palette.surfaceVariantText
+                        font.pixelSize: ThemeTokens.TypeScale.bodySm
+                        font.weight: loginTabBar.currentIndex === tabButton.index
+                            ? ThemeTokens.TypeScale.medium
+                            : ThemeTokens.TypeScale.regular
+                        // qmllint enable unqualified
+                    }
+
+                    background: Rectangle {
+                        radius: ThemeTokens.Spacing.radiusPill
+                        color: {
+                            // qmllint disable unqualified
+                            if (loginTabBar.currentIndex === tabButton.index)
+                                return tabButton.down
+                                    ? ThemeTokens.Palette.primaryActive
+                                    : ThemeTokens.Palette.primary
+                            return tabButton.down
+                                ? ThemeTokens.Palette.statePressed
+                                : tabButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                            // qmllint enable unqualified
+                        }
+                    }
                 }
             }
         }

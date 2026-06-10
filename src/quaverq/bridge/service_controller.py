@@ -355,7 +355,14 @@ class ServiceController(QObject):
         self,
         on_qrcode: Callable[[bytes, str, str], None],
         on_status: Callable[[str], None] | None = None,
+        *,
+        login_type: str = "qq",
     ) -> bool:
+        from qqmusic_api.models.login import QRLoginType
+
+        type_map = {"qq": QRLoginType.QQ, "wx": QRLoginType.WX}
+        qr_login_type = type_map.get(login_type, QRLoginType.QQ)
+
         await self._ensure_started()
         previous_callback = self._service.on_qrcode
         previous_status_callback = getattr(self._service, "on_login_status", None)
@@ -366,7 +373,7 @@ class ServiceController(QObject):
         self._service.on_qrcode = emit_qrcode
         self._service.on_login_status = on_status
         try:
-            success = await self._service.login_by_qrcode()
+            success = await self._service.login_by_qrcode(qr_login_type)
             if success:
                 await self._service.save_credential()
                 self.authStateChanged.emit()
