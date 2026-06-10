@@ -32,7 +32,12 @@ Item {
     readonly property string imageSource: root.coverCached
         ? "image://covers/" + encodeURIComponent(root.coverUrl) + "|" + root.imageSize + "|" + root.coverRadius + "|" + root.imageRevision
         : ""
-    readonly property bool hasImage: root.displaySource.length > 0 && coverImage.status === Image.Ready
+    // 双缓冲前层标记: 换 source 时新图先在后台层解码, 就绪后才换层显示,
+    // 避免单 Image 换源瞬间清空画面导致占位图闪一下
+    property bool frontIsA: true
+    readonly property bool hasImage: root.frontIsA
+        ? (coverImageA.status === Image.Ready && String(coverImageA.source).length > 0)
+        : (coverImageB.status === Image.Ready && String(coverImageB.source).length > 0)
 
     implicitWidth: compact ? 36 : 52
     implicitHeight: implicitWidth
@@ -48,6 +53,27 @@ Item {
         } else if (!root.retainOnSwitch) {
             root.displaySource = ""
         }
+    }
+
+    function applyDisplaySource() {
+        const target = root.displaySource
+        if (target.length === 0) {
+            coverImageA.source = ""
+            coverImageB.source = ""
+            root.frontIsA = true
+            return
+        }
+        const front = root.frontIsA ? coverImageA : coverImageB
+        const back = root.frontIsA ? coverImageB : coverImageA
+        if (String(front.source) === target)
+            return
+        // 前层还没有可展示的图: 直接加载进前层 (首图路径)
+        if (front.status !== Image.Ready || String(front.source).length === 0) {
+            front.source = target
+            return
+        }
+        // 前层有图: 新图进后台层, 其 onStatusChanged 就绪后换层
+        back.source = target
     }
 
     function updateImageSize() {
@@ -68,6 +94,7 @@ Item {
     onWidthChanged: root.updateImageSize()
     onHeightChanged: root.updateImageSize()
     onImageSourceChanged: root.syncDisplaySource()
+    onDisplaySourceChanged: root.applyDisplaySource()
 
     onCoverUrlChanged: {
         root.imageRevision += 1
@@ -103,18 +130,48 @@ Item {
         anchors.fill: parent
         visible: root.displaySource.length > 0
 
+        // 双缓冲层 A/B: source 由 applyDisplaySource 显式赋值 (不绑定),
+        // 缩放交给 provider id 里的 size 段, 不设 sourceSize (避免其变化触发重载)
         Image {
-            id: coverImage
+            id: coverImageA
 
             anchors.fill: parent
-            opacity: root.hasImage ? 1 : 0
-            source: root.displaySource
-            sourceSize.width: root.imageSize
-            sourceSize.height: root.imageSize
+            opacity: root.frontIsA && coverImageA.status === Image.Ready ? 1 : 0
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: false
             mipmap: true
+            onStatusChanged: {
+                if (coverImageA.status === Image.Ready
+                        && String(coverImageA.source) === root.displaySource
+                        && !root.frontIsA) {
+                    root.frontIsA = true
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: ThemeTokens.Motion.durFast
+                }
+            }
+        }
+
+        Image {
+            id: coverImageB
+
+            anchors.fill: parent
+            opacity: !root.frontIsA && coverImageB.status === Image.Ready ? 1 : 0
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: false
+            mipmap: true
+            onStatusChanged: {
+                if (coverImageB.status === Image.Ready
+                        && String(coverImageB.source) === root.displaySource
+                        && root.frontIsA) {
+                    root.frontIsA = false
+                }
+            }
 
             Behavior on opacity {
                 NumberAnimation {
