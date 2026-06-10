@@ -107,7 +107,7 @@ class AppController(QObject):
             self._set_login_state("idle")
             self._set_login_message("")
             self._set_qrcode("", "")
-            return
+            raise
         except Exception as exc:
             logger.exception("QR login failed")
             self._set_authed(False, "error")

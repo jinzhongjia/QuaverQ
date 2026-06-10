@@ -196,7 +196,10 @@ async def test_cancel_login_stops_polling_and_resets_state():
     assert controller.loginState == "waiting"
 
     controller.cancelLogin()
-    await asyncio.sleep(0)
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
     assert controller.loggingIn is False
     assert controller.loginState == "idle"
