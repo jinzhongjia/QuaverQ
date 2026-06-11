@@ -23,6 +23,17 @@ Rectangle {
     border.color: ThemeTokens.Palette.outlineMuted
     focus: visible
 
+    // 抽屉事件屏障: 面板盖在内容区上方, 标题栏等无处理器区域的点击 / 滚轮 / 悬停
+    // 会穿透到底下的页面, 整层吞掉 (列表等子项声明在后, 不受影响)
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.AllButtons
+        hoverEnabled: true
+        onWheel: function(wheel) {
+            wheel.accepted = true
+        }
+    }
+
     // 仅在面板首次打开时滚到当前曲. 之后**不**再 hook currentIndex / visible 变化, 否则:
     //   - 播放器内部任何 _emit_current_changed (next/prev/playQueueIndex/setQueue ...) 都会
     //     触发 onCurrentIndexChanged, 把用户滚开的视图强行拉回当前曲.

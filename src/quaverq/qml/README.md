@@ -7,7 +7,8 @@ Qt Quick UI 根目录。`Main.qml` 是应用主窗口，五个子目录按职责
 主窗口（`ApplicationWindow`）。`pragma ComponentBehavior: Bound`，无边框 + 自绘标题栏 + 圆角阴影 + 拖拽缩放。
 
 - **三栏布局**：左 [`Sidebar`](components/README.md) + 中视图栈 + 底 [`PlayerBar`](components/README.md)。
-- **路由切换**：`currentRoute` 在 `home` / `library` / `search` / `detail` / `settings` / `now-playing` 之间切，对应加载 [`views/`](views/README.md) 的 QML 文件。
+- **路由切换**：`currentRoute` 在 `home` / `library` / `search` / `detail` / `settings` 之间切，对应加载 [`views/`](views/README.md) 的 QML 文件。
+- **正在播放浮层**：`NowPlayingView` **不走路由**——`nowPlayingOpen` 控制的整宽沉浸浮层（盖侧栏 + 内容区，z=5 介于内容与 QueuePanel 之间，顶栏 / 播放栏保持可见），从播放栏上方滑入 / 滑出；`Loader` 首开后常驻（`everOpened` 闩锁，否则收起的滑出动画没有宿主、页内滚动状态也会丢）。`navigate()` / `pushDetail()` 自动收起；Esc 优先级 = 搜索框退焦 → 关 QueuePanel → 收浮层 → `goBack()`；收起时焦点强制还给 `shortcutFocusSink` 防键盘陷阱。
 - **状态绑定**：所有 controller 通过 `setContextProperty` 由 Python 注入（`AppController` / `HomeController` / `PlayerController` ...），在窗口顶部当 `readonly property` 转发给视图。
 - **主题协调**：把 `settingsController.themeMode`（用户偏好）和 `systemTheme.dark`（freedesktop portal 探测的系统色）绑给 [`Theme/Theme.qml`](Theme/README.md) singleton，决定明暗。
 - **关闭到托盘**：`closeToTray` 由 Python 在托盘可用时置 `true`，`onClosing` 拦截后隐藏窗口而非退出。

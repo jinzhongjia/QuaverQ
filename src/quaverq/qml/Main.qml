@@ -45,6 +45,8 @@ ApplicationWindow {
     // 托盘可用时由 Python 置 true: 关闭改为隐藏到托盘而非退出
     property bool closeToTray: false
     property bool queuePanelOpen: false
+    // 正在播放沉浸浮层 (盖侧栏 + 内容区, 不进导航栈): 开/关语义, 收起后精确还原打开前的位置
+    property bool nowPlayingOpen: false
     property string currentRoute: "home"
     property string currentTopRoute: "home"
     property string currentDetailTitle: ""
@@ -82,8 +84,6 @@ ApplicationWindow {
             return qsTr("资料库")
         case "settings":
             return qsTr("设置")
-        case "now-playing":
-            return qsTr("正在播放")
         case "detail":
             return root.currentDetailTitle.length > 0 ? root.currentDetailTitle : qsTr("详情")
         default:
@@ -101,6 +101,8 @@ ApplicationWindow {
     }
 
     function navigate(route) {
+        // 任何导航动作先收起正在播放浮层, 避免"结果页在浮层底下"的怪态
+        root.nowPlayingOpen = false
         root.releaseTextFocus()
         if (route === root.currentRoute && contentStack.depth === 1)
             return
@@ -115,20 +117,30 @@ ApplicationWindow {
         }
     }
 
-    // 正在播放页走 push (不清栈): 返回键 / Esc / 页内收起均可退回原处,
-    // 已在页内时再次触发 (如点播放栏封面) 视为收起
+    // 正在播放 = 沉浸浮层: 不进导航栈, 打开是"展开"、收起是"还原",
+    // 底下的路由 / 滚动位置 / 侧栏选中态全程不动. 已打开时再次触发 (再点播放栏封面) 视为收起.
     function openNowPlaying() {
-        if (root.currentRoute === "now-playing") {
-            root.goBack()
+        if (root.nowPlayingOpen) {
+            root.closeNowPlaying()
             return
         }
         root.queuePanelOpen = false
         root.releaseTextFocus()
-        contentStack.push(nowPlayingPageComponent, {}, StackView.Immediate)
-        root.currentRoute = "now-playing"
+        // 闩锁必须先置位: Behavior 的 enabled 依赖它, 否则首开没有滑入动画
+        nowPlayingLoader.everOpened = true
+        root.nowPlayingOpen = true
+    }
+
+    function closeNowPlaying() {
+        if (!root.nowPlayingOpen)
+            return
+        root.nowPlayingOpen = false
+        // 焦点还给全局快捷键宿主, 防止键盘焦点滞留在已隐藏的浮层里 (键盘陷阱)
+        shortcutFocusSink.forceActiveFocus()
     }
 
     function pushDetail(kind, detailId, title, subtitle, coverUrl) {
+        root.nowPlayingOpen = false
         root.queuePanelOpen = false
         root.releaseTextFocus()
         contentStack.push(detailPageComponent, {
@@ -395,12 +407,14 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Esc"
-        enabled: searchField.activeFocus || root.queuePanelOpen || contentStack.depth > 1
+        enabled: searchField.activeFocus || root.queuePanelOpen || root.nowPlayingOpen || contentStack.depth > 1
         onActivated: {
             if (searchField.activeFocus) {
                 root.releaseTextFocus()
             } else if (root.queuePanelOpen) {
                 root.queuePanelOpen = false
+            } else if (root.nowPlayingOpen) {
+                root.closeNowPlaying()
             } else {
                 root.goBack()
             }
@@ -455,7 +469,7 @@ ApplicationWindow {
 
                 Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                enabled: contentStack.depth > 1
+                enabled: contentStack.depth > 1 || root.nowPlayingOpen
                 text: qsTr("返回")
                 // 相对路径会延迟到 AppIcon (components/) 才解析, 这里必须显式按本文件解析
                 iconSource: Qt.resolvedUrl("icons/arrow-left.svg")
@@ -463,7 +477,13 @@ ApplicationWindow {
                 // 禁用态用中灰: stateDisabled(#e0e0e0) 在白底上接近隐形
                 iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                 cornerRadius: width / 2
-                onClicked: root.goBack()
+                onClicked: {
+                    if (root.nowPlayingOpen) {
+                        root.closeNowPlaying()
+                    } else {
+                        root.goBack()
+                    }
+                }
             }
 
             RowLayout {
@@ -763,20 +783,6 @@ ApplicationWindow {
     }
 
     Component {
-        id: nowPlayingPageComponent
-
-        Views.NowPlayingView {
-            coverController: root.coverController
-            playerController: root.playerController
-            libraryController: root.libraryController
-            lyricController: root.lyricController
-            settingsController: root.settingsController
-            onQueueRequested: root.queuePanelOpen = true
-            onBackRequested: root.goBack()
-        }
-    }
-
-    Component {
         id: settingsPageComponent
 
         Views.SettingsView {
@@ -784,6 +790,59 @@ ApplicationWindow {
             settingsController: root.settingsController
             onLoginRequested: loginDialog.open()
             onLogoutRequested: logoutConfirmDialog.open()
+        }
+    }
+
+    // 正在播放沉浸浮层: 盖侧栏 + 内容区 (z=5, 低于 QueuePanel 的 z=10), 顶栏与播放栏保持可见.
+    // 首次打开后常驻 (everOpened 闩锁): active 绑 nowPlayingOpen 会在收起瞬间销毁 item,
+    // 滑出动画就没有宿主可播; 常驻也保住歌词滚动位置等页内状态.
+    Loader {
+        id: nowPlayingLoader
+
+        property bool everOpened: false
+
+        active: everOpened
+        visible: opacity > 0
+        clip: true
+        anchors.top: headerBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: playerBar.top
+        anchors.leftMargin: root.windowShadowMargin
+        anchors.rightMargin: root.windowShadowMargin
+        z: 5
+        opacity: root.nowPlayingOpen ? 1 : 0
+
+        // 从播放栏上方滑入 (QQ 音乐"展开"隐喻): 入场减速 durSlow, 退场加速 durMed
+        transform: Translate {
+            id: nowPlayingSlide
+
+            y: root.nowPlayingOpen ? 0 : nowPlayingLoader.height
+
+            Behavior on y {
+                enabled: nowPlayingLoader.everOpened
+                NumberAnimation {
+                    duration: root.nowPlayingOpen ? ThemeTokens.Motion.durSlow : ThemeTokens.Motion.durMed
+                    easing.type: root.nowPlayingOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
+                }
+            }
+        }
+
+        Behavior on opacity {
+            enabled: nowPlayingLoader.everOpened
+            NumberAnimation { duration: ThemeTokens.Motion.durMed }
+        }
+
+        sourceComponent: Component {
+            Views.NowPlayingView {
+                coverController: root.coverController
+                playerController: root.playerController
+                libraryController: root.libraryController
+                lyricController: root.lyricController
+                settingsController: root.settingsController
+                onQueueRequested: root.queuePanelOpen = true
+                onBackRequested: root.closeNowPlaying()
+            }
         }
     }
 

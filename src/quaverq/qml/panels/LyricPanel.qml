@@ -10,6 +10,8 @@ Rectangle {
 
     property var lyricController
     property var settingsController
+    // 点击歌词行跳播 (仅 full 模式): 未注入时不响应, 组件仍可独立预览
+    property var playerController
     property bool compact: true
     property bool hasSong: false
 
@@ -93,8 +95,12 @@ Rectangle {
     }
 
     function clampedContentY(value) {
-        const maxY = Math.max(0, lyricList.contentHeight - lyricList.height)
-        return Math.max(0, Math.min(maxY, value))
+        // 边界必须从 originY 起算: delegate 高度变化 (active 行变大) 会让 ListView 的内容原点
+        // 漂移成非零, 按 [0, contentHeight-height] 钳出来的值相对真实边界仍是越界的 ——
+        // Flickable 会在下一次按压时回弹并吃掉那次点击 (歌词区首次点击无效的元凶)
+        const minY = lyricList.originY
+        const maxY = Math.max(minY, minY + lyricList.contentHeight - lyricList.height)
+        return Math.max(minY, Math.min(maxY, value))
     }
 
     function revealActiveLine(animated) {
@@ -163,16 +169,18 @@ Rectangle {
         anchors.margins: root.compact ? ThemeTokens.Spacing.s4 : ThemeTokens.Spacing.s6
         spacing: root.compact ? ThemeTokens.Spacing.s3 : ThemeTokens.Spacing.s5
 
+        // full 模式 (沉浸页) 不要标题行, 歌词滚动区直接顶满; compact 保留
         RowLayout {
+            visible: root.compact
             Layout.fillWidth: true
-            Layout.preferredHeight: root.compact ? 32 : 40
+            Layout.preferredHeight: 32
             spacing: ThemeTokens.Spacing.s3
 
             Label {
                 Layout.fillWidth: true
                 text: qsTr("歌词")
                 color: ThemeTokens.Palette.surfaceText
-                font.pixelSize: root.compact ? ThemeTokens.TypeScale.body : ThemeTokens.TypeScale.h2
+                font.pixelSize: ThemeTokens.TypeScale.body
                 font.weight: ThemeTokens.TypeScale.medium
                 elide: Text.ElideRight
             }
@@ -200,11 +208,16 @@ Rectangle {
                 spacing: root.compact ? 0 : ThemeTokens.Spacing.s2
                 boundsBehavior: Flickable.StopAtBounds
                 reuseItems: true
+                // 几何变化后重定位: reveal 在旧高度下算出的 contentY 可能事后越界,
+                // Flickable 不会自动回弹程序赋的越界值, 而是在下一次按压时回弹 ——
+                // 那次按压会被回弹吃掉 (用户对歌词区的第一次点击无效). 重跑 reveal 用新边界重新钳位.
+                onHeightChanged: Qt.callLater(function() { root.revealActiveLine(false) })
 
                 delegate: Item {
                     id: lyricDelegate
 
                     required property int index
+                    required property int timestampMs
                     required property string lineText
                     required property string translation
                     required property var words
@@ -212,6 +225,11 @@ Rectangle {
                     readonly property bool activeLine: lyricDelegate.index === root.activeIndex
                     readonly property bool creditLine: root.isCreditLine(lyricDelegate.lineText)
                     readonly property bool strongActive: lyricDelegate.activeLine && !lyricDelegate.creditLine
+                    // 点击跳播仅 full 模式: credit 行 (词曲署名) 跳播无意义, 不可点
+                    readonly property bool seekable: !root.compact
+                        && !lyricDelegate.creditLine
+                        && lyricDelegate.timestampMs >= 0
+                        && !!root.playerController
                     // 逐字仅在 full 播放页的当前行 (有逐字数据、非 credit 行) 启用
                     readonly property bool karaoke: !root.compact
                         && lyricDelegate.activeLine
@@ -240,6 +258,26 @@ Rectangle {
                         lyricDelegate.minimumRowHeight,
                         lyricColumn.implicitHeight + lyricDelegate.verticalPadding
                     )
+
+                    // 可点行的 hover 反馈 (可供性): 背景条 + 手型光标
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: lyricDelegate.seekable
+                        radius: ThemeTokens.Spacing.radiusMd
+                        color: lyricHoverHandler.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+                    }
+
+                    HoverHandler {
+                        id: lyricHoverHandler
+
+                        enabled: lyricDelegate.seekable
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        enabled: lyricDelegate.seekable
+                        onTapped: root.playerController.seek(lyricDelegate.timestampMs)
+                    }
 
                     ColumnLayout {
                         id: lyricColumn
