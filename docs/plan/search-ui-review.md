@@ -61,6 +61,7 @@
 | **W4 加载状态统一 / 骨架屏** | 新组件 ×4：`SkeletonRect`（脉动灰块基件）、`SongRowSkeleton`（几何对齐 SongRow，titleRatio 按 index 错开）、`CardSkeleton`（对齐 Card）、`Spinner`（品牌色 Canvas 弧线，替代 Basic 默认 BusyIndicator）。接入：首页四分区冷启动骨架（SWR 有缓存直出不闪）、详情页曲目/专辑网格、资料库我喜欢/四 tab 首次同步、搜索首屏（翻页保留旧结果+底部加载中不变）、歌曲详情弹窗与登录二维码换 Spinner。烟测：lint 全绿 + 635 测试 + 离屏实例化 0 错误 |
 | **W5 右键菜单 + 队列增删 + 相似歌曲点击** | Python（TDD，新增 15 测试全绿）：`PlayQueue.remove_at()`（current 前/后/本身/末尾/SHUFFLE 池重映射）+ `PlayerController.playSongNext()`（插队，已在队列则挪位，空队列直接起播）/`removeQueueIndex()`（移除当前曲自动顶上下一首续播、清空则停）/`clearQueue()`。QML：SongRow 右键在光标处弹菜单（与 ⋯ 同一菜单），菜单新增「下一首播放」「添加到待播列表」；QueueRow hover 时时长换成 × 移除按钮；QueuePanel 标题栏加「清空」；SongDetailDialog 相似歌曲卡接上点击（以相似列表为队列起播并关弹窗，修掉假 hover） |
 | **O1 正在播放沉浸页重做（B 方案浮层）** | **浮层化**：不再 push 进导航栈——`Main.qml` 以整宽浮层承载（盖侧栏+内容区，z=5 低于 QueuePanel，顶栏/播放栏保持可见），从播放栏上方滑入（durSlow 减速）/滑出（durMed 加速）；`Loader` 首开常驻（everOpened 闩锁保滑出动画+页内状态）；出口×4（收起 ˅/Esc/顶栏返回/再点播放栏封面），`navigate()`/`pushDetail()` 自动收起，收起后底下路由/滚动/侧栏选中态精确还原，焦点还给快捷键宿主防键盘陷阱。**页内双栏**（≥920，浮层盖侧栏后自宽≈窗宽）：左栏 ~40% 大封面（200–400 自适应钳位 + `RectangularShadow` 柔投影 + 1px 描边）+ 歌名/歌手/专辑 + ♥/待播列表（整组垂直居中）；右栏歌词顶满（full 模式去「歌词」标题行）；内容块限宽 1280 居中防超宽散架；<920 单栏保持原顶行布局。**歌词点击跳播**：普通行 hover 背景条+手型 → `seek(timestampMs)`，credit 行/compact 模式不可点。**事件屏障**：NowPlayingView+QueuePanel 整层 MouseArea 防点击/滚轮/悬停穿透到底下页面。**附带挖出并修掉存量 bug**：`clampedContentY` 未从 `originY` 起算（delegate 高度变化使 ListView 内容原点漂移），钳出的 contentY 相对真实边界越界 → Flickable 在下一次按压时回弹并吃掉那次点击（歌词区首次点击无效的元凶）；列表 `onHeightChanged` 重跑 reveal 重新钳位。验证：lint 全绿 + 650 测试 + 两套离屏烟测（浮层逻辑 22 项 / 页内交互 16 项，含合成鼠标点击驱动真实 seek 断言）全过 |
+| **W3 TabRow 抽取 + W9 错误展示统一** | **W3**：新组件 `components/TabRow.qml`（受控组件：`tabs` 字符串/对象数组 + `currentIndex` + `activated(index)` 信号），收编搜索/资料库/详情三处复制实现——统一 38px 基线（搜索页原 36）、补齐 DetailView 缺失的键盘焦点环、命中区经 Handler `margin` 外扩（不破坏与页面内容的左缘对齐）。**W9**：Detail/Search 的红底白字通栏错误条换成全局同款 `Banner`（容器色 + 4px 色条 + 边框，可关闭），DetailView 的带「重试」动作（接 `loadDetail()`）；`message` 走显式 `Binding` 防 `dismiss()` 写空打断绑定（SettingsView 同款模式）。HomeView 分区错误是行内红字非通栏，不属整改对象。验证：lint 全绿 + 650 测试 + 离屏烟测 15 项（三视图 tab 切换/无 service 安全 no-op/Banner 隐藏零高/dismiss 后 Binding 重接管）全过 |
 
 **W4 验收清单**：
 
@@ -94,13 +95,20 @@
 9. 无歌曲时打开 → 显示「尚未播放/选择一首歌曲后开始」占位，不崩
 10. 正在播放页的歌词字体设置（设置页改字体/字号）仍生效
 
+**W3+W9 验收清单**：
+
+1. 搜索 / 资料库 / 艺人详情三处 tab 并排看：文字基线、下划线位置、间距应完全一致（之前搜索页矮 2px）
+2. Tab 键盘走查：Tab 聚焦任一 tab 应有绿色焦点环（艺人详情页此前没有），Enter/Space 可切换
+3. tab 文字周围 8px 内点击也应命中（命中区外扩），但首个 tab 与页面标题左缘仍对齐
+4. 断网/接口失败时进详情页：错误应为**全局同款 Banner**（容器底色 + 左侧 4px 红色条 + 边框），不再是红底白字通栏；带「重试」按钮，点击重新加载；× 可关闭
+5. 搜索失败同理出 Banner 形态（无重试按钮）；关闭后**再次**触发错误应能重新显示（显式 Binding 重接管）
+6. 亮/暗主题各看一遍 Banner 与 tab 的对比度
+
 ### ❌ 未动（按建议优先级排序）
 
 | 项 | 备注 |
 | --- | --- |
 | C4 侧栏身份区（头像+昵称+VIP 徽章） | 需 Python 侧从 QQ API 取数据，是剩余项里唯一动后端的。**数据面调研已完成**（昵称/头像走 `get_homepage`；VIP 种类绿钻/豪华绿钻/SVIP/年费 + 官方徽章 icon 走 `_bypass_post` 裸调 `vip_login_base`，库模型未建模已提上游 [issue #257](https://github.com/L-1124/QQMusicApi/issues/257)），方案详见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md) |
-| W3 TabRow 抽取 | 三处 tab 实现仍各自复制（36 vs 38px 漂移仍在） |
-| W9 错误展示统一 | Detail/Search 红底通栏 vs Banner vs Snackbar 三套并存 |
 | O2 页面切换/抽屉轻动效 + reduceMotion 开关 | AlbumArt 淡变、Switch 动效已局部落地 |
 | W12 字阶 13/14 相邻 | caption 降 12 或合并 |
 | 杂项 | 暗色猜你喜欢卡偏闷、卡内容两极分布、O5 关于区、O6 音量快捷键/点击静音、O9 简介展开、BusyIndicator 品牌化、W10 显式字体（保障项）、W13 遮罩走 scrim token（可选） |
@@ -297,8 +305,8 @@ headerBar 只有 DragHandler（`Main.qml:408-415`），无双击切换最大化/
 0. ~~**Bug 修复**（B1 详情页头图）~~ ✅ 完成（封面透传 + 艺人头像兜底 + 双缓冲无缝升级）；
 1. ~~**Token / 一行级速赢**~~ ✅ 基本完成（C2 primaryFg + W14 visualFocus + W16 selected + W2 ToolTip + W11 双击 + subtitle 去重；**遗留** W12 字阶、LyricPanel hex 收编、侧栏次级文字 4.17:1 微调）；
 2. ~~**导航级**（C1 出口 + W6 搜索 + 退出确认）~~ ✅ 完成；
-3. **组件级** —— W7 Switch ✅、W15 设置密度 ✅、弹窗底部裁切 ✅、W5 右键/队列增删/相似歌曲点击 🕐 待验收；**未动** W3 TabRow；
+3. **组件级** —— W7 Switch ✅、W15 设置密度 ✅、弹窗底部裁切 ✅、W5 右键/队列增删/相似歌曲点击 🕐 待验收、W3 TabRow + W9 错误统一 🕐 待验收——**组件级全部完成**；
 4. ~~**布局级**（C3 收纳 + W1 居中 + W8 网格 + 搜索居中 + W4 骨架屏）~~ ✅ 完成（W4 🕐 待验收；**未动** 猜你喜欢卡内容收束）；
 5. **观感级** —— 部分：O3 SVG 图标 ✅（19 个 + AppIcon 机制）、O1 正在播放沉浸页重做 🕐 待验收（浮层化 + 双栏 + 歌词跳播）；**未动** C4 侧栏身份区、O2 页面动效、暗色猜你喜欢卡、W13 scrim token。
 
-**建议的下一批**（按收益排序）：① C4 侧栏身份区（唯一需动 Python 的剩余项）；② W3 TabRow 抽取 + W9 错误展示统一；③ 杂项批（W12 字阶 / 暗色猜你喜欢卡 / O5 关于区 / O6 音量快捷键 / O2 动效 + reduceMotion）。
+**建议的下一批**（按收益排序）：① 交互杂项批（O6 音量快捷键/点击静音、MarqueeLabel hover 暂停、O9 简介展开）；② 视觉杂项批（W12 字阶、W10 显式字体、暗色猜你喜欢卡、W13 scrim token、O5 关于区）；③ O2 页面动效 + reduceMotion 开关。C4 侧栏身份区调研已备好（见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)），等用户解除挂起后随时可做。

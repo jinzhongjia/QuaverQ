@@ -103,23 +103,22 @@ ColumnLayout {
         }
     }
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: root.errorMessage.length > 0 ? 44 : 0
-        visible: root.errorMessage.length > 0
-        color: ThemeTokens.Palette.error
+    // 页内错误与全局 Banner 同一形态 (W9), 加载失败带「重试」动作
+    Components.Banner {
+        id: detailErrorBanner
 
-        Label {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: ThemeTokens.Spacing.s5
-            anchors.rightMargin: ThemeTokens.Spacing.s5
-            text: root.errorMessage
-            color: ThemeTokens.Palette.primaryText
-            elide: Text.ElideRight
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
-        }
+        Layout.fillWidth: true
+        kind: "error"
+        actionText: qsTr("重试")
+        onActionTriggered: root.loadDetail()
+    }
+
+    // 显式 Binding: Banner.dismiss() 会写空 message, 直接绑定会被这次写入打断;
+    // Binding 元素在 errorMessage 再变化时重新接管 (SettingsView 同款模式)
+    Binding {
+        target: detailErrorBanner
+        property: "message"
+        value: root.errorMessage
     }
 
     ColumnLayout {
@@ -313,59 +312,16 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Components.TabRow {
+            id: artistTabRow
+
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s6
             visible: root.displayKind === "artist"
-
-            Repeater {
-                model: [qsTr("热门歌曲"), qsTr("全部歌曲"), qsTr("全部专辑"), qsTr("相似歌手")]
-
-                delegate: Item {
-                    id: tabItem
-
-                    required property int index
-                    required property string modelData
-                    readonly property bool current: root.currentTab === tabItem.index
-
-                    Layout.preferredHeight: 38
-                    implicitWidth: tabLabel.implicitWidth
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: tabItem.modelData
-                    activeFocusOnTab: true
-
-                    HoverHandler { id: tabHover }
-                    TapHandler { onTapped: root.currentTab = tabItem.index }
-                    Keys.onReturnPressed: root.currentTab = tabItem.index
-                    Keys.onSpacePressed: root.currentTab = tabItem.index
-
-                    Label {
-                        id: tabLabel
-                        anchors.top: parent.top
-                        anchors.topMargin: ThemeTokens.Spacing.s2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: tabItem.modelData
-                        color: tabItem.current
-                            ? ThemeTokens.Palette.primaryFg
-                            : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: tabItem.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: tabLabel.implicitWidth
-                        height: 2
-                        radius: 1
-                        visible: tabItem.current
-                        color: ThemeTokens.Palette.primaryFg
-                    }
-                }
+            tabs: [qsTr("热门歌曲"), qsTr("全部歌曲"), qsTr("全部专辑"), qsTr("相似歌手")]
+            currentIndex: root.currentTab
+            onActivated: function(index) {
+                root.currentTab = index
             }
-
-            Item { Layout.fillWidth: true }
         }
 
         // ===== 内容区: 非 artist 走 songList; artist 走 4-page StackLayout =====

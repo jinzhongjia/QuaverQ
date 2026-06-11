@@ -59,23 +59,20 @@ ColumnLayout {
 
     spacing: 0
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: root.serviceController && root.serviceController.errorMessage ? 44 : 0
-        visible: root.serviceController && root.serviceController.errorMessage.length > 0
-        color: ThemeTokens.Palette.error
+    // 页内错误与全局 Banner 同一形态 (W9): 红底白字通栏的视觉烈度等同"危险操作", 加载失败不配
+    Components.Banner {
+        id: searchErrorBanner
 
-        Label {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: ThemeTokens.Spacing.s5
-            anchors.rightMargin: ThemeTokens.Spacing.s5
-            text: root.serviceController ? root.serviceController.errorMessage : ""
-            color: ThemeTokens.Palette.primaryText
-            elide: Text.ElideRight
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
-        }
+        Layout.fillWidth: true
+        kind: "error"
+    }
+
+    // 显式 Binding: Banner.dismiss() 会写空 message, 直接绑定会被这次写入打断;
+    // Binding 元素在 errorMessage 再变化时重新接管 (SettingsView 同款模式)
+    Binding {
+        target: searchErrorBanner
+        property: "message"
+        value: root.serviceController ? root.serviceController.errorMessage : ""
     }
 
     ColumnLayout {
@@ -104,73 +101,21 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Components.TabRow {
+            id: searchTabRow
+
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s6
-
-            Repeater {
-                model: root.searchTabs
-
-                delegate: Item {
-                    id: typeTab
-
-                    required property var modelData
-                    readonly property bool current: root.searchType === typeTab.modelData.key
-
-                    Layout.preferredHeight: 36
-                    implicitWidth: tabText.implicitWidth
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: typeTab.modelData.label
-                    activeFocusOnTab: true
-
-                    HoverHandler { id: tabHover }
-                    TapHandler {
-                        onTapped: {
-                            if (root.serviceController)
-                                root.serviceController.setSearchType(typeTab.modelData.key)
-                        }
-                    }
-                    Keys.onReturnPressed: {
-                        if (root.serviceController)
-                            root.serviceController.setSearchType(typeTab.modelData.key)
-                    }
-                    Keys.onSpacePressed: {
-                        if (root.serviceController)
-                            root.serviceController.setSearchType(typeTab.modelData.key)
-                    }
-
-                    Label {
-                        id: tabText
-                        anchors.top: parent.top
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: typeTab.modelData.label
-                        color: typeTab.current
-                            ? ThemeTokens.Palette.primaryFg
-                            : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: typeTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: tabText.implicitWidth
-                        height: 2
-                        radius: 1
-                        visible: typeTab.current
-                        color: ThemeTokens.Palette.primaryFg
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: typeTab.activeFocus
-                        radius: ThemeTokens.Spacing.radiusSm
-                        color: "transparent"
-                        border.color: ThemeTokens.Palette.focusRing
-                        border.width: 2
-                    }
+            tabs: root.searchTabs
+            currentIndex: {
+                for (let i = 0; i < root.searchTabs.length; ++i) {
+                    if (root.searchTabs[i].key === root.searchType)
+                        return i
                 }
+                return 0
+            }
+            onActivated: function(index) {
+                if (root.serviceController)
+                    root.serviceController.setSearchType(root.searchTabs[index].key)
             }
         }
 

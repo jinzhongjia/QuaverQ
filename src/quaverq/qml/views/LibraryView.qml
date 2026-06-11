@@ -118,69 +118,15 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Components.TabRow {
             id: libraryTabs
 
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s6
-
-            Repeater {
-                model: [qsTr("我喜欢"), qsTr("我的歌单"), qsTr("收藏歌单"), qsTr("专辑"), qsTr("艺人")]
-
-                delegate: Item {
-                    id: libTab
-
-                    required property int index
-                    required property string modelData
-                    readonly property bool current: root.currentTab === libTab.index
-
-                    Layout.preferredHeight: 38
-                    implicitWidth: libTabText.implicitWidth
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: libTab.modelData
-                    activeFocusOnTab: true
-
-                    HoverHandler { id: libTabHover }
-                    TapHandler { onTapped: root.currentTab = libTab.index }
-                    Keys.onReturnPressed: root.currentTab = libTab.index
-                    Keys.onSpacePressed: root.currentTab = libTab.index
-
-                    Label {
-                        id: libTabText
-                        anchors.top: parent.top
-                        anchors.topMargin: ThemeTokens.Spacing.s2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: libTab.modelData
-                        color: libTab.current
-                            ? ThemeTokens.Palette.primaryFg
-                            : (libTabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: libTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: libTabText.implicitWidth
-                        height: 2
-                        radius: 1
-                        visible: libTab.current
-                        color: ThemeTokens.Palette.primaryFg
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: libTab.activeFocus
-                        radius: ThemeTokens.Spacing.radiusSm
-                        color: "transparent"
-                        border.color: ThemeTokens.Palette.focusRing
-                        border.width: 2
-                    }
-                }
+            tabs: [qsTr("我喜欢"), qsTr("我的歌单"), qsTr("收藏歌单"), qsTr("专辑"), qsTr("艺人")]
+            currentIndex: root.currentTab
+            onActivated: function(index) {
+                root.currentTab = index
             }
-
-            Item { Layout.fillWidth: true }
         }
 
         Rectangle {
