@@ -5,6 +5,7 @@
 | 组件 | 作用 |
 | --- | --- |
 | `LoginDialog.qml` | **二维码登录对话框**。`open()` 后自动调用 `appController.loginByQrCode()` 启动扫码流程，显示二维码图像 + 状态文案；`onAuthChanged(authed)` 命中 `authed=true` 自动关闭。`closePolicy: CloseOnEscape \| CloseOnPressOutside`，凭据过期态 (`loginState === "expired"`) 时不会重复触发登录。 |
+| `ConfirmDialog.qml` | **二次确认弹窗**（退出登录 / 清理缓存共用）：统一自绘样式替代 Basic 默认 `standardButtons` 灰块——radiusLg 卡片 + 右对齐按钮组；`destructive: true` 时确认键 error 红（不可逆动作），否则品牌绿；确认键文案直述动作（「退出登录」「清理」）而非泛泛的「确定」；打开时焦点落「取消」（安全默认，误按 Enter 不触发破坏性动作）；`accepted`/`rejected` 走 Dialog 标准信号。 |
 
 ## 约定
 

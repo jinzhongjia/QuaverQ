@@ -961,27 +961,17 @@ ApplicationWindow {
         appController: root.appController
     }
 
-    // 退出登录需重新扫码, 代价高 → 二次确认 (与清缓存确认同模式)
-    Dialog {
+    // 退出登录需重新扫码, 代价高 → 二次确认; 破坏性动作确认键用 error 红
+    Dialogs.ConfirmDialog {
         id: logoutConfirmDialog
 
-        modal: true
-        // 模态遮罩走 scrim token (W13)
-        Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
         title: qsTr("退出登录")
-        standardButtons: Dialog.Cancel | Dialog.Ok
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(420, Math.max(280, root.width - ThemeTokens.Spacing.s6 * 2))
+        message: qsTr("退出后播放与资料库同步会停用，重新使用需要再次扫码登录。")
+        confirmText: qsTr("退出登录")
+        destructive: true
         onAccepted: {
             if (root.appController)
                 root.appController.logout()
-        }
-
-        contentItem: Label {
-            text: qsTr("退出后播放与资料库同步会停用，重新使用需要再次扫码登录。")
-            color: ThemeTokens.Palette.surfaceText
-            wrapMode: Text.WordWrap
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
         }
     }
 

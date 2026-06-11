@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../dialogs" as Dialogs
 import "../Theme" as ThemeTokens
 
 ScrollView {
@@ -365,26 +366,16 @@ ScrollView {
         }
     }
 
-    Dialog {
+    // 清缓存可逆 (封面会按需重下), 确认键用品牌绿而非 error 红
+    Dialogs.ConfirmDialog {
         id: clearCacheDialog
 
-        modal: true
-        // 模态遮罩走 scrim token (W13)
-        Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
         title: qsTr("清理封面缓存")
-        standardButtons: Dialog.Cancel | Dialog.Ok
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(420, Math.max(280, root.width - ThemeTokens.Spacing.s6 * 2))
+        message: qsTr("已缓存的封面会被删除，之后会按需重新下载。")
+        confirmText: qsTr("清理")
         onAccepted: {
             if (root.settingsController)
                 root.settingsController.clearCoverCache()
-        }
-
-        contentItem: Label {
-            text: qsTr("已缓存的封面会被删除，之后会按需重新下载。")
-            color: ThemeTokens.Palette.surfaceText
-            wrapMode: Text.WordWrap
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
         }
     }
 

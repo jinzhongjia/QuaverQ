@@ -50,6 +50,9 @@ QtObject {
 
     // ---- 状态色 ----
     readonly property color error: Theme.dark ? "#f87171" : "#dc2626"
+    // error 作按钮填充时的交互态 (确认弹窗的破坏性动作键): 亮色压暗 / 暗色提亮, 与 primaryHover 同构
+    readonly property color errorHover: Theme.dark ? "#fa8a8a" : "#c52020"
+    readonly property color errorActive: Theme.dark ? "#f25d5d" : "#b01c1c"
     readonly property color warning: Theme.dark ? "#fbbf24" : "#e08600"
 
     // ---- 交互状态 ----
