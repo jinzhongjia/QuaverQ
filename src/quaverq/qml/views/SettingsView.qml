@@ -680,6 +680,9 @@ ScrollView {
                     // 故意不绑 currentIndex / 不让 ListView 跟随高亮滚动:
                     // hover 改变 highlightedIndex 时 ensure-visible 会和鼠标位置互相打架,
                     // 表现为菜单来回滚动. 高亮视觉由 delegate 按 combo.highlightedIndex 自绘.
+                    // 已知取舍: 鼠标悬停在列表上时键盘上下键不触发滚动 —— 当前所有下拉都
+                    // 不设 popupMaxHeight (列表全高展开, 无滚动区), 该组合不可达; 若未来
+                    // 启用 popupMaxHeight 出现可滚动下拉, 需区分键盘/悬停来源再放开.
                     highlightFollowsCurrentItem: false
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
