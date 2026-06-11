@@ -280,7 +280,7 @@ LLM 约定：
 - **顶栏 (`headerBar`, height = `Spacing.headerHeight = 56`)**: 自绘无边框标题栏. 从左到右: 返回键 → 品牌 logo (28x28 圆角矩形 + ♪) + 标题 (≥920px 才显示文字) → `SearchField` (`maxWidth=500`, `fillWidth`) → 最小化 / 最大化 / 关闭按钮. 拖动靠 `DragHandler` + `startSystemMove()`, 不接系统装饰. 见 `qml/Main.qml`.
 - **主体 (RowLayout, `spacing=0`)**: 左 `Sidebar` (展开 240px / 紧凑 64px) + 右 `StackView contentStack` (路由切换走 push / clear, 不用 Loader); `StackView` 装 `views/HomeView`, `SearchView`, `LibraryView`, `DetailView`, `NowPlayingView`, `SettingsView`.
 - **底栏 (`PlayerBar`, height = `Spacing.playerBarHeight = 104`)**: 全宽常驻播放器, 封面 + 元信息 + 控件 + 进度 + 音量 + 队列 / 正在播放入口. 底部圆角与窗口圆角联动 (`bottomCornerRadius`).
-- **浮层**: `QueuePanel` (`Loader` 懒加载, 右抽屉 z=10, 宽 `min(360, root.width - 96)`), `LoginDialog` (二维码登录, z 默认), `Banner` (顶栏下警告条, z=970), `Snackbar` (居中提示, z=980), 窗口边框 / resize handle 分别 z=990 / z=1000.
+- **浮层**: `QueuePanel` (`Loader` 首开常驻, 右抽屉 220ms 自右滑入, z=10, 宽 `min(360, root.width - 96)`), `LoginDialog` (二维码登录, z 默认), `Banner` (顶栏下警告条, z=970), `Snackbar` (居中提示, z=980), 窗口边框 / resize handle 分别 z=990 / z=1000.
 
 ### 窗口 chrome (自绘 + 无系统装饰)
 
@@ -297,12 +297,12 @@ LLM 约定：
 - **`Palette.qml`** — 全部颜色 token. 亮色: 品牌 `#31c27c` + 白底 `#ffffff` + 侧栏 `#f5f5f7` + 文本 `#333333` / `#767676`; 深色: `#1b1c1f` 底 + `#1f2024` 侧栏 + `#f0f1f3` / `#9a9ca2` 文本. 分层 token 含 `background` / `surface` / `surfaceElevated` / `surfaceVariant` / `surfaceContainerHigh`, 交互态 `stateHover` / `statePressed` / `stateSelected` / `stateDisabled` / `focusRing` / `scrim`, 品牌色 `primary` / `primaryHover` / `primaryActive` / `primaryContainer` / `primaryText`, 次级 `accent` (空间音频蓝), 状态 `error` / `warning`. 换肤只动这一个文件.
 - **`Spacing.qml`** — 间距 + 圆角 + 命中区. 间距 4 阶幂级数: `s2=4`, `s3=8`, `s4=12`, `s5=16`, `s6=24`, `s7=32`, `s8=48`. 圆角五档: `radiusSm=4`, `radiusMd=8`, `radiusLg=12`, `radiusXl=16`, `radiusPill=20`. 命中区 `toolHitSize=44` (WCAG 触控目标).
 - **`TypeScale.qml`** — 字号 + 字重. 字号: `display=32` / `h1=23` / `h2=19` / `body=16` / `bodySm=14` / `caption=12` (与 bodySm 拉开 2px 字阶, W12). 字重: `regular=Font.Normal` / `medium=Font.Medium` / `bold=Font.DemiBold` (用 DemiBold 而非 Bold, 避免在 Linux 默认字体上糊).
-- **`Motion.qml`** — 动效时长 + 缓动. 时长三档: `durFast=120` / `durMed=220` / `durSlow=320` ms. 缓动: `easeOut=OutCubic` / `easeIn=InCubic` / `easeStd=InOutCubic`.
+- **`Motion.qml`** — 动效时长 + 缓动 + **`reduceMotion` 总开关** (SettingsController 持久化, 经 Main.qml Binding 注入; 开启后三档时长归零 = 过渡瞬时, Marquee 横滚 / 骨架脉动等持续性运动由消费方绑定停用; Spinner 加载旋转刻意不受控). 时长三档: `durFast=120` / `durMed=220` / `durSlow=320` ms. 缓动: `easeOut=OutCubic` / `easeIn=InCubic` / `easeStd=InOutCubic`.
 
 ### 组件 / 视图分层
 
 - **`qml/components/`** — 通用复用组件: `Sidebar` / `PlayerBar` / `SearchField` / `SongRow` / `QueueRow` / `Card` / `AlbumArt` / `NavItem` / `IconButton` / `LikeButton` / `Snackbar` / `Banner`. 一律自定义 `background` / `contentItem`, 不依赖 Qt 默认 style 主题.
-- **`qml/views/`** — 整页视图: `HomeView` / `SearchView` / `LibraryView` / `DetailView` / `NowPlayingView` / `SettingsView`. 通过 `StackView` 切换, 走 `StackView.Immediate` (无切换动画, 避免延迟感).
+- **`qml/views/`** — 整页视图: `HomeView` / `SearchView` / `LibraryView` / `DetailView` / `NowPlayingView` / `SettingsView`. 通过 `StackView` 切换, 页面过渡为 120ms 透明度交叉淡入 (只动 opacity; `reduceMotion` 开启时 durFast=0 即瞬时, 等价旧 `StackView.Immediate` 行为).
 - **`qml/panels/`** — 抽屉式浮层: `QueuePanel` / `LyricPanel`.
 - **`qml/dialogs/`** — 模态对话框: `LoginDialog`.
 - **`qml/Theme/`** — 上述 5 个 singleton, 不放业务组件.

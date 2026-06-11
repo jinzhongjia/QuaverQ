@@ -33,8 +33,8 @@
 | `LikeButton.qml` | 喜欢按钮。绑 `libraryController.isLiked(mid)` + `likedRevision`，自动随同步状态变化。 |
 | `Snackbar.qml` | **轻量状态提示**。`show()` 触发，`autoHideMs` 后自动收起；`kind` ∈ `info` / `error` / `warning` / `success`。 |
 | `Banner.qml` | **持久提示**：带恢复动作（`actionText`）、不自动关闭；`message` 非空即显示。用于"凭据过期，点此重登"这类场景。 |
-| `MarqueeLabel.qml` | 单行文字标签：超出容器宽度时无缝横向滚动（双拷贝 + Repeater 平移），未溢出时回退为 `elide: ElideRight`，配合固定宽度容器防止布局抖动。**悬停暂停**（`paused` 而非 stop，移开从当前位置继续）——余光区持续运动在用户凑近想读时应停下。用于底部播放栏歌曲名 / 歌手。 |
-| `SkeletonRect.qml` | 骨架屏基件：轻脉动灰块（700ms×2 透明度往返），全应用加载占位的统一形态。 |
+| `MarqueeLabel.qml` | 单行文字标签：超出容器宽度时无缝横向滚动（双拷贝 + Repeater 平移），未溢出时回退为 `elide: ElideRight`，配合固定宽度容器防止布局抖动。**悬停暂停**（`paused` 而非 stop，移开从当前位置继续）；`Motion.reduceMotion` 开启时横滚整体停用、回退静态省略号。用于底部播放栏歌曲名 / 歌手。 |
+| `SkeletonRect.qml` | 骨架屏基件：轻脉动灰块（700ms×2 透明度往返），全应用加载占位的统一形态；`reduceMotion` 时脉动停用、静态灰块仍占位。 |
 | `SongRowSkeleton.qml` | 歌曲行骨架（64px，几何对齐 `SongRow`）：封面块 + 标题/副标题条 + 时长条；`titleRatio` 按 index 错开宽度防"假"感。用于首页/详情/资料库/搜索的冷启动占位。 |
 | `CardSkeleton.qml` | 卡片骨架（几何对齐 `Card`）：方形封面块 + 标题/副标题条。 |
 | `Spinner.qml` | 品牌色加载弧（Canvas 3/4 圆 + RotationAnimator），替代 Basic 默认 `BusyIndicator`。用于登录二维码 / 歌曲详情弹窗这类非列表加载。 |

@@ -117,7 +117,8 @@ Rectangle {
 
         const targetY = root.clampedContentY(activeItem.y + activeItem.height / 2 - lyricList.height * 0.45)
         const distance = Math.abs(targetY - lyricList.contentY)
-        if (!animated || distance > lyricList.height * 0.65) {
+        // reduceMotion: 歌词跟随直接跳到位, 不做平滑滚动
+        if (!animated || ThemeTokens.Motion.reduceMotion || distance > lyricList.height * 0.65) {
             lyricScrollAnimation.stop()
             lyricList.contentY = targetY
             return

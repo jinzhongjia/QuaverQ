@@ -78,6 +78,9 @@ class SettingsController(QObject):
         self._cover_cache = cover_cache
         self._orphan_cleanup = orphan_cleanup
         self._theme_mode = self._read_str("ui/themeMode", "system", _THEME_MODES)
+        # 减少动效 (无障碍): Qt 6.x 没有系统级 prefers-reduced-motion 接口, 走应用级设置;
+        # 灌进 Motion singleton 后各处过渡时长归零、Marquee 横滚停用
+        self._reduce_motion = self._read_bool("ui/reduceMotion", False)
         self._quality_preference = self._read_str(
             "playback/qualityPreference",
             "balanced",
@@ -141,6 +144,10 @@ class SettingsController(QObject):
     @Property(str, notify=settingsChanged)
     def themeMode(self) -> str:
         return self._theme_mode
+
+    @Property(bool, notify=settingsChanged)
+    def reduceMotion(self) -> bool:
+        return self._reduce_motion
 
     @Property(str, notify=settingsChanged)
     def qualityPreference(self) -> str:
@@ -226,6 +233,16 @@ class SettingsController(QObject):
             return
         self._theme_mode = value
         self._settings.setValue("ui/themeMode", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setReduceMotion(self, reduce: bool) -> None:
+        value = bool(reduce)
+        if self._reduce_motion == value:
+            return
+        self._reduce_motion = value
+        self._settings.setValue("ui/reduceMotion", value)
         self._settings.sync()
         self.settingsChanged.emit()
 

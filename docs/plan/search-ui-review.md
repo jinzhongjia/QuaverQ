@@ -64,6 +64,7 @@
 | **W3 TabRow 抽取 + W9 错误展示统一** | **W3**：新组件 `components/TabRow.qml`（受控组件：`tabs` 字符串/对象数组 + `currentIndex` + `activated(index)` 信号），收编搜索/资料库/详情三处复制实现——统一 38px 基线（搜索页原 36）、补齐 DetailView 缺失的键盘焦点环、命中区经 Handler `margin` 外扩（不破坏与页面内容的左缘对齐）。**W9**：Detail/Search 的红底白字通栏错误条换成全局同款 `Banner`（容器色 + 4px 色条 + 边框，可关闭），DetailView 的带「重试」动作（接 `loadDetail()`）；`message` 走显式 `Binding` 防 `dismiss()` 写空打断绑定（SettingsView 同款模式）。HomeView 分区错误是行内红字非通栏，不属整改对象。验证：lint 全绿 + 650 测试 + 离屏烟测 15 项（三视图 tab 切换/无 service 安全 no-op/Banner 隐藏零高/dismiss 后 Binding 重接管）全过 |
 | **交互杂项批（O6 音量 + Marquee 悬停暂停 + O9 简介展开）** | **O6**：`PlayerController` 加 `muted` 独立标志（TDD 3 新测试：不动音量值、恢复天然回原音量、不入会话快照）+ `toggleMute()` / `nudgeVolume(delta)`；任何主动调音量（拖滑条/快捷键，含拖回同值）自动解除静音——平台标准行为。`Main.qml`：`AudioOutput.muted` 绑定 + 全局快捷键 `Ctrl+↑/↓` 音量 ±5%。`PlayerBar`：两处音量图标（主行 + 窄窗溢出菜单）换成可点 IconButton（volume ↔ volume-mute 图标切换，新增 `volume-mute.svg`），静音时滑条填充/手柄降权 35%。**Marquee**：`MarqueeLabel` 加 HoverHandler，悬停暂停滚动（`paused` 非 stop，移开从当前位置继续）。**O9**：DetailView 长简介默认 2 行截断，确实截断（`truncated`）时出现「展开 ⌄ / 收起 ⌃」链接（primaryFg、hover 手型、命中区外扩），换详情数据自动收回。验证：lint 全绿 + 653 测试（+3）+ 离屏烟测 18 项（横滚三态像素级 x 采样/静音 QML 绑定全链/合成 Ctrl+↑↓ 键事件/简介展开切换）全过 |
 | **视觉杂项批（W12 字阶 + W10 显式字体 + 暗色猜你喜欢卡 + W13 遮罩 token + O5 关于区）** | **W12**：`TypeScale.caption` 13→12，与 bodySm(14) 拉开 2px 字阶。**W10**：`__main__.py` 启动期按平台设显式字体（纯函数 `_platform_default_font_family`，TDD 2 测试）——Windows → Microsoft YaHei UI（修 Segoe UI 无 CJK 字形的逐字 fallback 基线/字重漂移），Linux/macOS 返 None 交给系统。**暗色猜你喜欢卡**：新 token `primaryContainerHi`（暗 #1f5039 / 亮 #f2fbf6）与 `primaryContainer` 做上亮下沉同色系微渐变，替换整块平涂。**W13**：①Palette 新增封面图遮罩组 `imageOverlay`(#99000000) / `imageOverlayHover`(#2b000000) / `imageOverlayText`(#fff) / `softShadow`(rgba 0,0,0,.06)——**故意不带 Theme.dark 分支**（图片颜色不随主题变）；Card 播放量角标/hover 暗化、SongRow 菜单落影的裸 hex 全部收编；②四个模态 Dialog（登录/歌曲详情/退出确认/清缓存确认）显式 `Overlay.modal` 走 `Palette.scrim`——Basic 默认跟系统 palette.shadow，暗色下偏弱。**O5**：`AppController.appVersion` 常量属性（`application_version()` 读包元数据回退 "dev"，TDD 2 测试）+ 设置页新增「关于」分区（版本号 + 开源仓库链接 `Qt.openUrlExternally`）。验证：lint 全绿 + 657 测试（+4）+ 离屏烟测 11 项（字阶值/新 token 值形态/版本号 Python→QML 链路/设置页实例化）全过 |
+| **O2 页面动效 + reduceMotion 开关** | **reduceMotion**：`SettingsController.reduceMotion` 持久化设置（TDD 2 测试：默认 off / 持久化 / 同值幂等）→ Main.qml `Binding` 注入 `Motion.reduceMotion` → 三档时长 token 归零（过渡**瞬时化**而非放慢，符合无障碍指引；Qt 6.x 无系统级 prefers-reduced-motion 接口故走应用级），设置页「外观」分区加开关。**页面过渡**：StackView 六个 transition 全配 120ms 透明度交叉淡入（只动 opacity，GPU 合成）；`resetContent` 改 `replace(null, ...)` 走 replaceEnter/Exit，push/pop 去掉 `StackView.Immediate`——reduceMotion 时 durFast=0 行为等价旧 Immediate。**队列抽屉**：Loader 改首开常驻（onLoaded 闩锁）+ Translate 自右滑入 durMed（进 easeOut / 出 easeIn）；「打开时定位到当前曲」从依赖重新挂载改为 `onVisibleChanged` 触发。**持续性运动受控**：Marquee 横滚在 reduceMotion 下整体停用回退静态省略号（恢复时从头滚避免残留偏移）；SkeletonRect 脉动停用回静态灰块；LyricPanel 歌词跟随滚动直接跳到位；正在播放浮层滑入/出经时长 token 自动瞬时。**Spinner 加载旋转刻意不受控**（"正在工作"的必要反馈）。验证：lint 全绿 + 659 测试（+2）+ 离屏烟测 25 项（时长归零链路/导航瞬时/抽屉滑入与常驻/浮层瞬开/Marquee 回退/骨架静止）+ 浮层/TabRow 两套旧烟测回归全过 |
 
 **W4 验收清单**：
 
@@ -126,12 +127,20 @@
 6. 设置页底部新增「关于」分区：版本显示 0.1.0；「打开」按钮在默认浏览器打开 GitHub 仓库页
 7. 亮/暗主题各过一遍设置页与首页
 
+**O2 验收清单**：
+
+1. 侧栏切换页面（发现↔资料库↔设置）：应有轻微的交叉淡入（120ms，感知为"顺滑"而非"延迟"）；进详情/返回同样
+2. 打开/收起待播列表：抽屉自右滑入/滑出（220ms），不再是瞬间出现消失；打开时仍定位到当前播放曲
+3. 设置 → 外观 → 打开「**减少动效**」：页面切换/抽屉/正在播放浮层全部变瞬时；播放栏长歌名停止横滚（变省略号）；加载骨架不再脉动（静态灰块）；歌词跟随不再平滑滚动（直接跳行）
+4. 减少动效下加载 Spinner **仍然旋转**（刻意保留的"正在工作"反馈）
+5. 关掉开关：以上全部恢复；重启应用开关状态保持（持久化）
+6. 动效开启时快速连续切页/开关抽屉：无闪烁、无残影、无卡顿
+
 ### ❌ 未动（按建议优先级排序）
 
 | 项 | 备注 |
 | --- | --- |
 | C4 侧栏身份区（头像+昵称+VIP 徽章） | 需 Python 侧从 QQ API 取数据，是剩余项里唯一动后端的。**数据面调研已完成**（昵称/头像走 `get_homepage`；VIP 种类绿钻/豪华绿钻/SVIP/年费 + 官方徽章 icon 走 `_bypass_post` 裸调 `vip_login_base`，库模型未建模已提上游 [issue #257](https://github.com/L-1124/QQMusicApi/issues/257)），方案详见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md) |
-| O2 页面切换/抽屉轻动效 + reduceMotion 开关 | AlbumArt 淡变、Switch 动效已局部落地 |
 | 杂项 | 卡内容两极分布（仅剩此一项；~~暗色猜你喜欢卡~~ ~~O5 关于区~~ ~~W10 显式字体~~ ~~W13 遮罩 token~~ ~~O6 音量快捷键/静音~~ ~~O9 简介展开~~ ~~BusyIndicator 品牌化~~ 已完成） |
 
 ---
@@ -328,6 +337,6 @@ headerBar 只有 DragHandler（`Main.qml:408-415`），无双击切换最大化/
 2. ~~**导航级**（C1 出口 + W6 搜索 + 退出确认）~~ ✅ 完成；
 3. **组件级** —— W7 Switch ✅、W15 设置密度 ✅、弹窗底部裁切 ✅、W5 右键/队列增删/相似歌曲点击 🕐 待验收、W3 TabRow + W9 错误统一 🕐 待验收——**组件级全部完成**；
 4. ~~**布局级**（C3 收纳 + W1 居中 + W8 网格 + 搜索居中 + W4 骨架屏）~~ ✅ 完成（W4 🕐 待验收；**未动** 猜你喜欢卡内容收束）；
-5. **观感级** —— 部分：O3 SVG 图标 ✅（19 个 + AppIcon 机制）、O1 正在播放沉浸页重做 🕐 待验收（浮层化 + 双栏 + 歌词跳播）；**未动** C4 侧栏身份区、O2 页面动效、暗色猜你喜欢卡、W13 scrim token。
+5. **观感级** —— O3 SVG 图标 ✅、O1 正在播放沉浸页重做 🕐 待验收、暗色猜你喜欢卡 + W13 scrim 🕐 待验收（视觉杂项批）、O2 页面动效 + reduceMotion 🕐 待验收——**除挂起的 C4 外全部完成**。
 
-**建议的下一批**：① O2 页面动效 + reduceMotion 开关（最后一个成批项）；② 零散收尾（W12 字阶余波核查、卡内容两极分布）。C4 侧栏身份区调研已备好（见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)），等用户解除挂起后随时可做。
+**剩余**：零散收尾（卡内容两极分布、LyricPanel 内联 hex 收编、侧栏次级文字 4.17:1 微调）+ C4 侧栏身份区（挂起中，调研见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)）。**审查清单的成批项至此全部完成**，待验收累计 7 批。

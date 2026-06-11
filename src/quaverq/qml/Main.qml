@@ -76,6 +76,12 @@ ApplicationWindow {
         when: root.systemTheme !== null
     }
 
+    Binding {
+        target: ThemeTokens.Motion
+        property: "reduceMotion"
+        value: root.settingsController ? root.settingsController.reduceMotion : false
+    }
+
     function routeTitle(route) {
         switch (route) {
         case "home":
@@ -94,8 +100,9 @@ ApplicationWindow {
     function resetContent(component, route) {
         root.queuePanelOpen = false
         root.currentDetailTitle = ""
-        contentStack.clear(StackView.Immediate)
-        contentStack.push(component, {}, StackView.Immediate)
+        // replace(null, ...) = 整栈替换: 走 replaceEnter/Exit 的 120ms 交叉淡入 (O2);
+        // reduceMotion 时 durFast=0, 行为等价原 StackView.Immediate
+        contentStack.replace(null, component, {})
         root.currentRoute = route
         root.currentTopRoute = route
     }
@@ -150,7 +157,7 @@ ApplicationWindow {
             detailSubtitle: subtitle,
             // 入口卡片封面透传: 头图即刻显示, 详情接口的封面到了再升级 (B1)
             detailCoverUrl: coverUrl || ""
-        }, StackView.Immediate)
+        })
         root.currentDetailTitle = title
         root.currentRoute = "detail"
     }
@@ -158,7 +165,7 @@ ApplicationWindow {
     function goBack() {
         if (contentStack.depth <= 1)
             return
-        contentStack.pop(StackView.Immediate)
+        contentStack.pop()
         root.currentDetailTitle = ""
         // pop 后仍在栈上 (>1) 说明落点是 push 进来的详情页; 否则回到顶层路由
         root.currentRoute = contentStack.depth > 1
@@ -673,6 +680,27 @@ ApplicationWindow {
             Layout.fillHeight: true
             clip: true
             initialItem: homePageComponent
+
+            // O2: 页面切换 120ms 透明度交叉淡入 (只动 opacity, GPU 合成不触布局);
+            // reduceMotion 开启时 durFast=0 即瞬时, 等价此前的 StackView.Immediate
+            pushEnter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: ThemeTokens.Motion.durFast }
+            }
+            pushExit: Transition {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: ThemeTokens.Motion.durFast }
+            }
+            popEnter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: ThemeTokens.Motion.durFast }
+            }
+            popExit: Transition {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: ThemeTokens.Motion.durFast }
+            }
+            replaceEnter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: ThemeTokens.Motion.durFast }
+            }
+            replaceExit: Transition {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: ThemeTokens.Motion.durFast }
+            }
         }
     }
 
@@ -870,18 +898,42 @@ ApplicationWindow {
         }
     }
 
+    // 待播列表抽屉: 自右滑入 durMed (O2). 首开后常驻 (onLoaded 闩锁) —— active 绑 open
+    // 会在收起瞬间销毁 item, 滑出动画没有宿主; Translate 挂在 Loader 上 (启动即存在),
+    // 首次打开 x: width→0 也有完整滑入. "打开时定位到当前曲"改由 QueuePanel.onVisibleChanged 触发.
     Loader {
         id: queuePanelLoader
 
-        active: root.queuePanelOpen
-        asynchronous: true
-        visible: active
+        property bool everOpened: false
+
+        active: root.queuePanelOpen || queuePanelLoader.everOpened
+        onLoaded: queuePanelLoader.everOpened = true
+        visible: opacity > 0
+        clip: true
+        opacity: root.queuePanelOpen ? 1 : 0
         anchors.top: headerBar.bottom
         anchors.right: parent.right
         anchors.bottom: playerBar.top
         anchors.rightMargin: root.windowShadowMargin
         width: Math.min(360, root.width - 96 - root.windowShadowMargin * 2)
         z: 10
+
+        transform: Translate {
+            id: queuePanelSlide
+
+            x: root.queuePanelOpen ? 0 : queuePanelLoader.width
+
+            Behavior on x {
+                NumberAnimation {
+                    duration: ThemeTokens.Motion.durMed
+                    easing.type: root.queuePanelOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
+                }
+            }
+        }
+
+        Behavior on opacity {
+            NumberAnimation { duration: ThemeTokens.Motion.durMed }
+        }
 
         sourceComponent: Component {
             Panels.QueuePanel {

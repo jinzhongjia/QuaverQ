@@ -470,3 +470,27 @@ def test_desktop_lyrics_enabled_setter_signal(tmp_path):
 
     controller.setDesktopLyricsEnabled(False)
     assert len(emitted) == 1
+
+
+def test_reduce_motion_defaults_off(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    assert controller.reduceMotion is False
+
+
+def test_reduce_motion_persists(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    events: list[bool] = []
+    controller.settingsChanged.connect(lambda: events.append(controller.reduceMotion))
+
+    controller.setReduceMotion(True)
+    assert controller.reduceMotion is True
+    assert events == [True]
+
+    # 同值幂等: 不重复落盘 / 不重复发信号
+    controller.setReduceMotion(True)
+    assert events == [True]
+
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.reduceMotion is True

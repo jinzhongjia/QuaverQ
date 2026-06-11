@@ -34,11 +34,10 @@ Rectangle {
         }
     }
 
-    // 仅在面板首次打开时滚到当前曲. 之后**不**再 hook currentIndex / visible 变化, 否则:
-    //   - 播放器内部任何 _emit_current_changed (next/prev/playQueueIndex/setQueue ...) 都会
-    //     触发 onCurrentIndexChanged, 把用户滚开的视图强行拉回当前曲.
-    //   - onVisibleChanged 与 Loader 的 active 重新挂载冗余.
-    // 用户想看当前曲: 关掉面板再打开 (每次打开是新挂载, Component.onCompleted 重跑).
+    // 仅在面板打开时滚到当前曲, **不** hook currentIndex 变化 —— 否则播放器内部任何
+    // _emit_current_changed (next/prev/playQueueIndex/setQueue ...) 都会把用户滚开的
+    // 视图强行拉回当前曲. 面板现由常驻 Loader 承载 (滑入/出动画需要 item 存活,
+    // 不再每次打开重新挂载), 故"每次打开定位到当前曲"由 visible 变化触发.
     function revealCurrentItem() {
         if (root.currentIndex >= 0)
             queueList.positionViewAtIndex(root.currentIndex, ListView.Contain)
@@ -47,6 +46,11 @@ Rectangle {
     Component.onCompleted: {
         // 等 ListView 完成首次 layout 再定位, 避免 positionViewAtIndex 在 height==0 时无效
         Qt.callLater(revealCurrentItem)
+    }
+
+    onVisibleChanged: {
+        if (visible)
+            Qt.callLater(revealCurrentItem)
     }
 
     Keys.onEscapePressed: root.closeRequested()

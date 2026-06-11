@@ -111,10 +111,20 @@ ScrollView {
                 model: [qsTr("跟随系统"), qsTr("浅色"), qsTr("深色")]
                 values: ["system", "light", "dark"]
                 currentValue: root.settingsController ? root.settingsController.themeMode : "system"
-                showSeparator: false
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setThemeMode(value)
+                }
+            }
+
+            SwitchRow {
+                Layout.fillWidth: true
+                title: qsTr("减少动效")
+                checked: root.settingsController ? root.settingsController.reduceMotion : false
+                showSeparator: false
+                onToggleRequested: function(newValue) {
+                    if (root.settingsController)
+                        root.settingsController.setReduceMotion(newValue)
                 }
             }
         }
