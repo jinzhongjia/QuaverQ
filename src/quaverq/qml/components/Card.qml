@@ -26,7 +26,14 @@ Item {
     activeFocusOnTab: true
 
     HoverHandler { id: hover }
-    TapHandler { onTapped: root.activated() }
+    // 整卡点击走 MouseArea (exclusive grab) 而非 TapHandler (passive grab): 作为背景被
+    // modal dialog 覆盖时, passive grabber 会被 dialog 内点击穿透命中 (详见 SongRow 同款注释).
+    // 浮层播放键 (z 更高) 也用 MouseArea, exclusive 竞争中胜出, 点播放键只播放不进详情.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: root.activated()
+    }
     Keys.onReturnPressed: root.activated()
     Keys.onSpacePressed: root.activated()
 
@@ -99,7 +106,11 @@ Item {
                     color: playHover.hovered ? ThemeTokens.Palette.primaryHover : ThemeTokens.Palette.primary
 
                     HoverHandler { id: playHover }
-                    TapHandler { onTapped: root.playRequested() }
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton
+                        onClicked: root.playRequested()
+                    }
 
                     AppIcon {
                         anchors.centerIn: parent

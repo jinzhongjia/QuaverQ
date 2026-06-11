@@ -6,7 +6,7 @@ import asyncio
 
 from PySide6.QtMultimedia import QMediaPlayer
 
-from quaverq.bridge.models import SongListModel
+from quaverq.bridge.models import SongListModel, song_to_map
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.core.models import Singer, Song, SongUrl
 from quaverq.core.queue import PlayMode, PlayQueue
@@ -642,3 +642,70 @@ async def test_clear_queue_stops_and_empties():
     assert controller.sourceUrl == ""
     assert controller.playbackState == "stopped"
     assert controller.queueSource == ""
+
+
+def _queue_model_events(model):
+    """监听队列模型的变更信号: 粒度操作 (插/删/移) vs 整表 reset."""
+    events: list = []
+    model.modelReset.connect(lambda: events.append("reset"))
+    model.rowsInserted.connect(lambda _p, first, last: events.append(("ins", first, last)))
+    model.rowsRemoved.connect(lambda _p, first, last: events.append(("rm", first, last)))
+    model.rowsMoved.connect(lambda *_a: events.append("move"))
+    return events
+
+
+def _model_mids(model) -> list[str]:
+    return [model.data(model.index(i, 0), model.MidRole) for i in range(model.rowCount())]
+
+
+async def test_append_to_queue_granular_insert_not_reset():
+    # 待播面板开着时追加歌曲: 整表 reset 会让 ListView 重建并滚回顶部 (真机反馈),
+    # 必须走 rowsInserted 粒度信号
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.appendToQueue([song_to_map(_song("m3", "三")), song_to_map(_song("m4", "四"))])
+
+    assert events == [("ins", 2, 3)]
+    assert _model_mids(controller.queueModel) == ["m1", "m2", "m3", "m4"]
+
+    # 重复追加: 队列不变, 模型零事件
+    events.clear()
+    controller.appendToQueue([song_to_map(_song("m3", "三"))])
+    assert events == []
+    assert _model_mids(controller.queueModel) == ["m1", "m2", "m3", "m4"]
+
+
+async def test_play_song_next_insert_new_without_reset():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.playSongNext(song_to_map(_song("m9", "九")))
+
+    assert events == [("ins", 1, 1)]
+    assert _model_mids(controller.queueModel) == ["m1", "m9", "m2"]
+
+
+async def test_play_song_next_moves_existing_without_reset():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二"), _song("m3", "三")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.playSongNext(song_to_map(_song("m3", "三")))
+
+    assert "reset" not in events
+    assert "move" in events
+    assert _model_mids(controller.queueModel) == ["m1", "m3", "m2"]
+
+
+async def test_remove_queue_index_granular_remove_not_reset():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二"), _song("m3", "三")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.removeQueueIndex(1)
+
+    assert events == [("rm", 1, 1)]
+    assert _model_mids(controller.queueModel) == ["m1", "m3"]

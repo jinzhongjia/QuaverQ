@@ -251,7 +251,8 @@ class PlayerController(QObject):
         added = self._queue.append(songs)
         if not added:
             return added
-        self._sync_queue_model()
+        # 粒度插入而非整表 reset: 待播面板开着时 reset 会重建 ListView 并滚回顶部
+        self._queue_model.append_songs(added)
         if was_exhausted:
             # 跳到第一首新加曲并续播 (handleEndOfMedia 走完整批后续接的场景)
             self._queue.current_index = len(self._queue.songs) - len(added)
@@ -280,7 +281,15 @@ class PlayerController(QObject):
             self._queue.remove_at(existing)
         was_empty = self._queue.current() is None
         self._queue.insert_next(song)
-        self._sync_queue_model()
+        # 粒度挪位/插入而非整表 reset (保住待播面板滚动位置)
+        new_row = next(
+            (i for i, s in enumerate(self._queue.songs) if s.mid == song.mid),
+            -1,
+        )
+        if existing >= 0:
+            self._queue_model.move_row(existing, new_row)
+        else:
+            self._queue_model.insert_song(new_row, song)
         if was_empty:
             self._emit_current_changed()
             self._spawn_load_current(play_when_ready=True)
@@ -293,7 +302,8 @@ class PlayerController(QObject):
         removed = self._queue.remove_at(row)
         if removed is None:
             return
-        self._sync_queue_model()
+        # 粒度移除而非整表 reset (保住待播面板滚动位置)
+        self._queue_model.remove_row(row)
         self._emit_current_changed()
         if not was_current:
             return

@@ -58,8 +58,16 @@ Rectangle {
         id: hoverHandler
     }
 
-    TapHandler {
-        onTapped: root.activated(root.song, root.index)
+    // 行点击播放走 MouseArea (exclusive grab) 而非 TapHandler (passive grab):
+    // passive grabber 在 hit-test 阶段被命中就 grab, 不受 modal popup 内 exclusive grabber
+    // 阻止 —— 即本行被 modal dialog 覆盖时, dialog 内的点击会"穿透"下来同时触发本行
+    // (真机实测: 歌曲详情弹窗点相似歌曲, 穿透到背后 SongRow 播放了错误的歌). MouseArea 是
+    // exclusive grabber, modal overlay 能正确拦截, 不穿透. 不设 drag/preventStealing,
+    // 纵向 ListView 的 flick 照常 steal grab, 滚动不受影响.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: root.activated(root.song, root.index)
     }
 
     // 桌面惯例: 右键在光标处弹出操作菜单 (与 "⋯" 同一个菜单)
