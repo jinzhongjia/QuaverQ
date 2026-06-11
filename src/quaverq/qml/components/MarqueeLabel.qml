@@ -21,6 +21,14 @@ Item {
     clip: true
     implicitHeight: textMetrics.boundingRect.height
 
+    // 悬停暂停: 无限横滚属于余光区持续运动, 用户凑近想读时应停下;
+    // 移开后从当前位置继续 (paused 而非 stop, 不回跳)
+    HoverHandler {
+        id: marqueeHover
+
+        enabled: root.overflows
+    }
+
     TextMetrics {
         id: textMetrics
         text: root.text
@@ -59,6 +67,8 @@ Item {
         // 滑动 W+gap 距离, 第二个拷贝刚好对齐到第一个的起始位置, 循环回到 0 时画面连续.
         SequentialAnimation on x {
             running: root.overflows && root.visible
+            // paused 只在 running 时有意义, 条件里带上 running 防"未运行时设置 paused"告警
+            paused: running && marqueeHover.hovered
             loops: Animation.Infinite
             PauseAnimation { duration: root.startDelay }
             NumberAnimation {

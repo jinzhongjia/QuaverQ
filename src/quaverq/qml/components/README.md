@@ -8,7 +8,7 @@
 | --- | --- |
 | `Sidebar.qml` | **侧栏**。Logo、登录入口、主导航（发现 / 资料库 / 设置）、「我的歌单」列表。`compact` 折叠态收为图标。 |
 | `NavItem.qml` | 侧栏的单项导航：图标 + 标签 + 选中态背景；点击发 `activated()`。 |
-| `PlayerBar.qml` | **底部播放栏**（最大组件）。封面缩略 + 标题/歌手 + 喜欢、进度条 + 时长、播放模式/上一首/播放暂停/下一首 + 对称第 5 槽（让播放键正压进度条中轴）、音量、队列开关、跳「正在播放」页。窗口 <920px 时右区（词/队列/音量）收纳进第 5 槽的 "⋯" 溢出菜单（`OverflowRow` + 音量滑条；队列非空时按钮带绿点），不再整组消失。 |
+| `PlayerBar.qml` | **底部播放栏**（最大组件）。封面缩略 + 标题/歌手 + 喜欢、进度条 + 时长、播放模式/上一首/播放暂停/下一首 + 对称第 5 槽（让播放键正压进度条中轴）、音量、队列开关、跳「正在播放」页。**音量图标可点**：切静音/恢复（`muted` 属性 + `muteToggleRequested()` 信号，图标 volume ↔ volume-mute 切换，静音时滑条填充/手柄降权 35%；拖滑条即解除静音）。窗口 <920px 时右区（词/队列/音量）收纳进第 5 槽的 "⋯" 溢出菜单（`OverflowRow` + 音量滑条；队列非空时按钮带绿点），不再整组消失。 |
 
 ## 列表与卡片
 
@@ -33,7 +33,7 @@
 | `LikeButton.qml` | 喜欢按钮。绑 `libraryController.isLiked(mid)` + `likedRevision`，自动随同步状态变化。 |
 | `Snackbar.qml` | **轻量状态提示**。`show()` 触发，`autoHideMs` 后自动收起；`kind` ∈ `info` / `error` / `warning` / `success`。 |
 | `Banner.qml` | **持久提示**：带恢复动作（`actionText`）、不自动关闭；`message` 非空即显示。用于"凭据过期，点此重登"这类场景。 |
-| `MarqueeLabel.qml` | 单行文字标签：超出容器宽度时无缝横向滚动（双拷贝 + Repeater 平移），未溢出时回退为 `elide: ElideRight`，配合固定宽度容器防止布局抖动。用于底部播放栏歌曲名 / 歌手。 |
+| `MarqueeLabel.qml` | 单行文字标签：超出容器宽度时无缝横向滚动（双拷贝 + Repeater 平移），未溢出时回退为 `elide: ElideRight`，配合固定宽度容器防止布局抖动。**悬停暂停**（`paused` 而非 stop，移开从当前位置继续）——余光区持续运动在用户凑近想读时应停下。用于底部播放栏歌曲名 / 歌手。 |
 | `SkeletonRect.qml` | 骨架屏基件：轻脉动灰块（700ms×2 透明度往返），全应用加载占位的统一形态。 |
 | `SongRowSkeleton.qml` | 歌曲行骨架（64px，几何对齐 `SongRow`）：封面块 + 标题/副标题条 + 时长条；`titleRatio` 按 index 错开宽度防"假"感。用于首页/详情/资料库/搜索的冷启动占位。 |
 | `CardSkeleton.qml` | 卡片骨架（几何对齐 `Card`）：方形封面块 + 标题/副标题条。 |

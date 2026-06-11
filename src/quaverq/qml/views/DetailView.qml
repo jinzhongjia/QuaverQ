@@ -35,6 +35,9 @@ ColumnLayout {
     readonly property string displaySubtitle: root.detailController && root.detailController.subtitle.length > 0
         ? root.detailController.subtitle
         : root.detailSubtitle
+    // 长简介默认 2 行截断, 可展开 (O9); 换详情数据时收回
+    property bool descriptionExpanded: false
+    onDisplayDescriptionChanged: root.descriptionExpanded = false
     readonly property string displayDescription: root.detailController
         ? root.detailController.description
         : ""
@@ -197,6 +200,8 @@ ColumnLayout {
                 }
 
                 Label {
+                    id: descriptionLabel
+
                     Layout.fillWidth: true
                     // 同上: 加载中预留简介行位, 减小数据到达时的下移幅度
                     visible: root.loading || root.displayDescription.length > 0
@@ -204,8 +209,36 @@ ColumnLayout {
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     wrapMode: Text.WordWrap
-                    maximumLineCount: 2
-                    elide: Text.ElideRight
+                    maximumLineCount: root.descriptionExpanded ? 1000 : 2
+                    elide: root.descriptionExpanded ? Text.ElideNone : Text.ElideRight
+                }
+
+                // 简介展开/收起: 仅在确实截断 (truncated) 或已展开时显示
+                Label {
+                    id: descriptionToggle
+
+                    visible: descriptionLabel.visible
+                        && (descriptionLabel.truncated || root.descriptionExpanded)
+                    text: root.descriptionExpanded ? qsTr("收起 ⌃") : qsTr("展开 ⌄")
+                    color: descriptionToggleHover.hovered
+                        ? ThemeTokens.Palette.primary
+                        : ThemeTokens.Palette.primaryFg
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: descriptionToggle.text
+
+                    HoverHandler {
+                        id: descriptionToggleHover
+
+                        margin: ThemeTokens.Spacing.s3
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        margin: ThemeTokens.Spacing.s3
+                        onTapped: root.descriptionExpanded = !root.descriptionExpanded
+                    }
                 }
 
                 RowLayout {

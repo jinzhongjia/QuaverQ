@@ -333,6 +333,59 @@ def test_mode_and_transport_slots_emit_player_commands():
     assert pauses == [True]
 
 
+def test_toggle_mute_flips_state_and_keeps_volume():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    muted_events: list[bool] = []
+    controller.mutedChanged.connect(lambda: muted_events.append(controller.muted))
+    controller.setVolume(0.6)
+
+    assert controller.muted is False
+    controller.toggleMute()
+    assert controller.muted is True
+    # 静音是独立标志: 音量值不动, 恢复时天然回到原音量
+    assert controller.volume == 0.6
+    controller.toggleMute()
+    assert controller.muted is False
+    assert controller.volume == 0.6
+    assert muted_events == [True, False]
+
+
+def test_set_volume_unmutes():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    controller.setVolume(0.6)
+    controller.toggleMute()
+    assert controller.muted is True
+
+    # 用户主动调音量 = 想听到声音 (平台标准行为); 设相同值也要解除静音
+    controller.setVolume(0.6)
+    assert controller.muted is False
+    assert controller.volume == 0.6
+
+    controller.toggleMute()
+    controller.setVolume(0.3)
+    assert controller.muted is False
+    assert controller.volume == 0.3
+
+
+def test_nudge_volume_steps_clamps_and_unmutes():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    controller.setVolume(0.8)
+
+    controller.nudgeVolume(0.05)
+    assert abs(controller.volume - 0.85) < 1e-9
+
+    controller.nudgeVolume(0.5)
+    assert controller.volume == 1.0
+
+    controller.nudgeVolume(-2.0)
+    assert controller.volume == 0.0
+
+    controller.toggleMute()
+    controller.nudgeVolume(0.05)
+    assert controller.muted is False
+    assert abs(controller.volume - 0.05) < 1e-9
+
+
 async def test_media_error_retries_with_fresh_url_once():
     # 瞬态 401 (ResourceError): 自动重取链 (新 vkey) 重播一次, 不报错
     service = _FakeServiceController()

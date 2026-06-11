@@ -11,6 +11,7 @@ Rectangle {
     property int positionMs: 0
     property int durationMs: 0
     property real volume: 0.8
+    property bool muted: false
     property string mode: "sequence"
     property bool loading: false
     property string errorMessage: ""
@@ -33,6 +34,7 @@ Rectangle {
     signal prevRequested()
     signal seekRequested(int positionMs)
     signal volumeRequested(real volume)
+    signal muteToggleRequested()
     signal modeRequested(string mode)
     signal queueRequested()
     signal nowPlayingRequested()
@@ -400,10 +402,12 @@ Rectangle {
                                     Layout.rightMargin: ThemeTokens.Spacing.s4
                                     spacing: ThemeTokens.Spacing.s3
 
-                                    AppIcon {
-                                        size: 18
-                                        source: "../icons/volume.svg"
-                                        color: ThemeTokens.Palette.surfaceVariantText
+                                    IconButton {
+                                        text: root.muted ? qsTr("恢复音量") : qsTr("静音")
+                                        iconSource: root.muted ? "../icons/volume-mute.svg" : "../icons/volume.svg"
+                                        iconSize: 18
+                                        iconColor: ThemeTokens.Palette.surfaceVariantText
+                                        onClicked: root.muteToggleRequested()
                                     }
 
                                     Slider {
@@ -430,6 +434,7 @@ Rectangle {
                                                 height: parent.height
                                                 radius: parent.radius
                                                 color: ThemeTokens.Palette.primary
+                                                opacity: root.muted ? 0.35 : 1
                                             }
                                         }
 
@@ -440,6 +445,7 @@ Rectangle {
                                             height: 12
                                             radius: width / 2
                                             color: ThemeTokens.Palette.primary
+                                            opacity: root.muted ? 0.35 : 1
                                         }
                                     }
                                 }
@@ -569,10 +575,12 @@ Rectangle {
                 }
             }
 
-            AppIcon {
-                size: 18
-                source: "../icons/volume.svg"
-                color: ThemeTokens.Palette.surfaceVariantText
+            IconButton {
+                text: root.muted ? qsTr("恢复音量") : qsTr("静音")
+                iconSource: root.muted ? "../icons/volume-mute.svg" : "../icons/volume.svg"
+                iconSize: 18
+                iconColor: ThemeTokens.Palette.surfaceVariantText
+                onClicked: root.muteToggleRequested()
             }
 
             Slider {
@@ -583,6 +591,8 @@ Rectangle {
                 from: 0
                 to: 1
                 value: root.volume
+                Accessible.name: qsTr("音量")
+                // 静音时填充/手柄降权提示无声; 拖动即解除静音 (controller 侧处理)
                 onMoved: root.volumeRequested(value)
 
                 background: Rectangle {
@@ -598,6 +608,7 @@ Rectangle {
                         height: parent.height
                         radius: parent.radius
                         color: ThemeTokens.Palette.primary
+                        opacity: root.muted ? 0.35 : 1
                     }
                 }
 
@@ -608,6 +619,7 @@ Rectangle {
                     height: 12
                     radius: width / 2
                     color: ThemeTokens.Palette.primary
+                    opacity: root.muted ? 0.35 : 1
                 }
             }
         }

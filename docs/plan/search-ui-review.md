@@ -62,6 +62,7 @@
 | **W5 右键菜单 + 队列增删 + 相似歌曲点击** | Python（TDD，新增 15 测试全绿）：`PlayQueue.remove_at()`（current 前/后/本身/末尾/SHUFFLE 池重映射）+ `PlayerController.playSongNext()`（插队，已在队列则挪位，空队列直接起播）/`removeQueueIndex()`（移除当前曲自动顶上下一首续播、清空则停）/`clearQueue()`。QML：SongRow 右键在光标处弹菜单（与 ⋯ 同一菜单），菜单新增「下一首播放」「添加到待播列表」；QueueRow hover 时时长换成 × 移除按钮；QueuePanel 标题栏加「清空」；SongDetailDialog 相似歌曲卡接上点击（以相似列表为队列起播并关弹窗，修掉假 hover） |
 | **O1 正在播放沉浸页重做（B 方案浮层）** | **浮层化**：不再 push 进导航栈——`Main.qml` 以整宽浮层承载（盖侧栏+内容区，z=5 低于 QueuePanel，顶栏/播放栏保持可见），从播放栏上方滑入（durSlow 减速）/滑出（durMed 加速）；`Loader` 首开常驻（everOpened 闩锁保滑出动画+页内状态）；出口×4（收起 ˅/Esc/顶栏返回/再点播放栏封面），`navigate()`/`pushDetail()` 自动收起，收起后底下路由/滚动/侧栏选中态精确还原，焦点还给快捷键宿主防键盘陷阱。**页内双栏**（≥920，浮层盖侧栏后自宽≈窗宽）：左栏 ~40% 大封面（200–400 自适应钳位 + `RectangularShadow` 柔投影 + 1px 描边）+ 歌名/歌手/专辑 + ♥/待播列表（整组垂直居中）；右栏歌词顶满（full 模式去「歌词」标题行）；内容块限宽 1280 居中防超宽散架；<920 单栏保持原顶行布局。**歌词点击跳播**：普通行 hover 背景条+手型 → `seek(timestampMs)`，credit 行/compact 模式不可点。**事件屏障**：NowPlayingView+QueuePanel 整层 MouseArea 防点击/滚轮/悬停穿透到底下页面。**附带挖出并修掉存量 bug**：`clampedContentY` 未从 `originY` 起算（delegate 高度变化使 ListView 内容原点漂移），钳出的 contentY 相对真实边界越界 → Flickable 在下一次按压时回弹并吃掉那次点击（歌词区首次点击无效的元凶）；列表 `onHeightChanged` 重跑 reveal 重新钳位。验证：lint 全绿 + 650 测试 + 两套离屏烟测（浮层逻辑 22 项 / 页内交互 16 项，含合成鼠标点击驱动真实 seek 断言）全过 |
 | **W3 TabRow 抽取 + W9 错误展示统一** | **W3**：新组件 `components/TabRow.qml`（受控组件：`tabs` 字符串/对象数组 + `currentIndex` + `activated(index)` 信号），收编搜索/资料库/详情三处复制实现——统一 38px 基线（搜索页原 36）、补齐 DetailView 缺失的键盘焦点环、命中区经 Handler `margin` 外扩（不破坏与页面内容的左缘对齐）。**W9**：Detail/Search 的红底白字通栏错误条换成全局同款 `Banner`（容器色 + 4px 色条 + 边框，可关闭），DetailView 的带「重试」动作（接 `loadDetail()`）；`message` 走显式 `Binding` 防 `dismiss()` 写空打断绑定（SettingsView 同款模式）。HomeView 分区错误是行内红字非通栏，不属整改对象。验证：lint 全绿 + 650 测试 + 离屏烟测 15 项（三视图 tab 切换/无 service 安全 no-op/Banner 隐藏零高/dismiss 后 Binding 重接管）全过 |
+| **交互杂项批（O6 音量 + Marquee 悬停暂停 + O9 简介展开）** | **O6**：`PlayerController` 加 `muted` 独立标志（TDD 3 新测试：不动音量值、恢复天然回原音量、不入会话快照）+ `toggleMute()` / `nudgeVolume(delta)`；任何主动调音量（拖滑条/快捷键，含拖回同值）自动解除静音——平台标准行为。`Main.qml`：`AudioOutput.muted` 绑定 + 全局快捷键 `Ctrl+↑/↓` 音量 ±5%。`PlayerBar`：两处音量图标（主行 + 窄窗溢出菜单）换成可点 IconButton（volume ↔ volume-mute 图标切换，新增 `volume-mute.svg`），静音时滑条填充/手柄降权 35%。**Marquee**：`MarqueeLabel` 加 HoverHandler，悬停暂停滚动（`paused` 非 stop，移开从当前位置继续）。**O9**：DetailView 长简介默认 2 行截断，确实截断（`truncated`）时出现「展开 ⌄ / 收起 ⌃」链接（primaryFg、hover 手型、命中区外扩），换详情数据自动收回。验证：lint 全绿 + 653 测试（+3）+ 离屏烟测 18 项（横滚三态像素级 x 采样/静音 QML 绑定全链/合成 Ctrl+↑↓ 键事件/简介展开切换）全过 |
 
 **W4 验收清单**：
 
@@ -104,6 +105,16 @@
 5. 搜索失败同理出 Banner 形态（无重试按钮）；关闭后**再次**触发错误应能重新显示（显式 Binding 重接管）
 6. 亮/暗主题各看一遍 Banner 与 tab 的对比度
 
+**交互杂项批验收清单**：
+
+1. 播放中按 `Ctrl+↑` / `Ctrl+↓`：音量每次 ±5%，滑条跟随移动；搜索框聚焦时快捷键不抢字
+2. 点播放栏**音量图标** → 立即无声，图标变"扬声器+叉"，滑条变暗但位置不动；再点 → 恢复到原音量
+3. 静音状态下**拖音量滑条**（或按 Ctrl+↑/↓）→ 自动解除静音并出声
+4. 窄窗口（<920）下同样的静音按钮在 ⋯ 溢出菜单的音量行里，行为一致
+5. 放一首长歌名的歌（标题横向滚动），鼠标**悬停在歌名上** → 滚动停住可以读，移开 → 从停住的位置继续滚（不回跳）
+6. 进一个长简介的歌单/专辑详情页：简介 2 行截断 + 「展开 ⌄」链接 → 点开全文 → 「收起 ⌃」收回；短简介**不显示**展开链接；切到别的详情页后回来是折叠态
+7. 静音后退出重启：应**不记忆静音**（音量值照常恢复）
+
 ### ❌ 未动（按建议优先级排序）
 
 | 项 | 备注 |
@@ -111,7 +122,7 @@
 | C4 侧栏身份区（头像+昵称+VIP 徽章） | 需 Python 侧从 QQ API 取数据，是剩余项里唯一动后端的。**数据面调研已完成**（昵称/头像走 `get_homepage`；VIP 种类绿钻/豪华绿钻/SVIP/年费 + 官方徽章 icon 走 `_bypass_post` 裸调 `vip_login_base`，库模型未建模已提上游 [issue #257](https://github.com/L-1124/QQMusicApi/issues/257)），方案详见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md) |
 | O2 页面切换/抽屉轻动效 + reduceMotion 开关 | AlbumArt 淡变、Switch 动效已局部落地 |
 | W12 字阶 13/14 相邻 | caption 降 12 或合并 |
-| 杂项 | 暗色猜你喜欢卡偏闷、卡内容两极分布、O5 关于区、O6 音量快捷键/点击静音、O9 简介展开、BusyIndicator 品牌化、W10 显式字体（保障项）、W13 遮罩走 scrim token（可选） |
+| 杂项 | 暗色猜你喜欢卡偏闷、卡内容两极分布、O5 关于区、W10 显式字体（保障项）、W13 遮罩走 scrim token（可选）（~~O6 音量快捷键/静音~~ ~~O9 简介展开~~ ~~BusyIndicator 品牌化~~ 已完成） |
 
 ---
 
@@ -309,4 +320,4 @@ headerBar 只有 DragHandler（`Main.qml:408-415`），无双击切换最大化/
 4. ~~**布局级**（C3 收纳 + W1 居中 + W8 网格 + 搜索居中 + W4 骨架屏）~~ ✅ 完成（W4 🕐 待验收；**未动** 猜你喜欢卡内容收束）；
 5. **观感级** —— 部分：O3 SVG 图标 ✅（19 个 + AppIcon 机制）、O1 正在播放沉浸页重做 🕐 待验收（浮层化 + 双栏 + 歌词跳播）；**未动** C4 侧栏身份区、O2 页面动效、暗色猜你喜欢卡、W13 scrim token。
 
-**建议的下一批**（按收益排序）：① 交互杂项批（O6 音量快捷键/点击静音、MarqueeLabel hover 暂停、O9 简介展开）；② 视觉杂项批（W12 字阶、W10 显式字体、暗色猜你喜欢卡、W13 scrim token、O5 关于区）；③ O2 页面动效 + reduceMotion 开关。C4 侧栏身份区调研已备好（见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)），等用户解除挂起后随时可做。
+**建议的下一批**（按收益排序）：① 视觉杂项批（W12 字阶、W10 显式字体、暗色猜你喜欢卡、W13 scrim token、O5 关于区）；② O2 页面动效 + reduceMotion 开关。C4 侧栏身份区调研已备好（见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)），等用户解除挂起后随时可做。

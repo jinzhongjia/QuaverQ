@@ -22,6 +22,7 @@
 | `heart.svg` / `heart-filled.svg` | 喜欢（描边 = 未喜欢，实心 = 已喜欢 / 侧栏「我喜欢」） |
 | `queue.svg` | 待播列表 |
 | `volume.svg` | 音量 |
+| `volume-mute.svg` | 静音（扬声器 + 叉，播放栏静音切换态） |
 | `more-horizontal.svg` | 更多操作（歌曲行 ⋯ / 播放栏窄窗溢出） |
 | `arrow-left.svg` | 顶栏返回 |
 | `chevron-down.svg` | 正在播放页「收起」 |

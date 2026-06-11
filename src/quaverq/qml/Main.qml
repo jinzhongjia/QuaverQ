@@ -250,6 +250,7 @@ ApplicationWindow {
         id: audioOutput
 
         volume: root.muteForPendingSeek ? 0 : (root.playerController ? root.playerController.volume : 0.8)
+        muted: root.playerController ? root.playerController.muted : false
     }
 
     MediaPlayer {
@@ -393,6 +394,24 @@ ApplicationWindow {
         onActivated: {
             if (root.playerController)
                 root.playerController.next()
+        }
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Up"
+        enabled: !searchField.activeFocus && !loginDialog.visible
+        onActivated: {
+            if (root.playerController)
+                root.playerController.nudgeVolume(0.05)
+        }
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Down"
+        enabled: !searchField.activeFocus && !loginDialog.visible
+        onActivated: {
+            if (root.playerController)
+                root.playerController.nudgeVolume(-0.05)
         }
     }
 
@@ -672,6 +691,7 @@ ApplicationWindow {
         positionMs: root.playerController ? root.playerController.positionMs : 0
         durationMs: root.playerController ? root.playerController.durationMs : 0
         volume: root.playerController ? root.playerController.volume : 0.8
+        muted: root.playerController ? root.playerController.muted : false
         mode: root.playerController ? root.playerController.mode : "sequence"
         queueCount: root.playerController && root.playerController.queueModel
             ? root.playerController.queueModel.count
@@ -698,6 +718,10 @@ ApplicationWindow {
         onVolumeRequested: function(value) {
             if (root.playerController)
                 root.playerController.setVolume(value)
+        }
+        onMuteToggleRequested: {
+            if (root.playerController)
+                root.playerController.toggleMute()
         }
         onModeRequested: function(value) {
             if (root.playerController)

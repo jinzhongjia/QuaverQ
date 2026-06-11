@@ -55,6 +55,7 @@ class PlayerController(QObject):
     positionMsChanged = Signal()
     durationMsChanged = Signal()
     volumeChanged = Signal()
+    mutedChanged = Signal()
     modeChanged = Signal()
     queueChanged = Signal()
     loadingChanged = Signal()
@@ -89,6 +90,8 @@ class PlayerController(QObject):
         self._position_ms = 0
         self._duration_ms = 0
         self._volume = 0.8
+        # 静音是独立标志 (不清零 volume): 恢复时天然回到原音量; 不随会话快照持久化
+        self._muted = False
         self._loading = False
         self._error_message = ""
         self._load_generation = 0
@@ -125,6 +128,10 @@ class PlayerController(QObject):
     @Property(float, notify=volumeChanged)
     def volume(self) -> float:
         return self._volume
+
+    @Property(bool, notify=mutedChanged)
+    def muted(self) -> bool:
+        return self._muted
 
     @Property(str, notify=modeChanged)
     def mode(self) -> str:
@@ -398,11 +405,26 @@ class PlayerController(QObject):
 
     @Slot(float)
     def setVolume(self, volume: float) -> None:
+        # 用户主动调音量 = 想听到声音, 自动解除静音 (平台标准行为);
+        # 解除要在同值早退之前, 否则"拖回原音量"无法解除静音
+        if self._muted:
+            self._muted = False
+            self.mutedChanged.emit()
         value = min(1.0, max(0.0, float(volume)))
         if self._volume == value:
             return
         self._volume = value
         self.volumeChanged.emit()
+
+    @Slot(float)
+    def nudgeVolume(self, delta: float) -> None:
+        """音量步进 (快捷键 Ctrl+↑/↓ 用), 钳位 [0,1] 并解除静音."""
+        self.setVolume(self._volume + float(delta))
+
+    @Slot()
+    def toggleMute(self) -> None:
+        self._muted = not self._muted
+        self.mutedChanged.emit()
 
     @Slot(str)
     def setMode(self, mode: str) -> None:

@@ -309,7 +309,7 @@ LLM 约定：
 
 ### 交互 / 无障碍
 
-- **键盘**: 全局快捷键 — `Ctrl+F` 聚焦搜索, `Space` 播放 / 暂停, `Ctrl+←` / `Ctrl+→` 上 / 下首, `Esc` 退焦 / 关队列面板 / 返回上一级. 焦点搁 `shortcutFocusSink`, 不抢输入框焦点.
+- **键盘**: 全局快捷键 — `Ctrl+F` 聚焦搜索, `Space` 播放 / 暂停, `Ctrl+←` / `Ctrl+→` 上 / 下首, `Ctrl+↑` / `Ctrl+↓` 音量 ±5%（自动解除静音）, `Esc` 退焦 / 关队列面板 / 返回上一级. 焦点搁 `shortcutFocusSink`, 不抢输入框焦点.
 - **焦点环**: 所有可聚焦组件 `activeFocus` 时套 2px `Palette.focusRing` (= `primary`) 描边, 配合 `Keys.onReturnPressed` / `onSpacePressed` 触发. 不依赖鼠标 hover.
 - **无障碍名**: 图标按钮 `Accessible.role: Button` + `Accessible.name: text`, 即 `IconButton.text` 不显示在视觉上但读屏会读. `Card` 的 name 拼 `title + 副标题`.
 - **命中区**: 工具按钮统一 `toolHitSize=44`, 即便视觉图标只有 16~20px. 列表行 ≥ 40px.
