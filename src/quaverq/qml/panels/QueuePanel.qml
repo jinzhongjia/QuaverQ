@@ -16,16 +16,28 @@ Rectangle {
 
     signal closeRequested()
     signal playIndexRequested(int row)
+    signal removeIndexRequested(int row)
+    signal clearRequested()
 
     color: ThemeTokens.Palette.surfaceElevated
     border.color: ThemeTokens.Palette.outlineMuted
     focus: visible
 
-    // 仅在面板首次打开时滚到当前曲. 之后**不**再 hook currentIndex / visible 变化, 否则:
-    //   - 播放器内部任何 _emit_current_changed (next/prev/playQueueIndex/setQueue ...) 都会
-    //     触发 onCurrentIndexChanged, 把用户滚开的视图强行拉回当前曲.
-    //   - onVisibleChanged 与 Loader 的 active 重新挂载冗余.
-    // 用户想看当前曲: 关掉面板再打开 (每次打开是新挂载, Component.onCompleted 重跑).
+    // 抽屉事件屏障: 面板盖在内容区上方, 标题栏等无处理器区域的点击 / 滚轮 / 悬停
+    // 会穿透到底下的页面, 整层吞掉 (列表等子项声明在后, 不受影响)
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.AllButtons
+        hoverEnabled: true
+        onWheel: function(wheel) {
+            wheel.accepted = true
+        }
+    }
+
+    // 仅在面板打开时滚到当前曲, **不** hook currentIndex 变化 —— 否则播放器内部任何
+    // _emit_current_changed (next/prev/playQueueIndex/setQueue ...) 都会把用户滚开的
+    // 视图强行拉回当前曲. 面板现由常驻 Loader 承载 (滑入/出动画需要 item 存活,
+    // 不再每次打开重新挂载), 故"每次打开定位到当前曲"由 visible 变化触发.
     function revealCurrentItem() {
         if (root.currentIndex >= 0)
             queueList.positionViewAtIndex(root.currentIndex, ListView.Contain)
@@ -34,6 +46,11 @@ Rectangle {
     Component.onCompleted: {
         // 等 ListView 完成首次 layout 再定位, 避免 positionViewAtIndex 在 height==0 时无效
         Qt.callLater(revealCurrentItem)
+    }
+
+    onVisibleChanged: {
+        if (visible)
+            Qt.callLater(revealCurrentItem)
     }
 
     Keys.onEscapePressed: root.closeRequested()
@@ -67,6 +84,33 @@ Rectangle {
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
+                }
+            }
+
+            Button {
+                id: clearButton
+
+                Layout.preferredHeight: 28
+                visible: root.queueCount > 0
+                text: qsTr("清空")
+                Accessible.name: qsTr("清空待播列表")
+                onClicked: root.clearRequested()
+
+                contentItem: Label {
+                    text: clearButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: ThemeTokens.Spacing.s3
+                    rightPadding: ThemeTokens.Spacing.s3
+                    color: ThemeTokens.Palette.surfaceVariantText
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: clearButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : clearButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                 }
             }
 
@@ -135,6 +179,9 @@ Rectangle {
                     coverController: root.coverController
                     onActivated: function(songData, row) {
                         root.playIndexRequested(row)
+                    }
+                    onRemoveRequested: function(row) {
+                        root.removeIndexRequested(row)
                     }
                 }
 

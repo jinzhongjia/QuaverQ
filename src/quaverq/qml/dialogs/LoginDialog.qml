@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../components" as Components
 import "../Theme" as ThemeTokens
 
 Dialog {
@@ -13,6 +14,8 @@ Dialog {
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // 模态遮罩走 scrim token (W13): Basic 默认跟系统 palette.shadow, 暗色下偏弱
+    Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
     width: Math.min(parent ? parent.width - ThemeTokens.Spacing.s8 : 420, 420)
     x: parent ? Math.round((parent.width - width) / 2) : 0
     y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
@@ -193,9 +196,9 @@ Dialog {
                 fillMode: Image.PreserveAspectFit
             }
 
-            BusyIndicator {
+            Components.Spinner {
                 anchors.centerIn: parent
-                running: visible
+                size: 36
                 visible: root.appController
                     && root.appController.loggingIn
                     && root.appController.qrcodeDataUrl.length === 0

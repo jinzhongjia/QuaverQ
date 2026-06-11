@@ -29,7 +29,7 @@ ScrollView {
 
     signal loginRequested()
     signal searchRequested(string keyword)
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
     signal nowPlayingRequested()
 
     contentWidth: availableWidth
@@ -143,8 +143,8 @@ ScrollView {
             errorMessage: root.homeController ? root.homeController.playlistErrorMessage : ""
             emptyText: qsTr("暂无推荐歌单")
             coverController: root.coverController
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -171,8 +171,8 @@ ScrollView {
                 if (root.playerController && root.homeController)
                     root.playerController.playFromModel(root.homeController.newSongModel, row)
             }
-            onNavigationRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -188,8 +188,8 @@ ScrollView {
             errorMessage: root.homeController ? root.homeController.topErrorMessage : ""
             emptyText: qsTr("暂无排行榜")
             coverController: root.coverController
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -296,13 +296,30 @@ ScrollView {
         Layout.preferredHeight: root.availableWidth < 720 ? 184 : 156
         Layout.minimumHeight: Layout.preferredHeight
         radius: ThemeTokens.Spacing.radiusLg
-        color: ThemeTokens.Palette.primaryContainer
+        // 同色系微渐变 (上亮下沉): 暗色模式下整块 primaryContainer 平涂偏闷
+        gradient: Gradient {
+            GradientStop { position: 0; color: ThemeTokens.Palette.primaryContainerHi }
+            GradientStop { position: 1; color: ThemeTokens.Palette.primaryContainer }
+        }
         border.color: ThemeTokens.Palette.outlineMuted
 
         RowLayout {
             anchors.fill: parent
             anchors.margins: ThemeTokens.Spacing.s5
             spacing: ThemeTokens.Spacing.s5
+
+            // 封面放文字侧: 原"文字贴左、封面贴右"在宽窗下两端无限拉开, 卡片断成两截;
+            // 封面+文字成一组后, 右侧只剩常规右锚的播放键
+            Components.AlbumArt {
+                Layout.preferredWidth: root.availableWidth < 720 ? 72 : 92
+                Layout.preferredHeight: root.availableWidth < 720 ? 72 : 92
+                Layout.alignment: Qt.AlignVCenter
+                active: section.hasPreview
+                coverUrl: section.hasPreview && section.previewSong.coverUrl ? section.previewSong.coverUrl : ""
+                coverController: section.coverController
+                iconText: "♪"
+                iconSize: ThemeTokens.TypeScale.h1
+            }
 
             ColumnLayout {
                 Layout.fillWidth: true
@@ -339,39 +356,38 @@ ScrollView {
 
             }
 
-            Components.AlbumArt {
-                Layout.preferredWidth: root.availableWidth < 720 ? 72 : 92
-                Layout.preferredHeight: root.availableWidth < 720 ? 72 : 92
-                active: section.hasPreview
-                coverUrl: section.hasPreview && section.previewSong.coverUrl ? section.previewSong.coverUrl : ""
-                coverController: section.coverController
-                iconText: "♪"
-                iconSize: ThemeTokens.TypeScale.h1
-            }
-
             Button {
                 id: dailyPlayButton
 
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56
                 enabled: section.requiresLogin || section.hasPreview
-                text: section.requiresLogin ? qsTr("登录") : section.showsPause ? "❚❚" : "▶"
-                Accessible.name: section.requiresLogin
+                text: section.requiresLogin
                     ? qsTr("登录")
                     : section.showsPause ? qsTr("暂停猜你喜欢") : qsTr("播放猜你喜欢")
+                Accessible.name: text
                 onClicked: section.playRequested()
 
-                contentItem: Label {
-                    text: dailyPlayButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: dailyPlayButton.enabled
-                        ? ThemeTokens.Palette.primaryText
-                        : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: section.requiresLogin
-                        ? ThemeTokens.TypeScale.bodySm
-                        : ThemeTokens.TypeScale.h2
-                    font.weight: ThemeTokens.TypeScale.medium
+                contentItem: Item {
+                    Components.AppIcon {
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: section.showsPause ? 0 : 1
+                        visible: !section.requiresLogin
+                        size: 22
+                        source: section.showsPause ? "../icons/pause.svg" : "../icons/play.svg"
+                        color: dailyPlayButton.enabled
+                            ? ThemeTokens.Palette.primaryText
+                            : ThemeTokens.Palette.surfaceVariantText
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: section.requiresLogin
+                        text: qsTr("登录")
+                        color: ThemeTokens.Palette.primaryText
+                        font.pixelSize: ThemeTokens.TypeScale.bodySm
+                        font.weight: ThemeTokens.TypeScale.medium
+                    }
                 }
 
                 background: Rectangle {
@@ -402,7 +418,7 @@ ScrollView {
 
         signal actionRequested()
         signal songRequested(int row)
-        signal navigationRequested(string kind, string detailId, string title, string subtitle)
+        signal navigationRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         Layout.preferredHeight: songColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
@@ -446,6 +462,24 @@ ScrollView {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            // 冷启动骨架: 无缓存数据时的加载占位 (SWR 有缓存直出, 不闪骨架)
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: section.loading && !section.hasRows
+                spacing: ThemeTokens.Spacing.s2
+
+                Repeater {
+                    model: 3
+
+                    delegate: Components.SongRowSkeleton {
+                        required property int index
+
+                        Layout.fillWidth: true
+                        titleRatio: 0.3 + (index % 3) * 0.14
+                    }
+                }
+            }
+
             Repeater {
                 model: section.hasRows ? section.model : null
 
@@ -454,11 +488,15 @@ ScrollView {
                     libraryController: section.libraryController
                     coverController: section.coverController
                     songDetailController: section.songDetailController
+                    playerController: root.playerController
+                    selected: root.playerController
+                        && root.playerController.currentSong
+                        && root.playerController.currentSong.mid === song.mid
                     onActivated: function(songData, row) {
                         section.songRequested(row)
                     }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        section.navigationRequested(kind, detailId, title, subtitle)
+                    onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                        section.navigationRequested(kind, detailId, title, subtitle, coverUrl)
                     }
                 }
             }
@@ -477,7 +515,7 @@ ScrollView {
         property var coverController
         readonly property bool hasCards: section.model && section.model.count > 0
 
-        signal cardRequested(string kind, string detailId, string title, string subtitle)
+        signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         Layout.preferredHeight: cardColumn.implicitHeight
         Layout.minimumHeight: Layout.preferredHeight
@@ -518,10 +556,32 @@ ScrollView {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            // 冷启动骨架: 一排卡片占位
+            GridLayout {
+                id: cardSkeletonGrid
+
+                Layout.fillWidth: true
+                visible: section.loading && !section.hasCards
+                columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
+                columnSpacing: ThemeTokens.Spacing.s5
+                rowSpacing: ThemeTokens.Spacing.s5
+
+                Repeater {
+                    model: cardSkeletonGrid.columns
+
+                    delegate: Components.CardSkeleton {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
+                    }
+                }
+            }
+
             GridLayout {
                 Layout.fillWidth: true
                 visible: section.hasCards
-                columns: root.availableWidth > 560 ? 4 : root.availableWidth > 380 ? 3 : 2
+                // 目标卡宽 ~180px 自适应列数 (2..8): 最大化窗口加列, 不再 4 列巨图
+                columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
                 columnSpacing: ThemeTokens.Spacing.s5
                 rowSpacing: ThemeTokens.Spacing.s5
 
@@ -553,8 +613,8 @@ ScrollView {
                             coverUrl: cardCell.coverUrl
                             meta: cardCell.meta
                             coverController: section.coverController
-                            onActivated: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
-                            onPlayRequested: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                            onActivated: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
+                            onPlayRequested: section.cardRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
                         }
                     }
                 }

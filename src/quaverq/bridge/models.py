@@ -168,6 +168,50 @@ class SongListModel(QAbstractListModel):
         self.endResetModel()
         self.countChanged.emit()
 
+    # ---- 粒度操作 (待播队列增删挪) ----
+    # 整表 reset 会让 ListView 销毁全部 delegate 并滚回顶部 (待播面板开着时观感极差);
+    # 队列的单点变动必须走 insert/remove/move 粒度信号, reset 仅用于整队列替换.
+
+    def append_songs(self, songs: list[Song]) -> None:
+        if not songs:
+            return
+        start = len(self._songs)
+        self.beginInsertRows(QModelIndex(), start, start + len(songs) - 1)
+        self._songs.extend(songs)
+        self.endInsertRows()
+        self.countChanged.emit()
+
+    def insert_song(self, row: int, song: Song) -> None:
+        row = max(0, min(int(row), len(self._songs)))
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._songs.insert(row, song)
+        self.endInsertRows()
+        self.countChanged.emit()
+
+    def remove_row(self, row: int) -> None:
+        if not (0 <= row < len(self._songs)):
+            return
+        self.beginRemoveRows(QModelIndex(), row, row)
+        del self._songs[row]
+        self.endRemoveRows()
+        self.countChanged.emit()
+
+    def move_row(self, from_row: int, to_row: int) -> None:
+        """挪一行到目标位置 (语义同 list.pop(from) + insert(to)).
+
+        beginMoveRows 的 destinationChild 语义: 向下移动时目标必须给"最终位置 + 1"
+        (Qt 文档明确的经典坑), 这里统一换算, 调用方只管最终下标.
+        """
+        n = len(self._songs)
+        if not (0 <= from_row < n) or not (0 <= to_row < n) or from_row == to_row:
+            return
+        dest = to_row + 1 if to_row > from_row else to_row
+        if not self.beginMoveRows(QModelIndex(), from_row, from_row, QModelIndex(), dest):
+            return
+        song = self._songs.pop(from_row)
+        self._songs.insert(to_row, song)
+        self.endMoveRows()
+
     def songs(self) -> list[Song]:
         return list(self._songs)
 

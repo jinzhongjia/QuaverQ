@@ -256,6 +256,18 @@ async def _shutdown(
         await asyncio.gather(*pending, return_exceptions=True)
 
 
+def _platform_default_font_family(platform: str) -> str | None:
+    """启动期显式应用字体 (W10): 返回 None 表示交给系统默认.
+
+    Windows 默认 Segoe UI 无 CJK 字形, 中英混排时逐字 fallback 到雅黑,
+    基线 / 字重 (Medium 在 fallback 链上常退化) 不一致; 显式设 YaHei UI 一次到位.
+    Linux 交给 fontconfig, macOS 交给系统 (PingFang 自动覆盖).
+    """
+    if platform == "win32":
+        return "Microsoft YaHei UI"
+    return None
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -301,6 +313,12 @@ def main() -> None:
     app.setApplicationName("quaverq")
     app.setDesktopFileName(resources.APP_ID)
     app.setWindowIcon(QIcon(str(resources.icon_file())))
+
+    font_family = _platform_default_font_family(sys.platform)
+    if font_family:
+        app_font = app.font()
+        app_font.setFamily(font_family)
+        app.setFont(app_font)
 
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)

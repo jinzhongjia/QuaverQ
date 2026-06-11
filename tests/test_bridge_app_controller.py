@@ -330,3 +330,15 @@ async def test_credential_expired_updates_login_state_and_emits_signal():
     assert controller.loginState == "expired"
     assert controller.loginMessage == "登录已过期，请重新扫码"
     assert expired_count == 1
+
+
+def test_app_version_reads_installed_metadata():
+    controller = AppController(_FakeServiceController())  # type: ignore[arg-type]
+    # 本仓库以可安装包形式装进虚拟环境 ([tool.uv] package = true), 必然能读到版本
+    assert controller.appVersion == "0.1.0"
+
+
+def test_application_version_falls_back_when_package_missing():
+    from quaverq.bridge.app_controller import application_version
+
+    assert application_version("definitely-not-installed-pkg") == "dev"

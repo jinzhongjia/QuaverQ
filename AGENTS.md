@@ -145,6 +145,23 @@ LLM 约定：
 - **`DwmSetIconicThumbnail` 只接 DIB section**: 不接 `CreateBitmap` 产的 DDB. 任务栏自定义缩略图 (DWM iconic representation) 必须走 `CreateDIBSection` + 32bpp BGRA top-down (`biHeight = -h`). DDB 给 `HICON` 用 (`CreateIconIndirect` 路径).
 - **`SetWindowSubclass` SUBCLASSPROC 必须持有引用**: `ctypes.WINFUNCTYPE` 包出来的 callback 一被 GC 立刻变野指针, 下次 Windows 派发 WM 消息直接崩进程. 把 `self._subclass_proc = proc` 存到对象上, 不要图省事用局部变量.
 
+### Linux portable: 构建机装有系统 Qt 时 Nuitka 漏拷二阶 Qt 依赖
+
+- **现象**: 本机 (Arch, 装有 qt6-declarative) 打的 portable 包, 在本机跑直接
+  `libQt6Quick.so.6: undefined symbol ... version Qt_6_PRIVATE_API`; 干净机器上则是
+  `cannot open shared object`. CI 干净 runner 没系统 Qt, **从未暴露**.
+- **根因**: Nuitka 依赖遍历把 bundle 内 Qt 库的下层依赖 (libQt6QmlModels / QmlMeta /
+  QmlWorkerScript / QuickTemplates2 / DBus / Concurrent) 解析到 `/usr/lib` 并当成
+  "系统库"跳过不拷. 运行时 bundle 内库经 `$ORIGIN` RPATH 找不到同目录副本, 回落系统
+  Qt —— 发行版 Qt 构建与 PySide6 wheel 的私有 ABI 不兼容.
+- **修复**: `packaging.py` 的 `heal_qt_bundle()` —— `build()` 后对 bundle 顶层全部
+  `libQt6*.so*` 跑 ldd, 凡解析到包外的 libQt6 依赖从 PySide6 wheel 的 `Qt/lib` 补拷
+  进 bundle 顶层, 迭代到不动点 (覆盖传递依赖); wheel 也没有的打 WARN. AppImage /
+  portable 共同受益. **验收**: `for lib in <bundle>/libQt6*.so.6; do ldd $lib; done |
+  grep "=> /usr/lib/libQt6"` 必须零输出 + `python -m quaverq.packaging --smoke` PASS.
+- **portable 归档格式**: Windows `.zip` / 其他平台 `.tar.gz` (`portable_archive_name()`)
+  —— zip 不保留 Unix +x 位, Linux 解出来主程序不可执行.
+
 ### Nuitka + WiX 打包 (Windows MSI / Portable)
 
 **通用 Nuitka 配置 (`src/quaverq/packaging.py`)**:
@@ -211,7 +228,7 @@ LLM 约定：
 - `uv run python scripts/lint.py --fix` — 自动修复可修的 ruff 问题并执行 `ruff format`
 - `uv run python scripts/lint.py --py` / `--qml` — 只跑其中一项
 - `uv run python build.py --appimage` — 打 AppImage (Linux: Nuitka standalone + linuxdeploy)
-- `uv run python build.py --portable` — 打 portable zip (跨平台: Nuitka standalone → `dist/QuaverQ-{version}-portable.zip`, 解压即跑)
+- `uv run python build.py --portable` — 打 portable 归档 (跨平台: Nuitka standalone → Windows `QuaverQ-{version}-portable.zip` / 其他平台 `*.tar.gz`——zip 不保留 Unix +x 位, 解压即跑)
 - `uv run python build.py --msi` — 打 MSI 安装包 (Windows: Nuitka standalone + WiX 5 → `dist/QuaverQ-{version}.msi`; 需 `dotnet tool install --global wix`)
 
 ## 项目使用的 Lint
@@ -280,7 +297,7 @@ LLM 约定：
 - **顶栏 (`headerBar`, height = `Spacing.headerHeight = 56`)**: 自绘无边框标题栏. 从左到右: 返回键 → 品牌 logo (28x28 圆角矩形 + ♪) + 标题 (≥920px 才显示文字) → `SearchField` (`maxWidth=500`, `fillWidth`) → 最小化 / 最大化 / 关闭按钮. 拖动靠 `DragHandler` + `startSystemMove()`, 不接系统装饰. 见 `qml/Main.qml`.
 - **主体 (RowLayout, `spacing=0`)**: 左 `Sidebar` (展开 240px / 紧凑 64px) + 右 `StackView contentStack` (路由切换走 push / clear, 不用 Loader); `StackView` 装 `views/HomeView`, `SearchView`, `LibraryView`, `DetailView`, `NowPlayingView`, `SettingsView`.
 - **底栏 (`PlayerBar`, height = `Spacing.playerBarHeight = 104`)**: 全宽常驻播放器, 封面 + 元信息 + 控件 + 进度 + 音量 + 队列 / 正在播放入口. 底部圆角与窗口圆角联动 (`bottomCornerRadius`).
-- **浮层**: `QueuePanel` (`Loader` 懒加载, 右抽屉 z=10, 宽 `min(360, root.width - 96)`), `LoginDialog` (二维码登录, z 默认), `Banner` (顶栏下警告条, z=970), `Snackbar` (居中提示, z=980), 窗口边框 / resize handle 分别 z=990 / z=1000.
+- **浮层**: `QueuePanel` (`Loader` 首开常驻, 右抽屉 220ms 自右滑入, z=10, 宽 `min(360, root.width - 96)`), `LoginDialog` (二维码登录, z 默认), `Banner` (顶栏下警告条, z=970), `Snackbar` (居中提示, z=980), 窗口边框 / resize handle 分别 z=990 / z=1000.
 
 ### 窗口 chrome (自绘 + 无系统装饰)
 
@@ -296,20 +313,20 @@ LLM 约定：
 - **`Theme.qml`** — 模式开关. `mode` ∈ `{"system", "light", "dark"}`, `dark` 派生属性. 系统模式以 `SystemTheme` (`bridge/system_theme.py`, 走 xdg-desktop-portal `color-scheme`) 为准, Qt 自带 `styleHints.colorScheme` 在 GNOME/Wayland 上把 portal `prefer-dark` 错映射成 `Light`, 不可靠. `Main.qml` 用两个 `Binding` 把 `settingsController.themeMode` + `systemTheme.dark` 灌进来.
 - **`Palette.qml`** — 全部颜色 token. 亮色: 品牌 `#31c27c` + 白底 `#ffffff` + 侧栏 `#f5f5f7` + 文本 `#333333` / `#767676`; 深色: `#1b1c1f` 底 + `#1f2024` 侧栏 + `#f0f1f3` / `#9a9ca2` 文本. 分层 token 含 `background` / `surface` / `surfaceElevated` / `surfaceVariant` / `surfaceContainerHigh`, 交互态 `stateHover` / `statePressed` / `stateSelected` / `stateDisabled` / `focusRing` / `scrim`, 品牌色 `primary` / `primaryHover` / `primaryActive` / `primaryContainer` / `primaryText`, 次级 `accent` (空间音频蓝), 状态 `error` / `warning`. 换肤只动这一个文件.
 - **`Spacing.qml`** — 间距 + 圆角 + 命中区. 间距 4 阶幂级数: `s2=4`, `s3=8`, `s4=12`, `s5=16`, `s6=24`, `s7=32`, `s8=48`. 圆角五档: `radiusSm=4`, `radiusMd=8`, `radiusLg=12`, `radiusXl=16`, `radiusPill=20`. 命中区 `toolHitSize=44` (WCAG 触控目标).
-- **`TypeScale.qml`** — 字号 + 字重. 字号: `display=32` / `h1=23` / `h2=19` / `body=16` / `bodySm=14` / `caption=13`. 字重: `regular=Font.Normal` / `medium=Font.Medium` / `bold=Font.DemiBold` (用 DemiBold 而非 Bold, 避免在 Linux 默认字体上糊).
-- **`Motion.qml`** — 动效时长 + 缓动. 时长三档: `durFast=120` / `durMed=220` / `durSlow=320` ms. 缓动: `easeOut=OutCubic` / `easeIn=InCubic` / `easeStd=InOutCubic`.
+- **`TypeScale.qml`** — 字号 + 字重. 字号: `display=32` / `h1=23` / `h2=19` / `body=16` / `bodySm=14` / `caption=12` (与 bodySm 拉开 2px 字阶, W12). 字重: `regular=Font.Normal` / `medium=Font.Medium` / `bold=Font.DemiBold` (用 DemiBold 而非 Bold, 避免在 Linux 默认字体上糊).
+- **`Motion.qml`** — 动效时长 + 缓动 + **`reduceMotion` 总开关** (SettingsController 持久化, 经 Main.qml Binding 注入; 开启后三档时长归零 = 过渡瞬时, Marquee 横滚 / 骨架脉动等持续性运动由消费方绑定停用; Spinner 加载旋转刻意不受控). 时长三档: `durFast=120` / `durMed=220` / `durSlow=320` ms. 缓动: `easeOut=OutCubic` / `easeIn=InCubic` / `easeStd=InOutCubic`.
 
 ### 组件 / 视图分层
 
 - **`qml/components/`** — 通用复用组件: `Sidebar` / `PlayerBar` / `SearchField` / `SongRow` / `QueueRow` / `Card` / `AlbumArt` / `NavItem` / `IconButton` / `LikeButton` / `Snackbar` / `Banner`. 一律自定义 `background` / `contentItem`, 不依赖 Qt 默认 style 主题.
-- **`qml/views/`** — 整页视图: `HomeView` / `SearchView` / `LibraryView` / `DetailView` / `NowPlayingView` / `SettingsView`. 通过 `StackView` 切换, 走 `StackView.Immediate` (无切换动画, 避免延迟感).
+- **`qml/views/`** — 整页视图: `HomeView` / `SearchView` / `LibraryView` / `DetailView` / `NowPlayingView` / `SettingsView`. 通过 `StackView` 切换, 页面过渡为 120ms 透明度交叉淡入 (只动 opacity; `reduceMotion` 开启时 durFast=0 即瞬时, 等价旧 `StackView.Immediate` 行为).
 - **`qml/panels/`** — 抽屉式浮层: `QueuePanel` / `LyricPanel`.
 - **`qml/dialogs/`** — 模态对话框: `LoginDialog`.
 - **`qml/Theme/`** — 上述 5 个 singleton, 不放业务组件.
 
 ### 交互 / 无障碍
 
-- **键盘**: 全局快捷键 — `Ctrl+F` 聚焦搜索, `Space` 播放 / 暂停, `Ctrl+←` / `Ctrl+→` 上 / 下首, `Esc` 退焦 / 关队列面板 / 返回上一级. 焦点搁 `shortcutFocusSink`, 不抢输入框焦点.
+- **键盘**: 全局快捷键 — `Ctrl+F` 聚焦搜索, `Space` 播放 / 暂停, `Ctrl+←` / `Ctrl+→` 上 / 下首, `Ctrl+↑` / `Ctrl+↓` 音量 ±5%（自动解除静音）, `Esc` 退焦 / 关队列面板 / 返回上一级. 焦点搁 `shortcutFocusSink`, 不抢输入框焦点.
 - **焦点环**: 所有可聚焦组件 `activeFocus` 时套 2px `Palette.focusRing` (= `primary`) 描边, 配合 `Keys.onReturnPressed` / `onSpacePressed` 触发. 不依赖鼠标 hover.
 - **无障碍名**: 图标按钮 `Accessible.role: Button` + `Accessible.name: text`, 即 `IconButton.text` 不显示在视觉上但读屏会读. `Card` 的 name 拼 `title + 副标题`.
 - **命中区**: 工具按钮统一 `toolHitSize=44`, 即便视觉图标只有 16~20px. 列表行 ≥ 40px.

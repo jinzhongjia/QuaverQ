@@ -11,6 +11,7 @@ Rectangle {
     property int positionMs: 0
     property int durationMs: 0
     property real volume: 0.8
+    property bool muted: false
     property string mode: "sequence"
     property bool loading: false
     property string errorMessage: ""
@@ -33,6 +34,7 @@ Rectangle {
     signal prevRequested()
     signal seekRequested(int positionMs)
     signal volumeRequested(real volume)
+    signal muteToggleRequested()
     signal modeRequested(string mode)
     signal queueRequested()
     signal nowPlayingRequested()
@@ -104,16 +106,16 @@ Rectangle {
         }
     }
 
-    function modeGlyph(value) {
+    function modeIcon(value) {
         switch (value) {
         case "repeat_all":
-            return "↻"
+            return "../icons/repeat.svg"
         case "repeat_one":
-            return "①"
+            return "../icons/repeat-one.svg"
         case "shuffle":
-            return "⇋"
+            return "../icons/shuffle.svg"
         default:
-            return "⇄"
+            return "../icons/sequence.svg"
         }
     }
 
@@ -177,10 +179,9 @@ Rectangle {
                 enabled: root.hasSong
             }
 
-            ToolTip {
+            AppToolTip {
                 parent: songInfo
                 visible: songInfoHover.hovered && root.hasSong
-                delay: 600
                 text: root.songTitle + qsTr(" — ") + root.songMeta
             }
 
@@ -245,10 +246,10 @@ Rectangle {
 
                     IconButton {
                         text: root.modeLabel(root.mode)
-                        iconText: root.modeGlyph(root.mode)
-                        iconSize: ThemeTokens.TypeScale.body
+                        iconSource: root.modeIcon(root.mode)
+                        iconSize: 18
                         iconColor: root.mode !== "sequence"
-                            ? ThemeTokens.Palette.primary
+                            ? ThemeTokens.Palette.primaryFg
                             : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
                         onClicked: root.modeRequested(root.nextModeName(root.mode))
@@ -256,8 +257,8 @@ Rectangle {
 
                     IconButton {
                         text: qsTr("上一首")
-                        iconText: "◂◂"
-                        iconSize: ThemeTokens.TypeScale.h2
+                        iconSource: "../icons/skip-back.svg"
+                        iconSize: 20
                         iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
                         onClicked: root.prevRequested()
@@ -272,14 +273,17 @@ Rectangle {
                         Accessible.name: root.playbackState === "playing" ? qsTr("暂停") : qsTr("播放")
                         onClicked: root.playPauseRequested()
 
-                        contentItem: Label {
-                            text: root.playbackState === "playing" ? "❚❚" : "▶"
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: ThemeTokens.Palette.primaryText
-                            font.pixelSize: ThemeTokens.TypeScale.h2
-                            // optical centering for the play triangle
-                            leftPadding: root.playbackState === "playing" ? 0 : 3
+                        contentItem: Item {
+                            AppIcon {
+                                anchors.centerIn: parent
+                                // optical centering for the play triangle
+                                anchors.horizontalCenterOffset: root.playbackState === "playing" ? 0 : 1
+                                size: 22
+                                source: root.playbackState === "playing"
+                                    ? "../icons/pause.svg"
+                                    : "../icons/play.svg"
+                                color: ThemeTokens.Palette.primaryText
+                            }
                         }
 
                         background: Rectangle {
@@ -292,7 +296,7 @@ Rectangle {
 
                             Rectangle {
                                 anchors.fill: parent
-                                visible: playButton.activeFocus
+                                visible: playButton.visualFocus
                                 radius: width / 2
                                 color: "transparent"
                                 border.color: ThemeTokens.Palette.focusRing
@@ -303,11 +307,150 @@ Rectangle {
 
                     IconButton {
                         text: qsTr("下一首")
-                        iconText: "▸▸"
-                        iconSize: ThemeTokens.TypeScale.h2
+                        iconSource: "../icons/skip-forward.svg"
+                        iconSize: 20
                         iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
                         onClicked: root.nextRequested()
+                    }
+
+                    // 第 5 槽: 与左端模式键对称, 让播放键正压进度条中轴;
+                    // 宽窗口纯占位, 窄窗口 (<920, 右区隐藏) 变成 "⋯" 溢出按钮收纳 词/队列/音量
+                    Item {
+                        Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+                        Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+
+                        IconButton {
+                            id: overflowButton
+
+                            anchors.fill: parent
+                            visible: root.width < 920
+                            text: qsTr("更多控制")
+                            iconSource: "../icons/more-horizontal.svg"
+                            iconSize: 20
+                            iconColor: ThemeTokens.Palette.surfaceVariantText
+                            onClicked: overflowPopup.open()
+                            onVisibleChanged: {
+                                if (!visible)
+                                    overflowPopup.close()
+                            }
+                        }
+
+                        // 队列非空提示点 (窄窗口下队列入口收进了溢出菜单)
+                        Rectangle {
+                            visible: overflowButton.visible && root.queueCount > 0
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.rightMargin: 6
+                            anchors.topMargin: 8
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: ThemeTokens.Palette.primary
+                        }
+
+                        Popup {
+                            id: overflowPopup
+
+                            parent: overflowButton
+                            x: parent.width - width
+                            y: -height - ThemeTokens.Spacing.s2
+                            width: 224
+                            margins: ThemeTokens.Spacing.s2
+                            padding: ThemeTokens.Spacing.s2
+
+                            background: Rectangle {
+                                radius: ThemeTokens.Spacing.radiusMd
+                                color: ThemeTokens.Palette.surfaceElevated
+                                border.color: ThemeTokens.Palette.outline
+                            }
+
+                            // 与歌曲行右键菜单同一套语言: 纯文字行 + 分隔线, 不带图标列
+                            contentItem: ColumnLayout {
+                                spacing: ThemeTokens.Spacing.s2
+
+                                OverflowRow {
+                                    Layout.fillWidth: true
+                                    label: qsTr("歌词")
+                                    enabled: root.hasSong
+                                    onActivated: {
+                                        overflowPopup.close()
+                                        root.nowPlayingRequested()
+                                    }
+                                }
+
+                                OverflowRow {
+                                    Layout.fillWidth: true
+                                    label: root.queueCount > 0
+                                        ? qsTr("待播列表 (%1)").arg(root.queueCount > 99 ? "99+" : root.queueCount)
+                                        : qsTr("待播列表")
+                                    onActivated: {
+                                        overflowPopup.close()
+                                        root.queueRequested()
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: ThemeTokens.Palette.outlineMuted
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: ThemeTokens.Spacing.s4
+                                    Layout.rightMargin: ThemeTokens.Spacing.s4
+                                    spacing: ThemeTokens.Spacing.s3
+
+                                    IconButton {
+                                        text: root.muted ? qsTr("恢复音量") : qsTr("静音")
+                                        iconSource: root.muted ? "../icons/volume-mute.svg" : "../icons/volume.svg"
+                                        iconSize: 18
+                                        iconColor: ThemeTokens.Palette.surfaceVariantText
+                                        onClicked: root.muteToggleRequested()
+                                    }
+
+                                    Slider {
+                                        id: overflowVolumeSlider
+
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 24
+                                        from: 0
+                                        to: 1
+                                        value: root.volume
+                                        Accessible.name: qsTr("音量")
+                                        onMoved: root.volumeRequested(value)
+
+                                        background: Rectangle {
+                                            x: overflowVolumeSlider.leftPadding
+                                            y: overflowVolumeSlider.topPadding + overflowVolumeSlider.availableHeight / 2 - height / 2
+                                            width: overflowVolumeSlider.availableWidth
+                                            height: 4
+                                            radius: height / 2
+                                            color: ThemeTokens.Palette.outline
+
+                                            Rectangle {
+                                                width: overflowVolumeSlider.visualPosition * parent.width
+                                                height: parent.height
+                                                radius: parent.radius
+                                                color: ThemeTokens.Palette.primary
+                                                opacity: root.muted ? 0.35 : 1
+                                            }
+                                        }
+
+                                        handle: Rectangle {
+                                            x: overflowVolumeSlider.leftPadding + overflowVolumeSlider.visualPosition * (overflowVolumeSlider.availableWidth - width)
+                                            y: overflowVolumeSlider.topPadding + overflowVolumeSlider.availableHeight / 2 - height / 2
+                                            width: 12
+                                            height: 12
+                                            radius: width / 2
+                                            color: ThemeTokens.Palette.primary
+                                            opacity: root.muted ? 0.35 : 1
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -404,8 +547,8 @@ Rectangle {
                     id: queueButton
                     anchors.fill: parent
                     text: qsTr("待播列表")
-                    iconText: "☰"
-                    iconSize: ThemeTokens.TypeScale.body
+                    iconSource: "../icons/queue.svg"
+                    iconSize: 18
                     iconColor: ThemeTokens.Palette.surfaceVariantText
                     onClicked: root.queueRequested()
                 }
@@ -432,10 +575,12 @@ Rectangle {
                 }
             }
 
-            Label {
-                text: "♪"
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
+            IconButton {
+                text: root.muted ? qsTr("恢复音量") : qsTr("静音")
+                iconSource: root.muted ? "../icons/volume-mute.svg" : "../icons/volume.svg"
+                iconSize: 18
+                iconColor: ThemeTokens.Palette.surfaceVariantText
+                onClicked: root.muteToggleRequested()
             }
 
             Slider {
@@ -446,6 +591,8 @@ Rectangle {
                 from: 0
                 to: 1
                 value: root.volume
+                Accessible.name: qsTr("音量")
+                // 静音时填充/手柄降权提示无声; 拖动即解除静音 (controller 侧处理)
                 onMoved: root.volumeRequested(value)
 
                 background: Rectangle {
@@ -461,6 +608,7 @@ Rectangle {
                         height: parent.height
                         radius: parent.radius
                         color: ThemeTokens.Palette.primary
+                        opacity: root.muted ? 0.35 : 1
                     }
                 }
 
@@ -471,8 +619,67 @@ Rectangle {
                     height: 12
                     radius: width / 2
                     color: ThemeTokens.Palette.primary
+                    opacity: root.muted ? 0.35 : 1
                 }
             }
+        }
+    }
+
+    // 溢出菜单行: 纯文字 + hover 高亮, 样式对齐 SongRow 右键菜单 (窄窗口收纳 词/队列 用)
+    component OverflowRow: Rectangle {
+        id: overflowRow
+
+        property string label: ""
+
+        signal activated()
+
+        implicitHeight: 36
+        radius: ThemeTokens.Spacing.radiusSm
+        color: overflowRowHover.hovered && overflowRow.enabled
+            ? ThemeTokens.Palette.stateHover
+            : "transparent"
+        opacity: overflowRow.enabled ? 1 : 0.45
+
+        Accessible.role: Accessible.Button
+        Accessible.name: overflowRow.label
+        activeFocusOnTab: true
+
+        HoverHandler {
+            id: overflowRowHover
+        }
+
+        TapHandler {
+            enabled: overflowRow.enabled
+            onTapped: overflowRow.activated()
+        }
+
+        Keys.onReturnPressed: {
+            if (overflowRow.enabled)
+                overflowRow.activated()
+        }
+        Keys.onSpacePressed: {
+            if (overflowRow.enabled)
+                overflowRow.activated()
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: overflowRow.activeFocus
+            radius: parent.radius
+            color: "transparent"
+            border.color: ThemeTokens.Palette.focusRing
+            border.width: 2
+        }
+
+        Label {
+            anchors.fill: parent
+            anchors.leftMargin: ThemeTokens.Spacing.s4
+            anchors.rightMargin: ThemeTokens.Spacing.s4
+            verticalAlignment: Text.AlignVCenter
+            text: overflowRow.label
+            color: ThemeTokens.Palette.surfaceText
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+            elide: Text.ElideRight
         }
     }
 }

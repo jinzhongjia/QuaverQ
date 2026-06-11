@@ -15,6 +15,7 @@ Rectangle {
     property var libraryController
     property var coverController
     property var songDetailController
+    property var playerController
     property bool selected: false
     readonly property string coverUrl: root.song && root.song.coverUrl ? root.song.coverUrl : ""
     readonly property var firstSinger: {
@@ -39,7 +40,7 @@ Rectangle {
 
     signal activated(var songData, int row)
     // 菜单里"查看歌手 / 查看专辑"的导航请求, 各 view 接到 detailRequested 上 → 走 root.pushDetail
-    signal navigationRequested(string kind, string detailId, string title, string subtitle)
+    signal navigationRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     implicitHeight: 64
     radius: ThemeTokens.Spacing.radiusMd
@@ -57,8 +58,26 @@ Rectangle {
         id: hoverHandler
     }
 
+    // 行点击播放走 MouseArea (exclusive grab) 而非 TapHandler (passive grab):
+    // passive grabber 在 hit-test 阶段被命中就 grab, 不受 modal popup 内 exclusive grabber
+    // 阻止 —— 即本行被 modal dialog 覆盖时, dialog 内的点击会"穿透"下来同时触发本行
+    // (真机实测: 歌曲详情弹窗点相似歌曲, 穿透到背后 SongRow 播放了错误的歌). MouseArea 是
+    // exclusive grabber, modal overlay 能正确拦截, 不穿透. 不设 drag/preventStealing,
+    // 纵向 ListView 的 flick 照常 steal grab, 滚动不受影响.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: root.activated(root.song, root.index)
+    }
+
+    // 桌面惯例: 右键在光标处弹出操作菜单 (与 "⋯" 同一个菜单)
     TapHandler {
-        onTapped: root.activated(root.song, root.index)
+        acceptedButtons: Qt.RightButton
+        onTapped: function(eventPoint) {
+            contextMenu.x = eventPoint.position.x
+            contextMenu.y = eventPoint.position.y
+            contextMenu.open()
+        }
     }
 
     Keys.onReturnPressed: root.activated(root.song, root.index)
@@ -121,7 +140,7 @@ Rectangle {
                 anchors.margins: -1
                 radius: parent.radius + 1
                 color: "transparent"
-                border.color: Qt.rgba(0, 0, 0, 0.06)
+                border.color: ThemeTokens.Palette.softShadow
                 z: -1
             }
         }
@@ -129,6 +148,24 @@ Rectangle {
         StyledMenuItem {
             text: qsTr("播放")
             onTriggered: root.activated(root.song, root.index)
+        }
+
+        StyledMenuItem {
+            text: qsTr("下一首播放")
+            enabled: !!(root.playerController && root.song && root.song.mid)
+            onTriggered: {
+                if (root.playerController)
+                    root.playerController.playSongNext(root.song)
+            }
+        }
+
+        StyledMenuItem {
+            text: qsTr("添加到待播列表")
+            enabled: !!(root.playerController && root.song && root.song.mid)
+            onTriggered: {
+                if (root.playerController)
+                    root.playerController.appendToQueue([root.song])
+            }
         }
 
         StyledMenuSeparator {}
@@ -154,6 +191,7 @@ Rectangle {
                         "artist",
                         root.firstSinger.mid,
                         root.firstSinger.name || "",
+                        "",
                         ""
                     )
                 }
@@ -169,7 +207,8 @@ Rectangle {
                         "album",
                         root.song.albumMid,
                         root.song.albumName || "",
-                        ""
+                        "",
+                        root.coverUrl
                     )
                 }
             }
@@ -194,7 +233,7 @@ Rectangle {
         width: 3
         visible: root.selected
         radius: width / 2
-        color: ThemeTokens.Palette.primary
+        color: ThemeTokens.Palette.primaryFg
     }
 
     Rectangle {
@@ -219,7 +258,7 @@ Rectangle {
                 ? "♪"
                 : (hoverHandler.hovered ? "▶" : (root.index >= 0 ? String(root.index + 1) : ""))
             color: (root.selected || hoverHandler.hovered)
-                ? ThemeTokens.Palette.primary
+                ? ThemeTokens.Palette.primaryFg
                 : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
@@ -277,8 +316,8 @@ Rectangle {
             Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
             Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
             text: qsTr("更多操作")
-            iconText: "⋯"
-            iconSize: ThemeTokens.TypeScale.h2
+            iconSource: "../icons/more-horizontal.svg"
+            iconSize: 18
             onClicked: {
                 // 把菜单挂在按钮下方左对齐, 跟主流播放器一致
                 contextMenu.x = moreButton.x + moreButton.width - contextMenu.width

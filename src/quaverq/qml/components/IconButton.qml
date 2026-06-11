@@ -8,6 +8,8 @@ AbstractButton {
     id: control
 
     property string iconText: ""
+    // SVG 图标 (优先于 iconText): 经 AppIcon 按 iconColor 染色
+    property url iconSource: ""
     property int iconSize: ThemeTokens.TypeScale.h2
     property color iconColor: ThemeTokens.Palette.surfaceVariantText
     property int hitSize: ThemeTokens.Spacing.toolHitSize
@@ -27,6 +29,12 @@ AbstractButton {
     Keys.onEnterPressed: control.clicked()
     Keys.onSpacePressed: control.clicked()
 
+    // 字形图标含义不自明 (⇄ / ☰ / 词 等), hover 出无障碍名作提示
+    AppToolTip {
+        visible: control.hovered && control.text.length > 0
+        text: control.text
+    }
+
     background: Rectangle {
         radius: control.cornerRadius
         color: control.down
@@ -35,7 +43,8 @@ AbstractButton {
 
         Rectangle {
             anchors.fill: parent
-            visible: control.activeFocus
+            // visualFocus: 仅键盘聚焦时画环, 鼠标点击不残留
+            visible: control.visualFocus
             radius: parent.radius
             color: "transparent"
             border.color: ThemeTokens.Palette.focusRing
@@ -43,11 +52,21 @@ AbstractButton {
         }
     }
 
-    contentItem: Label {
-        text: control.iconText
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        color: control.iconColor
-        font.pixelSize: control.iconSize
+    contentItem: Item {
+        AppIcon {
+            anchors.centerIn: parent
+            visible: control.iconSource.toString().length > 0
+            size: control.iconSize
+            source: control.iconSource
+            color: control.iconColor
+        }
+
+        Label {
+            anchors.centerIn: parent
+            visible: control.iconSource.toString().length === 0
+            text: control.iconText
+            color: control.iconColor
+            font.pixelSize: control.iconSize
+        }
     }
 }

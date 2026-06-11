@@ -6,7 +6,7 @@ import asyncio
 
 from PySide6.QtMultimedia import QMediaPlayer
 
-from quaverq.bridge.models import SongListModel
+from quaverq.bridge.models import SongListModel, song_to_map
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.core.models import Singer, Song, SongUrl
 from quaverq.core.queue import PlayMode, PlayQueue
@@ -333,6 +333,59 @@ def test_mode_and_transport_slots_emit_player_commands():
     assert pauses == [True]
 
 
+def test_toggle_mute_flips_state_and_keeps_volume():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    muted_events: list[bool] = []
+    controller.mutedChanged.connect(lambda: muted_events.append(controller.muted))
+    controller.setVolume(0.6)
+
+    assert controller.muted is False
+    controller.toggleMute()
+    assert controller.muted is True
+    # 静音是独立标志: 音量值不动, 恢复时天然回到原音量
+    assert controller.volume == 0.6
+    controller.toggleMute()
+    assert controller.muted is False
+    assert controller.volume == 0.6
+    assert muted_events == [True, False]
+
+
+def test_set_volume_unmutes():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    controller.setVolume(0.6)
+    controller.toggleMute()
+    assert controller.muted is True
+
+    # 用户主动调音量 = 想听到声音 (平台标准行为); 设相同值也要解除静音
+    controller.setVolume(0.6)
+    assert controller.muted is False
+    assert controller.volume == 0.6
+
+    controller.toggleMute()
+    controller.setVolume(0.3)
+    assert controller.muted is False
+    assert controller.volume == 0.3
+
+
+def test_nudge_volume_steps_clamps_and_unmutes():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    controller.setVolume(0.8)
+
+    controller.nudgeVolume(0.05)
+    assert abs(controller.volume - 0.85) < 1e-9
+
+    controller.nudgeVolume(0.5)
+    assert controller.volume == 1.0
+
+    controller.nudgeVolume(-2.0)
+    assert controller.volume == 0.0
+
+    controller.toggleMute()
+    controller.nudgeVolume(0.05)
+    assert controller.muted is False
+    assert abs(controller.volume - 0.05) < 1e-9
+
+
 async def test_media_error_retries_with_fresh_url_once():
     # 瞬态 401 (ResourceError): 自动重取链 (新 vkey) 重播一次, 不报错
     service = _FakeServiceController()
@@ -469,3 +522,275 @@ async def test_media_error_retry_counter_resets_after_successful_play():
     await controller.handle_media_error_async(QMediaPlayer.Error.NetworkError.value, "x")
 
     assert len(service.calls) == 3  # 首播 + 两次 (各自允许的) 重试
+
+
+# ============================================================== W5 队列增删
+
+
+def _song_map(mid: str, name: str) -> dict:
+    return {"mid": mid, "name": name, "singers": [], "albumName": "", "duration": 100}
+
+
+async def _settled(controller: PlayerController, attr: str = "sourceUrl", timeout: float = 1.0):
+    """等待异步加载落地 (sourceUrl 就位)."""
+    waited = 0.0
+    while waited < timeout:
+        if getattr(controller, attr):
+            return
+        await asyncio.sleep(0.01)
+        waited += 0.01
+
+
+async def test_play_song_next_inserts_after_current():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+
+    controller.playSongNext(_song_map("m9", "插队"))
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m1", "m9", "m2"]
+    assert controller.currentIndex == 0
+    assert controller.currentSong["mid"] == "m1"
+
+
+async def test_play_song_next_moves_existing_entry():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B"), _song("m3", "C")], 0)
+
+    controller.playSongNext(_song_map("m3", "C"))
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m1", "m3", "m2"]
+
+
+async def test_play_song_next_with_current_song_is_noop():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+
+    controller.playSongNext(_song_map("m1", "A"))
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m1", "m2"]
+    assert controller.currentIndex == 0
+
+
+async def test_play_song_next_on_empty_queue_starts_playback():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+
+    controller.playSongNext(_song_map("m1", "A"))
+    await _settled(controller)
+
+    assert controller.currentIndex == 0
+    assert controller.currentSong["mid"] == "m1"
+    assert controller.sourceUrl.endswith("m1.mp3")
+
+
+async def test_remove_queue_index_before_current_no_reload():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B"), _song("m3", "C")], 1)
+    calls_before = len(service.calls)
+
+    controller.removeQueueIndex(0)
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m2", "m3"]
+    assert controller.currentIndex == 0
+    assert controller.currentSong["mid"] == "m2"
+    assert len(service.calls) == calls_before  # 没触发重新取链
+
+
+async def test_remove_queue_index_current_advances_and_reloads():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    controller.removeQueueIndex(0)
+    for _ in range(100):
+        if controller.sourceUrl.endswith("m2.mp3"):
+            break
+        await asyncio.sleep(0.01)
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m2"]
+    assert controller.currentSong["mid"] == "m2"
+    assert controller.sourceUrl.endswith("m2.mp3")
+
+
+async def test_remove_last_remaining_song_stops():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A")], 0)
+
+    controller.removeQueueIndex(0)
+
+    assert controller.queueModel.count == 0
+    assert controller.currentSong == {}
+    assert controller.sourceUrl == ""
+    assert controller.playbackState == "stopped"
+
+
+async def test_clear_queue_stops_and_empties():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0, source="daily")
+
+    controller.clearQueue()
+
+    assert controller.queueModel.count == 0
+    assert controller.currentSong == {}
+    assert controller.sourceUrl == ""
+    assert controller.playbackState == "stopped"
+    assert controller.queueSource == ""
+
+
+def _queue_model_events(model):
+    """监听队列模型的变更信号: 粒度操作 (插/删/移) vs 整表 reset."""
+    events: list = []
+    model.modelReset.connect(lambda: events.append("reset"))
+    model.rowsInserted.connect(lambda _p, first, last: events.append(("ins", first, last)))
+    model.rowsRemoved.connect(lambda _p, first, last: events.append(("rm", first, last)))
+    model.rowsMoved.connect(lambda *_a: events.append("move"))
+    return events
+
+
+def _model_mids(model) -> list[str]:
+    return [model.data(model.index(i, 0), model.MidRole) for i in range(model.rowCount())]
+
+
+async def test_append_to_queue_granular_insert_not_reset():
+    # 待播面板开着时追加歌曲: 整表 reset 会让 ListView 重建并滚回顶部 (真机反馈),
+    # 必须走 rowsInserted 粒度信号
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.appendToQueue([song_to_map(_song("m3", "三")), song_to_map(_song("m4", "四"))])
+
+    assert events == [("ins", 2, 3)]
+    assert _model_mids(controller.queueModel) == ["m1", "m2", "m3", "m4"]
+
+    # 重复追加: 队列不变, 模型零事件
+    events.clear()
+    controller.appendToQueue([song_to_map(_song("m3", "三"))])
+    assert events == []
+    assert _model_mids(controller.queueModel) == ["m1", "m2", "m3", "m4"]
+
+
+async def test_play_song_next_insert_new_without_reset():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.playSongNext(song_to_map(_song("m9", "九")))
+
+    assert events == [("ins", 1, 1)]
+    assert _model_mids(controller.queueModel) == ["m1", "m9", "m2"]
+
+
+async def test_play_song_next_moves_existing_without_reset():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二"), _song("m3", "三")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.playSongNext(song_to_map(_song("m3", "三")))
+
+    assert "reset" not in events
+    assert "move" in events
+    assert _model_mids(controller.queueModel) == ["m1", "m3", "m2"]
+
+
+async def test_remove_queue_index_granular_remove_not_reset():
+    controller = PlayerController(_FakeServiceController())  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二"), _song("m3", "三")], 0)
+    events = _queue_model_events(controller.queueModel)
+
+    controller.removeQueueIndex(1)
+
+    assert events == [("rm", 1, 1)]
+    assert _model_mids(controller.queueModel) == ["m1", "m3"]
+
+
+class _PartialFailService:
+    """指定 mid 集合不可播 (get_song_url 返 None = 服务端明确拒发, 如 104003 无版权)."""
+
+    def __init__(self, unplayable: set[str]) -> None:
+        self.unplayable = unplayable
+        self.calls: list[str] = []
+
+    async def get_song_url(self, song: Song, *, quality_preference: str) -> SongUrl | None:
+        self.calls.append(song.mid)
+        if song.mid in self.unplayable:
+            return None
+        return SongUrl(mid=song.mid, url=f"https://audio.example.test/{song.mid}.mp3")
+
+
+async def test_auto_skip_unplayable_song_advances_and_notices():
+    service = _PartialFailService({"m1"})
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    notices: list[str] = []
+    errors: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+    controller.errorRaised.connect(errors.append)
+
+    await controller.play_songs_async([_song("m1", "坏一"), _song("m2", "好二")], 0)
+
+    # 不可播的 m1 被自动跳过, 落到 m2 正常加载
+    assert controller.currentIndex == 1
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"
+    assert notices == ["已跳过无法播放的歌曲：坏一"]
+    assert errors == []
+    assert controller.errorMessage == ""
+    assert controller._url_failure_streak == 0  # noqa: SLF001  成功后清零
+
+
+async def test_auto_skip_sequence_end_stops_without_error():
+    # 顺序模式所有歌都不可播: 逐首跳过, 到队列尽头自然停, 不挂错误横幅
+    service = _PartialFailService({"m1", "m2"})
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+
+    assert controller.playbackState == "stopped"
+    assert controller.errorMessage == ""
+    assert len(notices) == 2
+
+
+async def test_auto_skip_streak_cap_stops_with_error():
+    # REPEAT_ALL 全队列不可播会绕圈: 连跳到上限必须停下报错, 不允许无限空转
+    service = _PartialFailService({"m1", "m2"})
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller.setMode("repeat_all")
+    notices: list[str] = []
+    errors: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+    controller.errorRaised.connect(errors.append)
+
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+
+    assert controller.playbackState == "stopped"
+    assert "无法获取播放链接" in controller.errorMessage
+    assert len(errors) == 1
+    # 上限 5: 前 4 次是跳过提示, 第 5 次失败直接停
+    assert len(notices) == 4
+
+
+async def test_network_exception_stops_without_skipping():
+    # 传输层异常 (断网) 与"服务端拒发"不同: 不跳过, 立即停住报错,
+    # 否则一次断网会把整个队列"跳"光
+    class _BoomService:
+        async def get_song_url(self, song: Song, *, quality_preference: str) -> SongUrl | None:
+            raise RuntimeError("network down")
+
+    controller = PlayerController(_BoomService())  # type: ignore[arg-type]
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+
+    assert controller.playbackState == "stopped"
+    assert controller.errorMessage != ""
+    assert notices == []
+    assert controller.currentIndex == 0

@@ -55,11 +55,14 @@ class PlayerController(QObject):
     positionMsChanged = Signal()
     durationMsChanged = Signal()
     volumeChanged = Signal()
+    mutedChanged = Signal()
     modeChanged = Signal()
     queueChanged = Signal()
     loadingChanged = Signal()
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
+    # 非错误级轻提示 (Snackbar info): 如自动跳过无版权曲目
+    noticeRaised = Signal(str)
 
     playRequested = Signal()
     pauseRequested = Signal()
@@ -68,6 +71,9 @@ class PlayerController(QObject):
     queueSourceChanged = Signal()
     # 队列自然播完信号: 参数为 source 标识 (e.g. "daily"), 由订阅方决定是否续接
     queueExhausted = Signal(str)
+
+    # 连续自动跳过上限 (服务端拒发场景), 见 _load_current
+    _URL_FAILURE_STREAK_LIMIT = 5
 
     def __init__(
         self,
@@ -89,12 +95,17 @@ class PlayerController(QObject):
         self._position_ms = 0
         self._duration_ms = 0
         self._volume = 0.8
+        # 静音是独立标志 (不清零 volume): 恢复时天然回到原音量; 不随会话快照持久化
+        self._muted = False
         self._loading = False
         self._error_message = ""
         self._load_generation = 0
         # 瞬态媒体错误 (CDN 401 等) 的自动重试: 按当前曲 mid 计数, 成功播放清零
         self._media_retry_count = 0
         self._media_retry_mid = ""
+        # 服务端拒发 (vkey 104003 无版权等) 的连续自动跳过计数: 防全队列不可播时
+        # REPEAT_ALL 绕圈无限空转, 到上限停下报错; 任一首成功取链即清零
+        self._url_failure_streak = 0
         self._restore_session_snapshot()
 
     @Property("QVariant", notify=currentSongChanged)
@@ -125,6 +136,10 @@ class PlayerController(QObject):
     @Property(float, notify=volumeChanged)
     def volume(self) -> float:
         return self._volume
+
+    @Property(bool, notify=mutedChanged)
+    def muted(self) -> bool:
+        return self._muted
 
     @Property(str, notify=modeChanged)
     def mode(self) -> str:
@@ -244,7 +259,8 @@ class PlayerController(QObject):
         added = self._queue.append(songs)
         if not added:
             return added
-        self._sync_queue_model()
+        # 粒度插入而非整表 reset: 待播面板开着时 reset 会重建 ListView 并滚回顶部
+        self._queue_model.append_songs(added)
         if was_exhausted:
             # 跳到第一首新加曲并续播 (handleEndOfMedia 走完整批后续接的场景)
             self._queue.current_index = len(self._queue.songs) - len(added)
@@ -255,6 +271,72 @@ class PlayerController(QObject):
                 return added
             loop.create_task(self._load_current(play_when_ready=True))
         return added
+
+    @Slot("QVariant")
+    def playSongNext(self, song_data: Any) -> None:
+        """把一首歌排到当前曲之后 (下一首播放); 已在队列中则挪位, 空队列直接起播."""
+        song = song_from_map(song_data if isinstance(song_data, Mapping) else {})
+        if not song.mid:
+            return
+        current = self._queue.current()
+        if current is not None and current.mid == song.mid:
+            return
+        existing = next(
+            (i for i, s in enumerate(self._queue.songs) if s.mid == song.mid),
+            -1,
+        )
+        if existing >= 0:
+            self._queue.remove_at(existing)
+        was_empty = self._queue.current() is None
+        self._queue.insert_next(song)
+        # 粒度挪位/插入而非整表 reset (保住待播面板滚动位置)
+        new_row = next(
+            (i for i, s in enumerate(self._queue.songs) if s.mid == song.mid),
+            -1,
+        )
+        if existing >= 0:
+            self._queue_model.move_row(existing, new_row)
+        else:
+            self._queue_model.insert_song(new_row, song)
+        if was_empty:
+            self._emit_current_changed()
+            self._spawn_load_current(play_when_ready=True)
+
+    @Slot(int)
+    def removeQueueIndex(self, row: int) -> None:
+        """移除待播列表中的一行; 移除当前曲时顶上下一首续播, 队列清空则停."""
+        was_current = row == self._queue.current_index
+        was_active = self._loading or self._playback_state in ("playing", "loading")
+        removed = self._queue.remove_at(row)
+        if removed is None:
+            return
+        # 粒度移除而非整表 reset (保住待播面板滚动位置)
+        self._queue_model.remove_row(row)
+        self._emit_current_changed()
+        if not was_current:
+            return
+        if self._queue.current() is None:
+            self.stop()
+            return
+        self._spawn_load_current(play_when_ready=was_active)
+
+    @Slot()
+    def clearQueue(self) -> None:
+        """清空待播列表并停止播放."""
+        had_source = bool(self._queue.source)
+        self._queue.clear()
+        self._sync_queue_model()
+        self._emit_current_changed()
+        if had_source:
+            self.queueSourceChanged.emit()
+        self.stop()
+
+    def _spawn_load_current(self, *, play_when_ready: bool) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._load_current(play_when_ready=play_when_ready))
 
     @asyncSlot()
     async def next(self) -> None:  # noqa: A003
@@ -341,11 +423,26 @@ class PlayerController(QObject):
 
     @Slot(float)
     def setVolume(self, volume: float) -> None:
+        # 用户主动调音量 = 想听到声音, 自动解除静音 (平台标准行为);
+        # 解除要在同值早退之前, 否则"拖回原音量"无法解除静音
+        if self._muted:
+            self._muted = False
+            self.mutedChanged.emit()
         value = min(1.0, max(0.0, float(volume)))
         if self._volume == value:
             return
         self._volume = value
         self.volumeChanged.emit()
+
+    @Slot(float)
+    def nudgeVolume(self, delta: float) -> None:
+        """音量步进 (快捷键 Ctrl+↑/↓ 用), 钳位 [0,1] 并解除静音."""
+        self.setVolume(self._volume + float(delta))
+
+    @Slot()
+    def toggleMute(self) -> None:
+        self._muted = not self._muted
+        self.mutedChanged.emit()
 
     @Slot(str)
     def setMode(self, mode: str) -> None:
@@ -466,11 +563,28 @@ class PlayerController(QObject):
             return
 
         if song_url is None or not song_url.url:
+            # None = 服务端明确拒发 (vkey 104003 无版权等), 是单曲属性 → 自动跳下一首,
+            # 与官方客户端对灰色歌曲的行为一致. 传输层异常走上面的 except 分支停住报错
+            # (断网时绝不能把整个队列"跳"光). 连跳上限防 REPEAT_ALL 全队列不可播时绕圈空转.
+            self._url_failure_streak += 1
+            if self._url_failure_streak < self._URL_FAILURE_STREAK_LIMIT:
+                logger.info(
+                    "自动跳过不可播曲目: %s (mid=%s, 连续第 %d 首)",
+                    song.name,
+                    song.mid,
+                    self._url_failure_streak,
+                )
+                self.noticeRaised.emit(f"已跳过无法播放的歌曲：{song.name}")
+                # next() 在队列尽头 (SEQUENCE) 走 exhausted → 自然停, 不挂错误
+                await self.next()
+                return
             message = f"无法获取播放链接：{song.name}"
             self._set_playback_state("stopped")
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
+
+        self._url_failure_streak = 0
 
         playback_url = song_url.url
         if self._stream_proxy is not None:

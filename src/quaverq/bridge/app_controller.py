@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from importlib import metadata
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
@@ -12,6 +13,14 @@ from qasync import asyncSlot
 from .service_controller import ServiceController
 
 logger = logging.getLogger(__name__)
+
+
+def application_version(package: str = "quaverq") -> str:
+    """已安装包的版本号; 源码直跑等读不到元数据的场景回退 "dev"."""
+    try:
+        return metadata.version(package)
+    except metadata.PackageNotFoundError:
+        return "dev"
 
 
 class AppController(QObject):
@@ -59,6 +68,10 @@ class AppController(QObject):
             )
             if credential_expired is not None:
                 credential_expired.connect(self._handle_credential_expired)
+
+    @Property(str, constant=True)
+    def appVersion(self) -> str:
+        return application_version()
 
     @Property(bool, notify=authedChanged)
     def authed(self) -> bool:

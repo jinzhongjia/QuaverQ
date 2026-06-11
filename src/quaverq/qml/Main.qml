@@ -45,6 +45,8 @@ ApplicationWindow {
     // 托盘可用时由 Python 置 true: 关闭改为隐藏到托盘而非退出
     property bool closeToTray: false
     property bool queuePanelOpen: false
+    // 正在播放沉浸浮层 (盖侧栏 + 内容区, 不进导航栈): 开/关语义, 收起后精确还原打开前的位置
+    property bool nowPlayingOpen: false
     property string currentRoute: "home"
     property string currentTopRoute: "home"
     property string currentDetailTitle: ""
@@ -74,6 +76,12 @@ ApplicationWindow {
         when: root.systemTheme !== null
     }
 
+    Binding {
+        target: ThemeTokens.Motion
+        property: "reduceMotion"
+        value: root.settingsController ? root.settingsController.reduceMotion : false
+    }
+
     function routeTitle(route) {
         switch (route) {
         case "home":
@@ -82,8 +90,6 @@ ApplicationWindow {
             return qsTr("资料库")
         case "settings":
             return qsTr("设置")
-        case "now-playing":
-            return qsTr("正在播放")
         case "detail":
             return root.currentDetailTitle.length > 0 ? root.currentDetailTitle : qsTr("详情")
         default:
@@ -94,13 +100,16 @@ ApplicationWindow {
     function resetContent(component, route) {
         root.queuePanelOpen = false
         root.currentDetailTitle = ""
-        contentStack.clear(StackView.Immediate)
-        contentStack.push(component, {}, StackView.Immediate)
+        // replace(null, ...) = 整栈替换: 走 replaceEnter/Exit 的 120ms 交叉淡入 (O2);
+        // reduceMotion 时 durFast=0, 行为等价原 StackView.Immediate
+        contentStack.replace(null, component, {})
         root.currentRoute = route
         root.currentTopRoute = route
     }
 
     function navigate(route) {
+        // 任何导航动作先收起正在播放浮层, 避免"结果页在浮层底下"的怪态
+        root.nowPlayingOpen = false
         root.releaseTextFocus()
         if (route === root.currentRoute && contentStack.depth === 1)
             return
@@ -110,23 +119,45 @@ ApplicationWindow {
             root.resetContent(libraryPageComponent, "library")
         } else if (route === "settings") {
             root.resetContent(settingsPageComponent, "settings")
-        } else if (route === "now-playing") {
-            root.resetContent(nowPlayingPageComponent, "now-playing")
-            root.currentTopRoute = ""
         } else {
             root.resetContent(searchPageComponent, "search")
         }
     }
 
-    function pushDetail(kind, detailId, title, subtitle) {
+    // 正在播放 = 沉浸浮层: 不进导航栈, 打开是"展开"、收起是"还原",
+    // 底下的路由 / 滚动位置 / 侧栏选中态全程不动. 已打开时再次触发 (再点播放栏封面) 视为收起.
+    function openNowPlaying() {
+        if (root.nowPlayingOpen) {
+            root.closeNowPlaying()
+            return
+        }
+        root.queuePanelOpen = false
+        root.releaseTextFocus()
+        // 闩锁必须先置位: Behavior 的 enabled 依赖它, 否则首开没有滑入动画
+        nowPlayingLoader.everOpened = true
+        root.nowPlayingOpen = true
+    }
+
+    function closeNowPlaying() {
+        if (!root.nowPlayingOpen)
+            return
+        root.nowPlayingOpen = false
+        // 焦点还给全局快捷键宿主, 防止键盘焦点滞留在已隐藏的浮层里 (键盘陷阱)
+        shortcutFocusSink.forceActiveFocus()
+    }
+
+    function pushDetail(kind, detailId, title, subtitle, coverUrl) {
+        root.nowPlayingOpen = false
         root.queuePanelOpen = false
         root.releaseTextFocus()
         contentStack.push(detailPageComponent, {
             detailKind: kind,
             detailId: detailId,
             detailTitle: title,
-            detailSubtitle: subtitle
-        }, StackView.Immediate)
+            detailSubtitle: subtitle,
+            // 入口卡片封面透传: 头图即刻显示, 详情接口的封面到了再升级 (B1)
+            detailCoverUrl: coverUrl || ""
+        })
         root.currentDetailTitle = title
         root.currentRoute = "detail"
     }
@@ -134,9 +165,12 @@ ApplicationWindow {
     function goBack() {
         if (contentStack.depth <= 1)
             return
-        contentStack.pop(StackView.Immediate)
+        contentStack.pop()
         root.currentDetailTitle = ""
-        root.currentRoute = root.currentTopRoute.length > 0 ? root.currentTopRoute : "home"
+        // pop 后仍在栈上 (>1) 说明落点是 push 进来的详情页; 否则回到顶层路由
+        root.currentRoute = contentStack.depth > 1
+            ? "detail"
+            : (root.currentTopRoute.length > 0 ? root.currentTopRoute : "home")
     }
 
     function searchAndOpen(keyword) {
@@ -223,6 +257,7 @@ ApplicationWindow {
         id: audioOutput
 
         volume: root.muteForPendingSeek ? 0 : (root.playerController ? root.playerController.volume : 0.8)
+        muted: root.playerController ? root.playerController.muted : false
     }
 
     MediaPlayer {
@@ -370,6 +405,24 @@ ApplicationWindow {
     }
 
     Shortcut {
+        sequence: "Ctrl+Up"
+        enabled: !searchField.activeFocus && !loginDialog.visible
+        onActivated: {
+            if (root.playerController)
+                root.playerController.nudgeVolume(0.05)
+        }
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Down"
+        enabled: !searchField.activeFocus && !loginDialog.visible
+        onActivated: {
+            if (root.playerController)
+                root.playerController.nudgeVolume(-0.05)
+        }
+    }
+
+    Shortcut {
         sequence: "Ctrl+Left"
         enabled: !searchField.activeFocus && !loginDialog.visible
         onActivated: {
@@ -380,12 +433,14 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Esc"
-        enabled: searchField.activeFocus || root.queuePanelOpen || contentStack.depth > 1
+        enabled: searchField.activeFocus || root.queuePanelOpen || root.nowPlayingOpen || contentStack.depth > 1
         onActivated: {
             if (searchField.activeFocus) {
                 root.releaseTextFocus()
             } else if (root.queuePanelOpen) {
                 root.queuePanelOpen = false
+            } else if (root.nowPlayingOpen) {
+                root.closeNowPlaying()
             } else {
                 root.goBack()
             }
@@ -414,6 +469,13 @@ ApplicationWindow {
             }
         }
 
+        // 桌面惯例: 双击标题栏切换最大化 / 还原 (按钮在上层, 不受影响)
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            gesturePolicy: TapHandler.DragThreshold
+            onDoubleTapped: root.toggleMaximized()
+        }
+
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
@@ -433,12 +495,21 @@ ApplicationWindow {
 
                 Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                enabled: contentStack.depth > 1
+                enabled: contentStack.depth > 1 || root.nowPlayingOpen
                 text: qsTr("返回")
-                iconText: "←"
+                // 相对路径会延迟到 AppIcon (components/) 才解析, 这里必须显式按本文件解析
+                iconSource: Qt.resolvedUrl("icons/arrow-left.svg")
+                iconSize: 20
+                // 禁用态用中灰: stateDisabled(#e0e0e0) 在白底上接近隐形
                 iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                 cornerRadius: width / 2
-                onClicked: root.goBack()
+                onClicked: {
+                    if (root.nowPlayingOpen) {
+                        root.closeNowPlaying()
+                    } else {
+                        root.goBack()
+                    }
+                }
             }
 
             RowLayout {
@@ -472,7 +543,11 @@ ApplicationWindow {
                 id: searchField
 
                 Layout.fillWidth: true
-                Layout.maximumWidth: 500
+                // 随窗宽缩放 (45%, 上限 500): 窄窗口不再霸占大半个顶栏
+                Layout.maximumWidth: Math.min(500, Math.round(root.width * 0.45))
+                // 宽窗口下搜索框到达上限后在剩余空间内居中,
+                // 避免"控件全部左挤 + 中部真空"的失衡构图
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 placeholderText: qsTr("搜索歌曲、歌手、专辑")
                 loading: root.serviceController ? root.serviceController.loading : false
                 onSearchRequested: function(keyword) {
@@ -589,9 +664,12 @@ ApplicationWindow {
             onLoginRequested: loginDialog.open()
             onRouteRequested: function(route) {
                 root.navigate(route)
+                // 点侧栏「搜索」= 想搜东西, 顺手聚焦输入框
+                if (route === "search")
+                    searchField.focusInput()
             }
-            onOpenPlaylistRequested: function(pid, title) {
-                root.pushDetail("playlist", pid, title, "")
+            onOpenPlaylistRequested: function(pid, title, coverUrl) {
+                root.pushDetail("playlist", pid, title, "", coverUrl)
             }
         }
 
@@ -602,6 +680,27 @@ ApplicationWindow {
             Layout.fillHeight: true
             clip: true
             initialItem: homePageComponent
+
+            // O2: 页面切换 120ms 透明度交叉淡入 (只动 opacity, GPU 合成不触布局);
+            // reduceMotion 开启时 durFast=0 即瞬时, 等价此前的 StackView.Immediate
+            pushEnter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: ThemeTokens.Motion.durFast }
+            }
+            pushExit: Transition {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: ThemeTokens.Motion.durFast }
+            }
+            popEnter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: ThemeTokens.Motion.durFast }
+            }
+            popExit: Transition {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: ThemeTokens.Motion.durFast }
+            }
+            replaceEnter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: ThemeTokens.Motion.durFast }
+            }
+            replaceExit: Transition {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: ThemeTokens.Motion.durFast }
+            }
         }
     }
 
@@ -620,6 +719,7 @@ ApplicationWindow {
         positionMs: root.playerController ? root.playerController.positionMs : 0
         durationMs: root.playerController ? root.playerController.durationMs : 0
         volume: root.playerController ? root.playerController.volume : 0.8
+        muted: root.playerController ? root.playerController.muted : false
         mode: root.playerController ? root.playerController.mode : "sequence"
         queueCount: root.playerController && root.playerController.queueModel
             ? root.playerController.queueModel.count
@@ -647,12 +747,16 @@ ApplicationWindow {
             if (root.playerController)
                 root.playerController.setVolume(value)
         }
+        onMuteToggleRequested: {
+            if (root.playerController)
+                root.playerController.toggleMute()
+        }
         onModeRequested: function(value) {
             if (root.playerController)
                 root.playerController.setMode(value)
         }
         onQueueRequested: root.queuePanelOpen = !root.queuePanelOpen
-        onNowPlayingRequested: root.navigate("now-playing")
+        onNowPlayingRequested: root.openNowPlaying()
     }
 
     Component {
@@ -669,10 +773,10 @@ ApplicationWindow {
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
             }
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
-            onNowPlayingRequested: root.navigate("now-playing")
+            onNowPlayingRequested: root.openNowPlaying()
         }
     }
 
@@ -685,8 +789,8 @@ ApplicationWindow {
             libraryController: root.libraryController
             coverController: root.coverController
             songDetailController: root.songDetailController
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -701,8 +805,9 @@ ApplicationWindow {
             playerController: root.playerController
             songDetailController: root.songDetailController
             onLoginRequested: loginDialog.open()
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onLogoutRequested: logoutConfirmDialog.open()
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -720,25 +825,12 @@ ApplicationWindow {
             onSearchRequested: function(keyword) {
                 root.searchAndOpen(keyword)
             }
-            onDetailRequested: function(kind, detailId, title, subtitle) {
-                root.pushDetail(kind, detailId, title, subtitle)
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
             onErrorRaised: function(message) {
                 globalSnackbar.show(message, "error")
             }
-        }
-    }
-
-    Component {
-        id: nowPlayingPageComponent
-
-        Views.NowPlayingView {
-            coverController: root.coverController
-            playerController: root.playerController
-            libraryController: root.libraryController
-            lyricController: root.lyricController
-            settingsController: root.settingsController
-            onQueueRequested: root.queuePanelOpen = true
         }
     }
 
@@ -749,21 +841,96 @@ ApplicationWindow {
             appController: root.appController
             settingsController: root.settingsController
             onLoginRequested: loginDialog.open()
+            onLogoutRequested: logoutConfirmDialog.open()
         }
     }
 
+    // 正在播放沉浸浮层: 盖侧栏 + 内容区 (z=5, 低于 QueuePanel 的 z=10), 顶栏与播放栏保持可见.
+    // 首次打开后常驻 (everOpened 闩锁): active 绑 nowPlayingOpen 会在收起瞬间销毁 item,
+    // 滑出动画就没有宿主可播; 常驻也保住歌词滚动位置等页内状态.
+    Loader {
+        id: nowPlayingLoader
+
+        property bool everOpened: false
+
+        active: everOpened
+        // 滑动期间保持可见 (实心页面滑出), 动画结束才隐藏
+        visible: root.nowPlayingOpen || nowPlayingSlideAnim.running
+        clip: true
+        anchors.top: headerBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: playerBar.top
+        anchors.leftMargin: root.windowShadowMargin
+        anchors.rightMargin: root.windowShadowMargin
+        z: 5
+
+        // 从播放栏上方滑入/出 (QQ 音乐"展开/收起"隐喻): 入场减速 durSlow, 退场加速 durMed.
+        // 刻意**不叠加透明度淡出** —— 滑动+淡出并行会呈现"半透明页面在掉下去"的怪异观感
+        // (真机验收反馈); 实心面板滑动才是"收进播放栏"的正确隐喻.
+        transform: Translate {
+            id: nowPlayingSlide
+
+            y: root.nowPlayingOpen ? 0 : nowPlayingLoader.height
+
+            Behavior on y {
+                enabled: nowPlayingLoader.everOpened
+                NumberAnimation {
+                    id: nowPlayingSlideAnim
+
+                    duration: root.nowPlayingOpen ? ThemeTokens.Motion.durSlow : ThemeTokens.Motion.durMed
+                    easing.type: root.nowPlayingOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
+                }
+            }
+        }
+
+        sourceComponent: Component {
+            Views.NowPlayingView {
+                coverController: root.coverController
+                playerController: root.playerController
+                libraryController: root.libraryController
+                lyricController: root.lyricController
+                settingsController: root.settingsController
+                onQueueRequested: root.queuePanelOpen = true
+                onBackRequested: root.closeNowPlaying()
+            }
+        }
+    }
+
+    // 待播列表抽屉: 自右滑入 durMed (O2). 首开后常驻 (onLoaded 闩锁) —— active 绑 open
+    // 会在收起瞬间销毁 item, 滑出动画没有宿主; Translate 挂在 Loader 上 (启动即存在),
+    // 首次打开 x: width→0 也有完整滑入. "打开时定位到当前曲"改由 QueuePanel.onVisibleChanged 触发.
     Loader {
         id: queuePanelLoader
 
-        active: root.queuePanelOpen
-        asynchronous: true
-        visible: active
+        property bool everOpened: false
+
+        active: root.queuePanelOpen || queuePanelLoader.everOpened
+        onLoaded: queuePanelLoader.everOpened = true
+        // 与正在播放浮层同款: 实心滑动不叠加淡出, 动画结束才隐藏
+        visible: root.queuePanelOpen || queuePanelSlideAnim.running
+        clip: true
         anchors.top: headerBar.bottom
         anchors.right: parent.right
         anchors.bottom: playerBar.top
         anchors.rightMargin: root.windowShadowMargin
         width: Math.min(360, root.width - 96 - root.windowShadowMargin * 2)
         z: 10
+
+        transform: Translate {
+            id: queuePanelSlide
+
+            x: root.queuePanelOpen ? 0 : queuePanelLoader.width
+
+            Behavior on x {
+                NumberAnimation {
+                    id: queuePanelSlideAnim
+
+                    duration: ThemeTokens.Motion.durMed
+                    easing.type: root.queuePanelOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
+                }
+            }
+        }
 
         sourceComponent: Component {
             Panels.QueuePanel {
@@ -776,6 +943,14 @@ ApplicationWindow {
                     if (root.playerController)
                         root.playerController.playQueueIndex(row)
                 }
+                onRemoveIndexRequested: function(row) {
+                    if (root.playerController)
+                        root.playerController.removeQueueIndex(row)
+                }
+                onClearRequested: {
+                    if (root.playerController)
+                        root.playerController.clearQueue()
+                }
             }
         }
     }
@@ -784,6 +959,20 @@ ApplicationWindow {
         id: loginDialog
 
         appController: root.appController
+    }
+
+    // 退出登录需重新扫码, 代价高 → 二次确认; 破坏性动作确认键用 error 红
+    Dialogs.ConfirmDialog {
+        id: logoutConfirmDialog
+
+        title: qsTr("退出登录")
+        message: qsTr("退出后播放与资料库同步会停用，重新使用需要再次扫码登录。")
+        confirmText: qsTr("退出登录")
+        destructive: true
+        onAccepted: {
+            if (root.appController)
+                root.appController.logout()
+        }
     }
 
     Dialogs.SongDetailDialog {
@@ -839,6 +1028,8 @@ ApplicationWindow {
     Connections {
         target: root.playerController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+        // 轻提示 (自动跳过无版权曲目等): info 级, 不用错误红
+        function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
     }
 
     Item {

@@ -16,7 +16,7 @@ ColumnLayout {
     property var songDetailController
     property string routeName: "search"
 
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     readonly property string searchType: root.serviceController ? root.serviceController.searchType : "songs"
     readonly property bool isSongs: root.searchType === "songs"
@@ -59,23 +59,20 @@ ColumnLayout {
 
     spacing: 0
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: root.serviceController && root.serviceController.errorMessage ? 44 : 0
-        visible: root.serviceController && root.serviceController.errorMessage.length > 0
-        color: ThemeTokens.Palette.error
+    // 页内错误与全局 Banner 同一形态 (W9): 红底白字通栏的视觉烈度等同"危险操作", 加载失败不配
+    Components.Banner {
+        id: searchErrorBanner
 
-        Label {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: ThemeTokens.Spacing.s5
-            anchors.rightMargin: ThemeTokens.Spacing.s5
-            text: root.serviceController ? root.serviceController.errorMessage : ""
-            color: ThemeTokens.Palette.primaryText
-            elide: Text.ElideRight
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
-        }
+        Layout.fillWidth: true
+        kind: "error"
+    }
+
+    // 显式 Binding: Banner.dismiss() 会写空 message, 直接绑定会被这次写入打断;
+    // Binding 元素在 errorMessage 再变化时重新接管 (SettingsView 同款模式)
+    Binding {
+        target: searchErrorBanner
+        property: "message"
+        value: root.serviceController ? root.serviceController.errorMessage : ""
     }
 
     ColumnLayout {
@@ -104,73 +101,21 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Components.TabRow {
+            id: searchTabRow
+
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s6
-
-            Repeater {
-                model: root.searchTabs
-
-                delegate: Item {
-                    id: typeTab
-
-                    required property var modelData
-                    readonly property bool current: root.searchType === typeTab.modelData.key
-
-                    Layout.preferredHeight: 36
-                    implicitWidth: tabText.implicitWidth
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: typeTab.modelData.label
-                    activeFocusOnTab: true
-
-                    HoverHandler { id: tabHover }
-                    TapHandler {
-                        onTapped: {
-                            if (root.serviceController)
-                                root.serviceController.setSearchType(typeTab.modelData.key)
-                        }
-                    }
-                    Keys.onReturnPressed: {
-                        if (root.serviceController)
-                            root.serviceController.setSearchType(typeTab.modelData.key)
-                    }
-                    Keys.onSpacePressed: {
-                        if (root.serviceController)
-                            root.serviceController.setSearchType(typeTab.modelData.key)
-                    }
-
-                    Label {
-                        id: tabText
-                        anchors.top: parent.top
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: typeTab.modelData.label
-                        color: typeTab.current
-                            ? ThemeTokens.Palette.primary
-                            : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: typeTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: tabText.implicitWidth
-                        height: 2
-                        radius: 1
-                        visible: typeTab.current
-                        color: ThemeTokens.Palette.primary
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: typeTab.activeFocus
-                        radius: ThemeTokens.Spacing.radiusSm
-                        color: "transparent"
-                        border.color: ThemeTokens.Palette.focusRing
-                        border.width: 2
-                    }
+            tabs: root.searchTabs
+            currentIndex: {
+                for (let i = 0; i < root.searchTabs.length; ++i) {
+                    if (root.searchTabs[i].key === root.searchType)
+                        return i
                 }
+                return 0
+            }
+            onActivated: function(index) {
+                if (root.serviceController)
+                    root.serviceController.setSearchType(root.searchTabs[index].key)
             }
         }
 
@@ -197,12 +142,13 @@ ColumnLayout {
                     libraryController: root.libraryController
                     coverController: root.coverController
                     songDetailController: root.songDetailController
+                    playerController: root.playerController
                     onActivated: function(songData, row) {
                         if (root.playerController)
                             root.playerController.playFromModel(root.serviceController.songResults, row)
                     }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        root.detailRequested(kind, detailId, title, subtitle)
+                    onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                        root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                     }
                 }
 
@@ -286,7 +232,7 @@ ColumnLayout {
                 visible: !root.isSongs
                 clip: true
 
-                readonly property int cols: Math.max(2, Math.ceil(width / 180))
+                readonly property int cols: Math.max(2, Math.min(8, Math.floor(width / 180)))
                 cellWidth: cardGrid.cols > 0 ? Math.floor(width / cardGrid.cols) : width
                 cellHeight: cellWidth + 44
                 model: root.serviceController ? root.serviceController.cardResults : null
@@ -318,8 +264,8 @@ ColumnLayout {
                         coverUrl: cardCell.coverUrl
                         meta: cardCell.meta
                         coverController: root.coverController
-                        onActivated: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
-                        onPlayRequested: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                        onActivated: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
+                        onPlayRequested: root.detailRequested(cardCell.kind, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
                     }
                 }
             }
@@ -331,6 +277,54 @@ ColumnLayout {
                     if (root.serviceController && root.serviceController.loading) {
                         resultList.positionViewAtBeginning()
                         cardGrid.positionViewAtBeginning()
+                    }
+                }
+            }
+
+            // 首屏搜索骨架 (翻页时旧结果保留 + 底部"加载中", 不走骨架)
+            ColumnLayout {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: root.isSongs
+                    && root.serviceController
+                    && root.serviceController.loading
+                    && root.serviceController.songResults.count === 0
+                spacing: ThemeTokens.Spacing.s2
+
+                Repeater {
+                    model: 6
+
+                    delegate: Components.SongRowSkeleton {
+                        required property int index
+
+                        Layout.fillWidth: true
+                        titleRatio: 0.3 + (index % 3) * 0.14
+                    }
+                }
+            }
+
+            GridLayout {
+                id: searchSkeletonGrid
+
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: !root.isSongs
+                    && root.serviceController
+                    && root.serviceController.loading
+                    && root.serviceController.cardResults.count === 0
+                columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
+                columnSpacing: ThemeTokens.Spacing.s3
+                rowSpacing: ThemeTokens.Spacing.s3
+
+                Repeater {
+                    model: searchSkeletonGrid.columns
+
+                    delegate: Components.CardSkeleton {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
                     }
                 }
             }

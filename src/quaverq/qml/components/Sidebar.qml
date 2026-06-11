@@ -16,7 +16,7 @@ Rectangle {
 
     signal loginRequested()
     signal routeRequested(string route)
-    signal openPlaylistRequested(string pid, string title)
+    signal openPlaylistRequested(string pid, string title, string coverUrl)
 
     readonly property bool authed: root.appController ? root.appController.authed : false
     readonly property var playlistModel: root.libraryController ? root.libraryController.playlistModel : null
@@ -61,9 +61,9 @@ Rectangle {
 
             Repeater {
                 model: [
-                    { route: "home", label: qsTr("发现"), icon: "⌂" },
-                    { route: "search", label: qsTr("搜索"), icon: "⌕" },
-                    { route: "library", label: qsTr("资料库"), icon: "♬" }
+                    { route: "home", label: qsTr("发现"), icon: "../icons/home.svg" },
+                    { route: "search", label: qsTr("搜索"), icon: "../icons/search.svg" },
+                    { route: "library", label: qsTr("资料库"), icon: "../icons/library.svg" }
                 ]
 
                 delegate: NavItem {
@@ -71,7 +71,7 @@ Rectangle {
 
                     Layout.fillWidth: true
                     text: modelData.label
-                    iconText: modelData.icon
+                    iconSource: modelData.icon
                     compact: root.compact
                     selected: modelData.route === root.selectedRoute
                     onActivated: root.routeRequested(modelData.route)
@@ -90,8 +90,8 @@ Rectangle {
         FunctionRow {
             Layout.fillWidth: true
             visible: !root.compact
-            iconText: "♥"
-            iconColor: ThemeTokens.Palette.primary
+            iconSource: "../icons/heart-filled.svg"
+            iconColor: ThemeTokens.Palette.primaryFg
             label: qsTr("我喜欢")
             onActivated: root.routeRequested("library")
         }
@@ -129,7 +129,7 @@ Rectangle {
                 width: ListView.view ? ListView.view.width : implicitWidth
                 rowTitle: title
                 rowCover: coverUrl
-                onActivated: root.openPlaylistRequested(cardId, title)
+                onActivated: root.openPlaylistRequested(cardId, title, coverUrl)
             }
         }
 
@@ -184,11 +184,19 @@ Rectangle {
             Item { Layout.fillHeight: true }
         }
 
+        // 4c) 紧凑模式: 歌单区整体隐藏后没有弹性项, 多余空间会被平摊到各格子
+        // 把图标拉散; 这里补一个占位, 让导航钉在顶部 / 设置钉在底部
+        Item {
+            visible: root.compact
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+
         // 5) settings pinned at bottom
         NavItem {
             Layout.fillWidth: true
             text: qsTr("设置")
-            iconText: "⚙"
+            iconSource: "../icons/settings.svg"
             compact: root.compact
             selected: root.selectedRoute === "settings"
             onActivated: root.routeRequested("settings")
@@ -200,7 +208,7 @@ Rectangle {
     component FunctionRow: Rectangle {
         id: fr
 
-        property string iconText: ""
+        property url iconSource: ""
         property color iconColor: ThemeTokens.Palette.surfaceVariantText
         property string label: ""
 
@@ -234,12 +242,11 @@ Rectangle {
             anchors.rightMargin: ThemeTokens.Spacing.s4
             spacing: ThemeTokens.Spacing.s3
 
-            Label {
+            AppIcon {
                 Layout.preferredWidth: ThemeTokens.Spacing.s5
-                horizontalAlignment: Text.AlignHCenter
-                text: fr.iconText
+                size: 16
+                source: fr.iconSource
                 color: fr.iconColor
-                font.pixelSize: ThemeTokens.TypeScale.body
             }
 
             Label {

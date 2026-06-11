@@ -17,12 +17,14 @@ Dialog {
     property var libraryController
     property var playerController
 
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     objectName: "songDetailDialog"
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // 模态遮罩走 scrim token (W13): Basic 默认跟系统 palette.shadow, 暗色下偏弱
+    Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
     width: Math.min(parent ? parent.width - ThemeTokens.Spacing.s8 : 720, 720)
     height: Math.min(parent ? parent.height - ThemeTokens.Spacing.s8 : 560, 560)
     x: parent ? Math.round((parent.width - width) / 2) : 0
@@ -193,11 +195,9 @@ Dialog {
                 visible: root.isLoading
                 spacing: ThemeTokens.Spacing.s3
 
-                BusyIndicator {
+                Components.Spinner {
                     Layout.alignment: Qt.AlignHCenter
-                    implicitWidth: 40
-                    implicitHeight: 40
-                    running: root.isLoading
+                    size: 36
                 }
 
                 Label {
@@ -282,7 +282,10 @@ Dialog {
                 contentWidth: loadedScroll.availableWidth
                 // 给右侧滚动条预留 gutter, 内容不会被压在滚动条下
                 rightPadding: ThemeTokens.Spacing.s4
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                // 内容超高时滚动条常显: AsNeeded 不滚不出现, 用户发现不了下面还有内容
+                ScrollBar.vertical.policy: loadedScroll.contentHeight > loadedScroll.height
+                    ? ScrollBar.AlwaysOn
+                    : ScrollBar.AlwaysOff
 
                 ColumnLayout {
                     width: loadedScroll.availableWidth
@@ -410,6 +413,7 @@ Dialog {
                         delegate: Rectangle {
                             id: simCell
 
+                            required property int index
                             required property string mid
                             required property string name
                             required property string singers
@@ -421,7 +425,23 @@ Dialog {
                             color: simHover.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                             border.color: ThemeTokens.Palette.outlineMuted
 
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("播放 %1").arg(simCell.name)
+
                             HoverHandler { id: simHover }
+
+                            // 点击播放该相似歌曲 (以相似列表为队列), 并关闭弹窗
+                            TapHandler {
+                                onTapped: {
+                                    if (root.playerController && root.songDetailController) {
+                                        root.playerController.playFromModel(
+                                            root.songDetailController.similarSongsModel,
+                                            simCell.index
+                                        )
+                                        root.close()
+                                    }
+                                }
+                            }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -513,11 +533,11 @@ Dialog {
                                 meta: relCell.meta
                                 coverController: root.coverController
                                 onActivated: {
-                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle)
+                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle, relCell.coverUrl)
                                     root.close()
                                 }
                                 onPlayRequested: {
-                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle)
+                                    root.detailRequested(relCell.kind, relCell.cardId, relCell.title, relCell.subtitle, relCell.coverUrl)
                                     root.close()
                                 }
                             }

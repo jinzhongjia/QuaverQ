@@ -24,6 +24,7 @@ Rectangle {
         : qsTr("%1, %2").arg(root.name).arg(root.singers)
 
     signal activated(var songData, int row)
+    signal removeRequested(int row)
 
     implicitHeight: 56
     radius: ThemeTokens.Spacing.radiusMd
@@ -55,7 +56,7 @@ Rectangle {
         width: 3
         visible: root.current
         radius: width / 2
-        color: ThemeTokens.Palette.primary
+        color: ThemeTokens.Palette.primaryFg
     }
 
     Rectangle {
@@ -77,7 +78,7 @@ Rectangle {
         Label {
             Layout.preferredWidth: 24
             text: root.current ? "♪" : (root.index >= 0 ? String(root.index + 1) : "")
-            color: root.current ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+            color: root.current ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText
             horizontalAlignment: Text.AlignRight
             font.pixelSize: ThemeTokens.TypeScale.caption
             font.weight: root.current ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
@@ -119,7 +120,7 @@ Rectangle {
                     Label {
                         anchors.centerIn: parent
                         text: qsTr("播放中")
-                        color: ThemeTokens.Palette.primary
+                        color: ThemeTokens.Palette.primaryFg
                         font.pixelSize: ThemeTokens.TypeScale.caption
                         font.weight: ThemeTokens.TypeScale.medium
                     }
@@ -135,12 +136,31 @@ Rectangle {
             }
         }
 
-        Label {
+        // hover 时时长让位给移除按钮 (QQ 同款交互)
+        Item {
             Layout.preferredWidth: 42
-            text: root.durationText
-            color: ThemeTokens.Palette.surfaceVariantText
-            horizontalAlignment: Text.AlignRight
-            font.pixelSize: ThemeTokens.TypeScale.caption
+            Layout.preferredHeight: 32
+
+            Label {
+                anchors.fill: parent
+                visible: !hoverHandler.hovered
+                text: root.durationText
+                color: ThemeTokens.Palette.surfaceVariantText
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: ThemeTokens.TypeScale.caption
+            }
+
+            IconButton {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: hoverHandler.hovered
+                hitSize: 32
+                text: qsTr("移出待播列表")
+                iconText: "×"
+                iconSize: ThemeTokens.TypeScale.body
+                onClicked: root.removeRequested(root.index)
+            }
         }
     }
 }

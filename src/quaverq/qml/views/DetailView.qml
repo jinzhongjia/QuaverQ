@@ -14,6 +14,8 @@ ColumnLayout {
     property string detailId: ""
     property string detailTitle: qsTr("详情")
     property string detailSubtitle: ""
+    // 入口卡片的封面 (B1): 详情接口返回前头图立即可显示
+    property string detailCoverUrl: ""
     property var coverController
     // 工厂模式: 每个 DetailView 实例自持 controller (见 AGENTS.md 「栈式视图必须自持状态」契约).
     property var detailControllerFactory
@@ -33,6 +35,9 @@ ColumnLayout {
     readonly property string displaySubtitle: root.detailController && root.detailController.subtitle.length > 0
         ? root.detailController.subtitle
         : root.detailSubtitle
+    // 长简介默认 2 行截断, 可展开 (O9); 换详情数据时收回
+    property bool descriptionExpanded: false
+    onDisplayDescriptionChanged: root.descriptionExpanded = false
     readonly property string displayDescription: root.detailController
         ? root.detailController.description
         : ""
@@ -44,7 +49,7 @@ ColumnLayout {
 
     signal backRequested()
     signal searchRequested(string keyword)
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
     // 由 root.detailController.errorRaised 透传到 Main 的 globalSnackbar
     signal errorRaised(string message)
 
@@ -70,7 +75,8 @@ ColumnLayout {
             root.detailKind,
             root.detailId,
             root.detailTitle,
-            root.detailSubtitle
+            root.detailSubtitle,
+            root.detailCoverUrl
         )
     }
 
@@ -100,23 +106,22 @@ ColumnLayout {
         }
     }
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: root.errorMessage.length > 0 ? 44 : 0
-        visible: root.errorMessage.length > 0
-        color: ThemeTokens.Palette.error
+    // 页内错误与全局 Banner 同一形态 (W9), 加载失败带「重试」动作
+    Components.Banner {
+        id: detailErrorBanner
 
-        Label {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: ThemeTokens.Spacing.s5
-            anchors.rightMargin: ThemeTokens.Spacing.s5
-            text: root.errorMessage
-            color: ThemeTokens.Palette.primaryText
-            elide: Text.ElideRight
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
-        }
+        Layout.fillWidth: true
+        kind: "error"
+        actionText: qsTr("重试")
+        onActionTriggered: root.loadDetail()
+    }
+
+    // 显式 Binding: Banner.dismiss() 会写空 message, 直接绑定会被这次写入打断;
+    // Binding 元素在 errorMessage 再变化时重新接管 (SettingsView 同款模式)
+    Binding {
+        target: detailErrorBanner
+        property: "message"
+        value: root.errorMessage
     }
 
     ColumnLayout {
@@ -132,22 +137,30 @@ ColumnLayout {
             Components.AlbumArt {
                 Layout.preferredWidth: 168
                 Layout.preferredHeight: 168
+                // 顶部锚定: 文字列加载后变高时封面不再被重新垂直居中 (整个头部"呼吸"一下)
+                Layout.alignment: Qt.AlignTop
                 circular: root.displayKind === "artist"
                 iconText: root.displayKind === "artist" ? "◎" : root.displayKind === "top" ? "↗" : "♪"
                 iconSize: ThemeTokens.TypeScale.display
                 active: root.hasSongs
-                coverUrl: root.detailController ? root.detailController.coverUrl : ""
+                // controller 创建瞬间 coverUrl 为空, 退回卡片封面避免一帧空窗
+                coverUrl: root.detailController && root.detailController.coverUrl.length > 0
+                    ? root.detailController.coverUrl
+                    : root.detailCoverUrl
+                // 卡片图 → 接口高清图切换期间保留旧图, 不闪占位
+                retainOnSwitch: true
                 coverController: root.coverController
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
                 spacing: ThemeTokens.Spacing.s3
 
                 Label {
                     Layout.fillWidth: true
                     text: root.kindLabel(root.displayKind)
-                    color: ThemeTokens.Palette.primary
+                    color: ThemeTokens.Palette.primaryFg
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     font.weight: ThemeTokens.TypeScale.medium
                     elide: Text.ElideRight
@@ -165,24 +178,67 @@ ColumnLayout {
                 }
 
                 Label {
+                    // subtitle 与 kind 标签重复 (如"艺人") 时不再显示一遍;
+                    // 加载中不冒充"暂无简介" (加载完会换成真值, 文字跳变);
+                    // 艺人页 subtitle 为空时直接隐藏, 不显示"暂无简介"占位
+                    readonly property string subtitleText: {
+                        const value = root.displaySubtitle
+                        if (value.length > 0 && value !== root.kindLabel(root.displayKind))
+                            return value
+                        if (root.loading)
+                            return ""
+                        return root.displayKind === "artist" ? "" : qsTr("暂无简介")
+                    }
+
                     Layout.fillWidth: true
-                    text: root.displaySubtitle.length > 0
-                        ? root.displaySubtitle
-                        : qsTr("暂无简介")
+                    // 加载中即使无文字也占住一行, 防止内容到达时按钮 / 列表跳位
+                    visible: root.loading || text.length > 0
+                    text: subtitleText
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.bodySm
                     elide: Text.ElideRight
                 }
 
                 Label {
+                    id: descriptionLabel
+
                     Layout.fillWidth: true
-                    visible: root.displayDescription.length > 0
+                    // 同上: 加载中预留简介行位, 减小数据到达时的下移幅度
+                    visible: root.loading || root.displayDescription.length > 0
                     text: root.displayDescription
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     wrapMode: Text.WordWrap
-                    maximumLineCount: 2
-                    elide: Text.ElideRight
+                    maximumLineCount: root.descriptionExpanded ? 1000 : 2
+                    elide: root.descriptionExpanded ? Text.ElideNone : Text.ElideRight
+                }
+
+                // 简介展开/收起: 仅在确实截断 (truncated) 或已展开时显示
+                Label {
+                    id: descriptionToggle
+
+                    visible: descriptionLabel.visible
+                        && (descriptionLabel.truncated || root.descriptionExpanded)
+                    text: root.descriptionExpanded ? qsTr("收起 ⌃") : qsTr("展开 ⌄")
+                    color: descriptionToggleHover.hovered
+                        ? ThemeTokens.Palette.primary
+                        : ThemeTokens.Palette.primaryFg
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: descriptionToggle.text
+
+                    HoverHandler {
+                        id: descriptionToggleHover
+
+                        margin: ThemeTokens.Spacing.s3
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        margin: ThemeTokens.Spacing.s3
+                        onTapped: root.descriptionExpanded = !root.descriptionExpanded
+                    }
                 }
 
                 RowLayout {
@@ -202,13 +258,26 @@ ColumnLayout {
                                 root.playerController.playFromModel(root.detailController.songModel, 0)
                         }
 
-                        contentItem: Label {
-                            text: "▶  " + playAllButton.text
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
-                            font.pixelSize: ThemeTokens.TypeScale.bodySm
-                            font.weight: ThemeTokens.TypeScale.medium
+                        contentItem: RowLayout {
+                            spacing: ThemeTokens.Spacing.s2
+
+                            Item { Layout.fillWidth: true }
+
+                            Components.AppIcon {
+                                size: 16
+                                source: "../icons/play.svg"
+                                color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
+                            }
+
+                            Label {
+                                text: playAllButton.text
+                                verticalAlignment: Text.AlignVCenter
+                                color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
+                                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                font.weight: ThemeTokens.TypeScale.medium
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         background: Rectangle {
@@ -276,59 +345,16 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Components.TabRow {
+            id: artistTabRow
+
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s6
             visible: root.displayKind === "artist"
-
-            Repeater {
-                model: [qsTr("热门歌曲"), qsTr("全部歌曲"), qsTr("全部专辑"), qsTr("相似歌手")]
-
-                delegate: Item {
-                    id: tabItem
-
-                    required property int index
-                    required property string modelData
-                    readonly property bool current: root.currentTab === tabItem.index
-
-                    Layout.preferredHeight: 38
-                    implicitWidth: tabLabel.implicitWidth
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: tabItem.modelData
-                    activeFocusOnTab: true
-
-                    HoverHandler { id: tabHover }
-                    TapHandler { onTapped: root.currentTab = tabItem.index }
-                    Keys.onReturnPressed: root.currentTab = tabItem.index
-                    Keys.onSpacePressed: root.currentTab = tabItem.index
-
-                    Label {
-                        id: tabLabel
-                        anchors.top: parent.top
-                        anchors.topMargin: ThemeTokens.Spacing.s2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: tabItem.modelData
-                        color: tabItem.current
-                            ? ThemeTokens.Palette.primary
-                            : (tabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: tabItem.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: tabLabel.implicitWidth
-                        height: 2
-                        radius: 1
-                        visible: tabItem.current
-                        color: ThemeTokens.Palette.primary
-                    }
-                }
+            tabs: [qsTr("热门歌曲"), qsTr("全部歌曲"), qsTr("全部专辑"), qsTr("相似歌手")]
+            currentIndex: root.currentTab
+            onActivated: function(index) {
+                root.currentTab = index
             }
-
-            Item { Layout.fillWidth: true }
         }
 
         // ===== 内容区: 非 artist 走 songList; artist 走 4-page StackLayout =====
@@ -376,8 +402,8 @@ ColumnLayout {
                 hasItems: root.detailController
                     && root.detailController.singerAlbumsModel
                     && root.detailController.singerAlbumsModel.count > 0
-                onCardRequested: function(kind, detailId, title, subtitle) {
-                    root.detailRequested(kind, detailId, title, subtitle)
+                onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                    root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                 }
             }
 
@@ -391,8 +417,8 @@ ColumnLayout {
                 hasItems: root.detailController
                     && root.detailController.similarSingersModel
                     && root.detailController.similarSingersModel.count > 0
-                onCardRequested: function(kind, detailId, title, subtitle) {
-                    root.detailRequested(kind, detailId, title, subtitle)
+                onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                    root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                 }
             }
         }
@@ -425,27 +451,39 @@ ColumnLayout {
                 libraryController: root.libraryController
                 coverController: root.coverController
                 songDetailController: root.songDetailController
+                playerController: root.playerController
                 selected: root.playerController
                     && root.playerController.currentSong
                     && root.playerController.currentSong.mid === song.mid
                 onActivated: function(songData, row) {
                     songPage.playRequested(row)
                 }
-                onNavigationRequested: function(kind, detailId, title, subtitle) {
-                    root.detailRequested(kind, detailId, title, subtitle)
+                onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                    root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                 }
             }
 
             ScrollBar.vertical: ScrollBar {}
         }
 
-        // loading
-        BusyIndicator {
-            anchors.centerIn: parent
-            running: songPage.loading && !songPage.hasItems
-            visible: running
-            implicitWidth: 40
-            implicitHeight: 40
+        // 加载骨架: 几何对齐真实歌曲行, 数据到达无跳动
+        ColumnLayout {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            visible: songPage.loading && !songPage.hasItems
+            spacing: ThemeTokens.Spacing.s2
+
+            Repeater {
+                model: 6
+
+                delegate: Components.SongRowSkeleton {
+                    required property int index
+
+                    Layout.fillWidth: true
+                    titleRatio: 0.3 + (index % 3) * 0.14
+                }
+            }
         }
 
         // empty
@@ -501,13 +539,18 @@ ColumnLayout {
         property bool loading: false
         property bool hasItems: false
 
-        signal cardRequested(string kind, string detailId, string title, string subtitle)
+        signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         GridView {
+            id: gridView
+
+            // 与首页/搜索同一套自适应: 目标卡宽 ~180px, 列数 2..8
+            readonly property int cols: Math.max(2, Math.min(8, Math.floor(width / 180)))
+
             anchors.fill: parent
             clip: true
-            cellWidth: 168
-            cellHeight: 220
+            cellWidth: gridView.cols > 0 ? Math.floor(width / gridView.cols) : width
+            cellHeight: cellWidth + 52
             model: gridPage.model
             boundsBehavior: Flickable.StopAtBounds
             reuseItems: true
@@ -534,20 +577,33 @@ ColumnLayout {
                     coverUrl: cardCell.coverUrl
                     meta: cardCell.meta
                     coverController: root.coverController
-                    onActivated: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle)
-                    onPlayRequested: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle)
+                    onActivated: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
+                    onPlayRequested: gridPage.cardRequested(cardCell.kind || gridPage.kindFallback, cardCell.cardId, cardCell.title, cardCell.subtitle, cardCell.coverUrl)
                 }
             }
 
             ScrollBar.vertical: ScrollBar {}
         }
 
-        BusyIndicator {
-            anchors.centerIn: parent
-            running: gridPage.loading && !gridPage.hasItems
-            visible: running
-            implicitWidth: 40
-            implicitHeight: 40
+        // 加载骨架: 两排卡片占位
+        GridLayout {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            visible: gridPage.loading && !gridPage.hasItems
+            columns: gridView.cols
+            columnSpacing: ThemeTokens.Spacing.s3
+            rowSpacing: ThemeTokens.Spacing.s3
+
+            Repeater {
+                model: gridView.cols * 2
+
+                delegate: Components.CardSkeleton {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                }
+            }
         }
 
         Label {

@@ -16,22 +16,22 @@ Button {
     implicitWidth: ThemeTokens.Spacing.toolHitSize
     implicitHeight: ThemeTokens.Spacing.toolHitSize
     enabled: root.hasSong && root.libraryController && root.libraryController.authed && !root.libraryController.loading
-    text: root.liked ? "♥" : "♡"
-    Accessible.name: root.liked ? qsTr("取消喜欢") : qsTr("喜欢")
+    text: root.liked ? qsTr("取消喜欢") : qsTr("喜欢")
+    Accessible.name: root.text
     onClicked: {
         if (root.libraryController)
             root.libraryController.toggleLike(root.song)
     }
 
-    contentItem: Label {
-        text: root.text
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        color: root.enabled
-            ? (root.liked ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText)
-            : ThemeTokens.Palette.stateDisabled
-        font.pixelSize: ThemeTokens.TypeScale.h2
-        font.weight: root.liked ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
+    contentItem: Item {
+        AppIcon {
+            anchors.centerIn: parent
+            size: 20
+            source: root.liked ? "../icons/heart-filled.svg" : "../icons/heart.svg"
+            color: root.enabled
+                ? (root.liked ? ThemeTokens.Palette.primaryFg : ThemeTokens.Palette.surfaceVariantText)
+                : ThemeTokens.Palette.stateDisabled
+        }
     }
 
     background: Rectangle {

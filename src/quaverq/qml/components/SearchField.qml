@@ -40,10 +40,10 @@ FocusScope {
         anchors.rightMargin: ThemeTokens.Spacing.s2
         spacing: ThemeTokens.Spacing.s3
 
-        Label {
-            text: "⌕"
+        AppIcon {
+            size: 18
+            source: "../icons/search.svg"
             color: ThemeTokens.Palette.surfaceVariantText
-            font.pixelSize: ThemeTokens.TypeScale.h2
         }
 
         TextField {
@@ -59,6 +59,34 @@ FocusScope {
             Keys.onEscapePressed: root.editingCancelled()
 
             background: Item {}
+        }
+
+        Button {
+            id: clearButton
+
+            visible: input.text.length > 0
+            Layout.preferredWidth: 28
+            Layout.preferredHeight: 28
+            Accessible.name: qsTr("清空搜索")
+            onClicked: {
+                input.clear()
+                input.forceActiveFocus()
+            }
+
+            contentItem: Label {
+                text: "×"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: ThemeTokens.Palette.surfaceVariantText
+                font.pixelSize: ThemeTokens.TypeScale.body
+            }
+
+            background: Rectangle {
+                radius: width / 2
+                color: clearButton.down
+                    ? ThemeTokens.Palette.statePressed
+                    : clearButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+            }
         }
 
         Button {

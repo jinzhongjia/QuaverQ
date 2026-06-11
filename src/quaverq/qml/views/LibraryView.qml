@@ -18,7 +18,8 @@ ColumnLayout {
     property int currentTab: 0
 
     signal loginRequested()
-    signal detailRequested(string kind, string detailId, string title, string subtitle)
+    signal logoutRequested()
+    signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     spacing: 0
 
@@ -92,7 +93,7 @@ ColumnLayout {
                 Accessible.name: text
                 onClicked: {
                     if (root.appController && root.appController.authed) {
-                        root.appController.logout()
+                        root.logoutRequested()
                     } else {
                         root.loginRequested()
                     }
@@ -117,69 +118,15 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Components.TabRow {
             id: libraryTabs
 
             Layout.fillWidth: true
-            spacing: ThemeTokens.Spacing.s6
-
-            Repeater {
-                model: [qsTr("我喜欢"), qsTr("我的歌单"), qsTr("收藏歌单"), qsTr("专辑"), qsTr("艺人")]
-
-                delegate: Item {
-                    id: libTab
-
-                    required property int index
-                    required property string modelData
-                    readonly property bool current: root.currentTab === libTab.index
-
-                    Layout.preferredHeight: 38
-                    implicitWidth: libTabText.implicitWidth
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: libTab.modelData
-                    activeFocusOnTab: true
-
-                    HoverHandler { id: libTabHover }
-                    TapHandler { onTapped: root.currentTab = libTab.index }
-                    Keys.onReturnPressed: root.currentTab = libTab.index
-                    Keys.onSpacePressed: root.currentTab = libTab.index
-
-                    Label {
-                        id: libTabText
-                        anchors.top: parent.top
-                        anchors.topMargin: ThemeTokens.Spacing.s2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: libTab.modelData
-                        color: libTab.current
-                            ? ThemeTokens.Palette.primary
-                            : (libTabHover.hovered ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText)
-                        font.pixelSize: ThemeTokens.TypeScale.body
-                        font.weight: libTab.current ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.regular
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: libTabText.implicitWidth
-                        height: 2
-                        radius: 1
-                        visible: libTab.current
-                        color: ThemeTokens.Palette.primary
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: libTab.activeFocus
-                        radius: ThemeTokens.Spacing.radiusSm
-                        color: "transparent"
-                        border.color: ThemeTokens.Palette.focusRing
-                        border.width: 2
-                    }
-                }
+            tabs: [qsTr("我喜欢"), qsTr("我的歌单"), qsTr("收藏歌单"), qsTr("专辑"), qsTr("艺人")]
+            currentIndex: root.currentTab
+            onActivated: function(index) {
+                root.currentTab = index
             }
-
-            Item { Layout.fillWidth: true }
         }
 
         Rectangle {
@@ -216,12 +163,16 @@ ColumnLayout {
                     libraryController: root.libraryController
                     coverController: root.coverController
                     songDetailController: root.songDetailController
+                    playerController: root.playerController
+                    selected: root.playerController
+                        && root.playerController.currentSong
+                        && root.playerController.currentSong.mid === song.mid
                     onActivated: function(songData, row) {
                         if (root.playerController && root.libraryController)
                             root.playerController.playFromModel(root.libraryController.likedModel, row)
                     }
-                    onNavigationRequested: function(kind, detailId, title, subtitle) {
-                        root.detailRequested(kind, detailId, title, subtitle)
+                    onNavigationRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                        root.detailRequested(kind, detailId, title, subtitle, coverUrl)
                     }
                 }
 
@@ -273,12 +224,27 @@ ColumnLayout {
                 }
             }
 
-            Label {
-                anchors.centerIn: parent
-                visible: root.libraryController && root.libraryController.loading
-                text: qsTr("正在同步喜欢")
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.body
+            // 首次同步骨架 (已有数据时刷新不闪骨架)
+            ColumnLayout {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: root.libraryController
+                    && root.libraryController.authed
+                    && root.libraryController.loading
+                    && root.libraryController.likedCount === 0
+                spacing: ThemeTokens.Spacing.s2
+
+                Repeater {
+                    model: 6
+
+                    delegate: Components.SongRowSkeleton {
+                        required property int index
+
+                        Layout.fillWidth: true
+                        titleRatio: 0.3 + (index % 3) * 0.14
+                    }
+                }
             }
         }
 
@@ -290,8 +256,8 @@ ColumnLayout {
             emptyText: qsTr("暂无歌单")
             loggedOutText: qsTr("登录后显示我的歌单")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -303,8 +269,8 @@ ColumnLayout {
             emptyText: qsTr("暂无收藏歌单")
             loggedOutText: qsTr("登录后显示收藏歌单")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -316,8 +282,8 @@ ColumnLayout {
             emptyText: qsTr("暂无专辑")
             loggedOutText: qsTr("登录后显示收藏专辑")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
 
@@ -329,8 +295,8 @@ ColumnLayout {
             emptyText: qsTr("暂无艺人")
             loggedOutText: qsTr("登录后显示关注艺人")
             onLoginRequested: root.loginRequested()
-            onCardRequested: function(kind, detailId, title, subtitle) {
-                root.detailRequested(kind, detailId, title, subtitle)
+            onCardRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.detailRequested(kind, detailId, title, subtitle, coverUrl)
             }
         }
     }
@@ -347,7 +313,7 @@ ColumnLayout {
         readonly property bool hasCards: tab.model && tab.model.count > 0
 
         signal loginRequested()
-        signal cardRequested(string kind, string detailId, string title, string subtitle)
+        signal cardRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
         Layout.fillWidth: true
         Layout.fillHeight: true
@@ -358,7 +324,7 @@ ColumnLayout {
             anchors.fill: parent
             clip: true
 
-            readonly property int cols: Math.max(2, Math.ceil(width / 180))
+            readonly property int cols: Math.max(2, Math.min(8, Math.floor(width / 180)))
             cellWidth: cardGrid.cols > 0 ? Math.floor(width / cardGrid.cols) : width
             cellHeight: cellWidth + 44
             model: tab.model
@@ -391,8 +357,8 @@ ColumnLayout {
                     coverUrl: libCell.coverUrl
                     meta: libCell.meta
                     coverController: tab.coverController
-                    onActivated: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle)
-                    onPlayRequested: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle)
+                    onActivated: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle, libCell.coverUrl)
+                    onPlayRequested: tab.cardRequested(libCell.kind || tab.kindFallback, libCell.cardId, libCell.title, libCell.subtitle, libCell.coverUrl)
                 }
             }
         }
@@ -442,15 +408,30 @@ ColumnLayout {
             }
         }
 
-        Label {
-            anchors.centerIn: parent
+        // 首次同步骨架: 一排卡片占位
+        GridLayout {
+            id: tabSkeletonGrid
+
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
             visible: root.libraryController
                 && root.libraryController.authed
                 && root.libraryController.loading
                 && !tab.hasCards
-            text: qsTr("正在同步")
-            color: ThemeTokens.Palette.surfaceVariantText
-            font.pixelSize: ThemeTokens.TypeScale.body
+            columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
+            columnSpacing: ThemeTokens.Spacing.s3
+            rowSpacing: ThemeTokens.Spacing.s3
+
+            Repeater {
+                model: tabSkeletonGrid.columns
+
+                delegate: Components.CardSkeleton {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                }
+            }
         }
     }
 
