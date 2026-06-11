@@ -709,3 +709,88 @@ async def test_remove_queue_index_granular_remove_not_reset():
 
     assert events == [("rm", 1, 1)]
     assert _model_mids(controller.queueModel) == ["m1", "m3"]
+
+
+class _PartialFailService:
+    """指定 mid 集合不可播 (get_song_url 返 None = 服务端明确拒发, 如 104003 无版权)."""
+
+    def __init__(self, unplayable: set[str]) -> None:
+        self.unplayable = unplayable
+        self.calls: list[str] = []
+
+    async def get_song_url(self, song: Song, *, quality_preference: str) -> SongUrl | None:
+        self.calls.append(song.mid)
+        if song.mid in self.unplayable:
+            return None
+        return SongUrl(mid=song.mid, url=f"https://audio.example.test/{song.mid}.mp3")
+
+
+async def test_auto_skip_unplayable_song_advances_and_notices():
+    service = _PartialFailService({"m1"})
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    notices: list[str] = []
+    errors: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+    controller.errorRaised.connect(errors.append)
+
+    await controller.play_songs_async([_song("m1", "坏一"), _song("m2", "好二")], 0)
+
+    # 不可播的 m1 被自动跳过, 落到 m2 正常加载
+    assert controller.currentIndex == 1
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"
+    assert notices == ["已跳过无法播放的歌曲：坏一"]
+    assert errors == []
+    assert controller.errorMessage == ""
+    assert controller._url_failure_streak == 0  # noqa: SLF001  成功后清零
+
+
+async def test_auto_skip_sequence_end_stops_without_error():
+    # 顺序模式所有歌都不可播: 逐首跳过, 到队列尽头自然停, 不挂错误横幅
+    service = _PartialFailService({"m1", "m2"})
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+
+    assert controller.playbackState == "stopped"
+    assert controller.errorMessage == ""
+    assert len(notices) == 2
+
+
+async def test_auto_skip_streak_cap_stops_with_error():
+    # REPEAT_ALL 全队列不可播会绕圈: 连跳到上限必须停下报错, 不允许无限空转
+    service = _PartialFailService({"m1", "m2"})
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller.setMode("repeat_all")
+    notices: list[str] = []
+    errors: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+    controller.errorRaised.connect(errors.append)
+
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+
+    assert controller.playbackState == "stopped"
+    assert "无法获取播放链接" in controller.errorMessage
+    assert len(errors) == 1
+    # 上限 5: 前 4 次是跳过提示, 第 5 次失败直接停
+    assert len(notices) == 4
+
+
+async def test_network_exception_stops_without_skipping():
+    # 传输层异常 (断网) 与"服务端拒发"不同: 不跳过, 立即停住报错,
+    # 否则一次断网会把整个队列"跳"光
+    class _BoomService:
+        async def get_song_url(self, song: Song, *, quality_preference: str) -> SongUrl | None:
+            raise RuntimeError("network down")
+
+    controller = PlayerController(_BoomService())  # type: ignore[arg-type]
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+
+    await controller.play_songs_async([_song("m1", "一"), _song("m2", "二")], 0)
+
+    assert controller.playbackState == "stopped"
+    assert controller.errorMessage != ""
+    assert notices == []
+    assert controller.currentIndex == 0

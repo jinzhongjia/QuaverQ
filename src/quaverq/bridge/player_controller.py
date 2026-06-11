@@ -61,6 +61,8 @@ class PlayerController(QObject):
     loadingChanged = Signal()
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
+    # 非错误级轻提示 (Snackbar info): 如自动跳过无版权曲目
+    noticeRaised = Signal(str)
 
     playRequested = Signal()
     pauseRequested = Signal()
@@ -69,6 +71,9 @@ class PlayerController(QObject):
     queueSourceChanged = Signal()
     # 队列自然播完信号: 参数为 source 标识 (e.g. "daily"), 由订阅方决定是否续接
     queueExhausted = Signal(str)
+
+    # 连续自动跳过上限 (服务端拒发场景), 见 _load_current
+    _URL_FAILURE_STREAK_LIMIT = 5
 
     def __init__(
         self,
@@ -98,6 +103,9 @@ class PlayerController(QObject):
         # 瞬态媒体错误 (CDN 401 等) 的自动重试: 按当前曲 mid 计数, 成功播放清零
         self._media_retry_count = 0
         self._media_retry_mid = ""
+        # 服务端拒发 (vkey 104003 无版权等) 的连续自动跳过计数: 防全队列不可播时
+        # REPEAT_ALL 绕圈无限空转, 到上限停下报错; 任一首成功取链即清零
+        self._url_failure_streak = 0
         self._restore_session_snapshot()
 
     @Property("QVariant", notify=currentSongChanged)
@@ -555,11 +563,28 @@ class PlayerController(QObject):
             return
 
         if song_url is None or not song_url.url:
+            # None = 服务端明确拒发 (vkey 104003 无版权等), 是单曲属性 → 自动跳下一首,
+            # 与官方客户端对灰色歌曲的行为一致. 传输层异常走上面的 except 分支停住报错
+            # (断网时绝不能把整个队列"跳"光). 连跳上限防 REPEAT_ALL 全队列不可播时绕圈空转.
+            self._url_failure_streak += 1
+            if self._url_failure_streak < self._URL_FAILURE_STREAK_LIMIT:
+                logger.info(
+                    "自动跳过不可播曲目: %s (mid=%s, 连续第 %d 首)",
+                    song.name,
+                    song.mid,
+                    self._url_failure_streak,
+                )
+                self.noticeRaised.emit(f"已跳过无法播放的歌曲：{song.name}")
+                # next() 在队列尽头 (SEQUENCE) 走 exhausted → 自然停, 不挂错误
+                await self.next()
+                return
             message = f"无法获取播放链接：{song.name}"
             self._set_playback_state("stopped")
             self._set_error_message(message)
             self.errorRaised.emit(message)
             return
+
+        self._url_failure_streak = 0
 
         playback_url = song_url.url
         if self._stream_proxy is not None:

@@ -808,8 +808,9 @@ class QuaverService:
         order = self._QUALITY_PROFILES.get(
             quality_preference, self._QUALITY_PROFILES[self._DEFAULT_QUALITY]
         )
+        failure_codes: dict[str, int] = {}
         for quality_label in order:
-            url = await self._try_bypass_url(
+            url, vkey_result = await self._try_bypass_url(
                 song_obj.mid,
                 quality_label,
                 media_mid=song_obj.media_mid,
@@ -826,13 +827,19 @@ class QuaverService:
                     song_obj.mid,
                 )
                 return SongUrl(mid=song_obj.mid, url=url, quality=quality_label)
-        # mid + media_mid 让我们能快速本地复现 (诊断脚本只需这两项即可还原 filename).
+            if vkey_result is not None:
+                failure_codes[quality_label] = vkey_result
+        # mid + media_mid 让我们能快速本地复现 (诊断脚本只需这两项即可还原 filename);
+        # vkey_result 一眼定性: 104003=无版权/不可下发 (灰色歌曲, 官方客户端同样不可播)
+        codes = set(failure_codes.values())
+        code_text = str(codes.pop()) if len(codes) == 1 else (str(failure_codes) or "无")
         logger.warning(
-            "所有音质均不可下发: %s (mid=%s, media_mid=%s, pref=%s)",
+            "所有音质均不可下发: %s (mid=%s, media_mid=%s, pref=%s, vkey_result=%s)",
             song_obj.name,
             song_obj.mid,
             song_obj.media_mid or "",
             quality_preference,
+            code_text,
         )
         return None
 
@@ -905,11 +912,15 @@ class QuaverService:
         quality_label: str,
         *,
         media_mid: str = "",
-    ) -> str | None:
-        """vkey bypass. ct 实例生命周期内固定 (启动时从 _SAFE_CT_VALUES 随机)."""
+    ) -> tuple[str | None, int | None]:
+        """vkey bypass. ct 实例生命周期内固定 (启动时从 _SAFE_CT_VALUES 随机).
+
+        返回 (url, vkey_result 码): 成功 (url, None); 拒发时 url=None, 码透给调用方
+        进 warning 日志 (104003=无版权/不可下发, 真机实测灰色歌曲返回该码).
+        """
         prefix_ext = self._QUALITY_FILE.get(quality_label)
         if not prefix_ext:
-            return None
+            return None, None
         prefix, ext = prefix_ext
         file_mid = media_mid or mid
         filename = f"{prefix}{file_mid}{file_mid}.{ext}"
@@ -928,7 +939,7 @@ class QuaverService:
         )
         if not data:
             logger.debug("vkey 空响应: mid=%s quality=%s filename=%s", mid, quality_label, filename)
-            return None
+            return None, None
 
         midurlinfo = data.get("midurlinfo") or []
         if not midurlinfo:
@@ -940,12 +951,13 @@ class QuaverService:
                 filename,
                 sorted(data.keys()),
             )
-            return None
+            return None, None
         entry = midurlinfo[0] if isinstance(midurlinfo[0], dict) else {}
         purl = entry.get("purl", "") or ""
         if not purl:
-            # 区域/版权/会员限制时, vkey 不返回 errcode, 只把 purl 置空.
-            # DEBUG (而非 WARNING): 某些档失败是常态 (例如非 VIP 试 FLAC), 不应刷屏.
+            # 区域/版权/会员限制时 purl 置空, result 码标明原因 (104003=无版权).
+            # DEBUG (而非 WARNING): 某些档失败是常态 (例如非 VIP 试 FLAC), 不应刷屏;
+            # 全档失败时 get_song_url 的 warning 会带上这里的码.
             logger.debug(
                 "vkey purl 空: mid=%s quality=%s filename=%s entry=%s",
                 mid,
@@ -953,11 +965,16 @@ class QuaverService:
                 filename,
                 entry,
             )
-            return None
+            raw_result = entry.get("result")
+            try:
+                code = int(raw_result) if raw_result not in (None, "") else None
+            except (TypeError, ValueError):
+                code = None
+            return None, code
         # 返回真实 CDN https url：由 bridge 的 StreamProxy 用 curl_cffi 官方 TLS
         # 指纹 (impersonate) 拉流，经本机回环 http 喂给 FFmpeg。FFmpeg 自身的 TLS
         # 指纹会被 CDN 风控 (https→401/403)，故不让它直连；明文只在本机回环。
-        return f"https://isure.stream.qqmusic.qq.com/{purl}"
+        return f"https://isure.stream.qqmusic.qq.com/{purl}", None
 
     # ------------------------------------------------------------------
     # 用户库 (我喜欢 + 我创建的歌单)

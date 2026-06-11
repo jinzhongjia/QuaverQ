@@ -1038,6 +1038,8 @@ ApplicationWindow {
     Connections {
         target: root.playerController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+        // 轻提示 (自动跳过无版权曲目等): info 级, 不用错误红
+        function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
     }
 
     Item {

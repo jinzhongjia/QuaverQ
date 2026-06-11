@@ -30,21 +30,24 @@ def _stub(svc: QuaverService, payload):
 
 
 # ------------------------------------------------------------------ vkey 播放链
+# _try_bypass_url 返回 (url, vkey_result 码): 失败时码随日志透出 (104003=无版权/不可下发),
+# 排查不可播曲目不用再写探针.
 
 
 async def test_vkey_happy_path_builds_cdn_url():
     svc = _svc()
     _stub(svc, {"midurlinfo": [{"purl": "M500abcabc.mp3?vkey=XYZ"}]})
 
-    url = await svc._try_bypass_url("abc", "MP3_128")
+    url, code = await svc._try_bypass_url("abc", "MP3_128")
     assert url == "https://isure.stream.qqmusic.qq.com/M500abcabc.mp3?vkey=XYZ"
+    assert code is None
 
 
 async def test_vkey_unknown_quality_label_short_circuits():
     svc = _svc()
     calls = _stub(svc, {"midurlinfo": [{"purl": "x"}]})
 
-    assert await svc._try_bypass_url("abc", "APE_LOSSLESS") is None
+    assert await svc._try_bypass_url("abc", "APE_LOSSLESS") == (None, None)
     # 未知档位不应发请求
     assert calls == []
 
@@ -52,27 +55,30 @@ async def test_vkey_unknown_quality_label_short_circuits():
 async def test_vkey_none_response_returns_none():
     svc = _svc()
     _stub(svc, None)
-    assert await svc._try_bypass_url("abc", "MP3_128") is None
+    assert await svc._try_bypass_url("abc", "MP3_128") == (None, None)
 
 
 async def test_vkey_missing_midurlinfo_returns_none():
     svc = _svc()
     _stub(svc, {"servercheck": 1})
-    assert await svc._try_bypass_url("abc", "MP3_128") is None
+    assert await svc._try_bypass_url("abc", "MP3_128") == (None, None)
 
 
 async def test_vkey_non_dict_entry_returns_none():
     # 服务端字段漂移: midurlinfo 元素不是 dict 时不能 TypeError
     svc = _svc()
     _stub(svc, {"midurlinfo": ["oops"]})
-    assert await svc._try_bypass_url("abc", "MP3_128") is None
+    assert await svc._try_bypass_url("abc", "MP3_128") == (None, None)
 
 
-async def test_vkey_empty_purl_returns_none():
-    # 区域/版权/会员限制: 不返 errcode, 只把 purl 置空 (非 VIP 试 FLAC 是常态)
+async def test_vkey_empty_purl_returns_result_code():
+    # 版权/区域限制: purl 置空 + result 码 (104003=无版权; 真机排查 mid=000VBS162wAFkB 实测)
     svc = _svc()
-    _stub(svc, {"midurlinfo": [{"purl": ""}]})
-    assert await svc._try_bypass_url("abc", "FLAC") is None
+    _stub(svc, {"midurlinfo": [{"purl": "", "result": 104003}]})
+
+    url, code = await svc._try_bypass_url("abc", "FLAC")
+    assert url is None
+    assert code == 104003
 
 
 async def test_vkey_media_mid_overrides_filename():
@@ -82,6 +88,22 @@ async def test_vkey_media_mid_overrides_filename():
     await svc._try_bypass_url("abc", "MP3_128", media_mid="mmid")
     assert calls[0][2]["filename"] == ["M500mmidmmid.mp3"]
     assert calls[0][2]["songmid"] == ["abc"]
+
+
+async def test_get_song_url_warning_carries_vkey_result(caplog):
+    # 所有音质拒发时, warning 必须带 result 码 (一眼定性版权问题, 免再写探针)
+    import logging
+
+    from quaverq.core.models import Song
+
+    svc = _svc()
+    _stub(svc, {"midurlinfo": [{"purl": "", "result": 104003}]})
+
+    with caplog.at_level(logging.WARNING, logger="quaverq.core.service"):
+        result = await svc.get_song_url(Song(mid="bad1", name="灰歌"))
+
+    assert result is None
+    assert any("104003" in rec.getMessage() for rec in caplog.records)
 
 
 # ------------------------------------------------------------------ 排行榜详情

@@ -408,8 +408,8 @@ async def test_get_song_url_uses_bypass_path():
     async def fake_try(mid, quality, **_kwargs):
         attempts.append(quality)
         if quality == "FLAC":
-            return "https://x/F000m.flac?vkey=k"
-        return None
+            return "https://x/F000m.flac?vkey=k", None
+        return None, None
 
     svc._try_bypass_url = fake_try
     url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
@@ -424,8 +424,8 @@ async def test_get_song_url_walks_through_quality_until_hit():
 
     async def fake_try(mid, quality, **_kwargs):
         if quality == "MP3_128":
-            return "https://x/M500m.mp3?vkey=k"
-        return None
+            return "https://x/M500m.mp3?vkey=k", None
+        return None, None
 
     svc._try_bypass_url = fake_try
     url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
@@ -437,7 +437,7 @@ async def test_get_song_url_all_fail_returns_none():
     svc._ct_value = 2
 
     async def fake_try(_mid, _q, **_kwargs):
-        return None
+        return None, None
 
     svc._try_bypass_url = fake_try
     assert await svc.get_song_url(Song(mid="m", name="x")) is None
@@ -450,7 +450,7 @@ async def test_get_song_url_quality_unknown_falls_back_to_balanced():
 
     async def fake_try(mid, q, **_kwargs):
         attempts.append(q)
-        return f"https://x/{q}?vkey=k"
+        return f"https://x/{q}?vkey=k", None
 
     svc._try_bypass_url = fake_try
     await svc.get_song_url(Song(mid="m", name="x"), quality_preference="bogus")
@@ -467,13 +467,14 @@ async def test_try_bypass_url_uses_media_mid_for_filename():
         return {"midurlinfo": [{"purl": "C400m.m4a?vkey=k"}]}
 
     svc._bypass_post = fake_post
-    url = await svc._try_bypass_url(
+    url, code = await svc._try_bypass_url(
         "songmid",
         "MP3_128",
         media_mid="mediamid",
     )
 
     assert url == "https://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
+    assert code is None
     assert captured["songmid"] == ["songmid"]
     assert captured["filename"] == ["M500mediamidmediamid.mp3"]
 
@@ -523,7 +524,7 @@ async def test_try_bypass_url_logs_diagnostics_on_empty_purl(caplog):
 
     svc._bypass_post = fake_post
     with caplog.at_level(logging.DEBUG, logger="quaverq.core.service"):
-        url = await svc._try_bypass_url("mid_unplayable", "FLAC", media_mid="m0")
+        url, _code = await svc._try_bypass_url("mid_unplayable", "FLAC", media_mid="m0")
     assert url is None
     diag = " ".join(rec.getMessage() for rec in caplog.records)
     assert "mid_unplayable" in diag
@@ -542,7 +543,7 @@ async def test_try_bypass_url_logs_diagnostics_on_missing_midurlinfo(caplog):
     svc._bypass_post = fake_post
     with caplog.at_level(logging.DEBUG, logger="quaverq.core.service"):
         url = await svc._try_bypass_url("mid_blocked", "MP3_320")
-    assert url is None
+    assert url == (None, None)
     diag = " ".join(rec.getMessage() for rec in caplog.records)
     assert "mid_blocked" in diag
     assert "MP3_320" in diag
@@ -556,7 +557,7 @@ async def test_get_song_url_all_fail_warning_includes_identifiers(caplog):
     svc._ct_value = 2
 
     async def fake_try(_mid, _q, **_kwargs):
-        return None
+        return None, None
 
     svc._try_bypass_url = fake_try
     song = Song(mid="mid_xyz", name="Here I Am", media_mid="media_xyz")
