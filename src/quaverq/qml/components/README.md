@@ -17,7 +17,9 @@
 | `Card.qml` | **内容卡片**（歌单 / 专辑 / 艺人 / 排行榜）：方形封面 + 播放量角标 + hover 浮出播放键 + 标题副标题。整卡点击 `activated()`（进详情），浮层 `playRequested()`（直接播放）。`circular` 给艺人卡用圆形。 |
 | `SongRow.qml` | 曲目列表行：序号、封面、歌名 + 歌手、专辑、时长、喜欢按钮、单曲操作。 |
 | `QueueRow.qml` | 播放队列行：高亮当前播放项，提供「定位到这首」和「从队列移除」。 |
-| `AlbumArt.qml` | 通用专辑封面：`active` 时附 hover 播放浮层，`compact` 切小尺寸，`circular` 切圆形（艺人用），失败 / 未加载时显示占位符。封面 URL 通过 `coverController` 间接走 `image://covers/...`。`retainOnSwitch: true` 时换 URL 期间保留旧图直到新图就绪（详情头图"卡片图 → 接口高清图"无缝升级用）；列表行 delegate 复用场景保持默认 false，立即回占位避免串图。 |
+| `AlbumArt.qml` | 通用专辑封面：`active` 时附 hover 播放浮层，`compact` 切小尺寸，`circular` 切圆形（艺人用），失败 / 未加载时显示占位符。封面 URL 通过 `coverController` 间接走 `image://covers/...`。`retainOnSwitch: true` 时换 URL 期间保留旧图直到新图就绪（详情头图"卡片图 → 接口高清图"无缝升级用）；列表行 delegate 复用场景保持默认 false，立即回占位避免串图。双缓冲换层记账用自维护的 `frontSource/backSource` 字符串——**不要**反读 `Image.source` 比较（`image://` URL 会被 QUrl 规范化导致比对失效）。 |
+| `SongRow.qml` | 歌曲行（64px）：点击播放、右键 / ⋯ 弹同一个操作菜单（播放 / 下一首播放 / 添加到待播列表 / 收藏 / 查看歌手 / 查看专辑 / 歌曲详情），需注入 `playerController`（插队/追加走 `playSongNext`/`appendToQueue`）。 |
+| `QueueRow.qml` | 待播列表行（56px）：hover 时时长让位给 × 移除按钮（`removeRequested(row)`）；当前曲带 3px 绿条 + ♪ 标记 + "播放中"徽章。 |
 
 ## 输入与反馈
 

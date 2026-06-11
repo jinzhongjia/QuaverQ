@@ -256,6 +256,63 @@ class PlayerController(QObject):
             loop.create_task(self._load_current(play_when_ready=True))
         return added
 
+    @Slot("QVariant")
+    def playSongNext(self, song_data: Any) -> None:
+        """把一首歌排到当前曲之后 (下一首播放); 已在队列中则挪位, 空队列直接起播."""
+        song = song_from_map(song_data if isinstance(song_data, Mapping) else {})
+        if not song.mid:
+            return
+        current = self._queue.current()
+        if current is not None and current.mid == song.mid:
+            return
+        existing = next(
+            (i for i, s in enumerate(self._queue.songs) if s.mid == song.mid),
+            -1,
+        )
+        if existing >= 0:
+            self._queue.remove_at(existing)
+        was_empty = self._queue.current() is None
+        self._queue.insert_next(song)
+        self._sync_queue_model()
+        if was_empty:
+            self._emit_current_changed()
+            self._spawn_load_current(play_when_ready=True)
+
+    @Slot(int)
+    def removeQueueIndex(self, row: int) -> None:
+        """移除待播列表中的一行; 移除当前曲时顶上下一首续播, 队列清空则停."""
+        was_current = row == self._queue.current_index
+        was_active = self._loading or self._playback_state in ("playing", "loading")
+        removed = self._queue.remove_at(row)
+        if removed is None:
+            return
+        self._sync_queue_model()
+        self._emit_current_changed()
+        if not was_current:
+            return
+        if self._queue.current() is None:
+            self.stop()
+            return
+        self._spawn_load_current(play_when_ready=was_active)
+
+    @Slot()
+    def clearQueue(self) -> None:
+        """清空待播列表并停止播放."""
+        had_source = bool(self._queue.source)
+        self._queue.clear()
+        self._sync_queue_model()
+        self._emit_current_changed()
+        if had_source:
+            self.queueSourceChanged.emit()
+        self.stop()
+
+    def _spawn_load_current(self, *, play_when_ready: bool) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._load_current(play_when_ready=play_when_ready))
+
     @asyncSlot()
     async def next(self) -> None:  # noqa: A003
         song = self._queue.next()

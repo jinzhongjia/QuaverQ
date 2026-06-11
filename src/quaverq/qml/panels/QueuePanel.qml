@@ -16,6 +16,8 @@ Rectangle {
 
     signal closeRequested()
     signal playIndexRequested(int row)
+    signal removeIndexRequested(int row)
+    signal clearRequested()
 
     color: ThemeTokens.Palette.surfaceElevated
     border.color: ThemeTokens.Palette.outlineMuted
@@ -67,6 +69,33 @@ Rectangle {
                     color: ThemeTokens.Palette.surfaceVariantText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                     elide: Text.ElideRight
+                }
+            }
+
+            Button {
+                id: clearButton
+
+                Layout.preferredHeight: 28
+                visible: root.queueCount > 0
+                text: qsTr("清空")
+                Accessible.name: qsTr("清空待播列表")
+                onClicked: root.clearRequested()
+
+                contentItem: Label {
+                    text: clearButton.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: ThemeTokens.Spacing.s3
+                    rightPadding: ThemeTokens.Spacing.s3
+                    color: ThemeTokens.Palette.surfaceVariantText
+                    font.pixelSize: ThemeTokens.TypeScale.caption
+                }
+
+                background: Rectangle {
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: clearButton.down
+                        ? ThemeTokens.Palette.statePressed
+                        : clearButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                 }
             }
 
@@ -135,6 +164,9 @@ Rectangle {
                     coverController: root.coverController
                     onActivated: function(songData, row) {
                         root.playIndexRequested(row)
+                    }
+                    onRemoveRequested: function(row) {
+                        root.removeIndexRequested(row)
                     }
                 }
 

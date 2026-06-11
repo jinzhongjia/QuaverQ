@@ -481,6 +481,7 @@ ScrollView {
                     libraryController: section.libraryController
                     coverController: section.coverController
                     songDetailController: section.songDetailController
+                    playerController: root.playerController
                     selected: root.playerController
                         && root.playerController.currentSong
                         && root.playerController.currentSong.mid === song.mid

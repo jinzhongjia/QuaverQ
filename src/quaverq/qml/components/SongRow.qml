@@ -15,6 +15,7 @@ Rectangle {
     property var libraryController
     property var coverController
     property var songDetailController
+    property var playerController
     property bool selected: false
     readonly property string coverUrl: root.song && root.song.coverUrl ? root.song.coverUrl : ""
     readonly property var firstSinger: {
@@ -59,6 +60,16 @@ Rectangle {
 
     TapHandler {
         onTapped: root.activated(root.song, root.index)
+    }
+
+    // 桌面惯例: 右键在光标处弹出操作菜单 (与 "⋯" 同一个菜单)
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: function(eventPoint) {
+            contextMenu.x = eventPoint.position.x
+            contextMenu.y = eventPoint.position.y
+            contextMenu.open()
+        }
     }
 
     Keys.onReturnPressed: root.activated(root.song, root.index)
@@ -129,6 +140,24 @@ Rectangle {
         StyledMenuItem {
             text: qsTr("播放")
             onTriggered: root.activated(root.song, root.index)
+        }
+
+        StyledMenuItem {
+            text: qsTr("下一首播放")
+            enabled: !!(root.playerController && root.song && root.song.mid)
+            onTriggered: {
+                if (root.playerController)
+                    root.playerController.playSongNext(root.song)
+            }
+        }
+
+        StyledMenuItem {
+            text: qsTr("添加到待播列表")
+            enabled: !!(root.playerController && root.song && root.song.mid)
+            onTriggered: {
+                if (root.playerController)
+                    root.playerController.appendToQueue([root.song])
+            }
         }
 
         StyledMenuSeparator {}

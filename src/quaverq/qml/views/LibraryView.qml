@@ -217,6 +217,7 @@ ColumnLayout {
                     libraryController: root.libraryController
                     coverController: root.coverController
                     songDetailController: root.songDetailController
+                    playerController: root.playerController
                     selected: root.playerController
                         && root.playerController.currentSong
                         && root.playerController.currentSong.mid === song.mid

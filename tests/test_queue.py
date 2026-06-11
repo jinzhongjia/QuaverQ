@@ -254,3 +254,70 @@ def test_set_mode_shuffle_regenerates_order():
     nxt = q.on_song_end()
     assert nxt is not None
     assert nxt.mid in {f"m{i}" for i in range(5)}
+
+
+# ============================================================== remove_at (W5 队列增删)
+
+
+def test_remove_at_before_current_shifts_index_keeping_song():
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, start_index=2)
+    removed = q.remove_at(0)
+    assert removed is not None
+    assert removed.mid == "m0"
+    assert q.current_index == 1
+    assert q.current().mid == "m2"
+    assert len(q) == 2
+
+
+def test_remove_at_after_current_keeps_index():
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, start_index=0)
+    removed = q.remove_at(2)
+    assert removed.mid == "m2"
+    assert q.current_index == 0
+    assert q.current().mid == "m0"
+
+
+def test_remove_at_current_promotes_next_song():
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, start_index=1)
+    removed = q.remove_at(1)
+    assert removed.mid == "m1"
+    assert q.current_index == 1
+    assert q.current().mid == "m2"
+
+
+def test_remove_at_current_last_clamps_to_new_tail():
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, start_index=2)
+    removed = q.remove_at(2)
+    assert removed.mid == "m2"
+    assert q.current_index == 1
+    assert q.current().mid == "m1"
+
+
+def test_remove_at_last_song_empties_queue():
+    q = PlayQueue()
+    q.push(_make_songs(1), play_now=True)
+    assert q.remove_at(0).mid == "m0"
+    assert q.current() is None
+    assert q.current_index == -1
+    assert len(q) == 0
+
+
+def test_remove_at_invalid_index_returns_none():
+    q = PlayQueue()
+    q.push(_make_songs(2), play_now=True)
+    assert q.remove_at(5) is None
+    assert q.remove_at(-1) is None
+    assert len(q) == 2
+
+
+def test_remove_at_shuffle_keeps_pool_indices_valid():
+    q = PlayQueue(rng=random.Random(7))
+    q.push(_make_songs(4), play_now=True, start_index=0)
+    q.set_mode(PlayMode.SHUFFLE)
+    q.remove_at(1)
+    assert all(0 <= i < len(q.songs) for i in q._shuffle_remaining)  # noqa: SLF001
+    assert all(0 <= i < len(q.songs) for i in q._shuffle_history)  # noqa: SLF001

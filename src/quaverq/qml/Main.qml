@@ -811,6 +811,14 @@ ApplicationWindow {
                     if (root.playerController)
                         root.playerController.playQueueIndex(row)
                 }
+                onRemoveIndexRequested: function(row) {
+                    if (root.playerController)
+                        root.playerController.removeQueueIndex(row)
+                }
+                onClearRequested: {
+                    if (root.playerController)
+                        root.playerController.clearQueue()
+                }
             }
         }
     }

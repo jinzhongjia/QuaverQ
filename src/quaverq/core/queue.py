@@ -115,6 +115,30 @@ class PlayQueue:
         self._shuffle_remaining = []
         self._shuffle_history = []
 
+    def remove_at(self, index: int) -> Song | None:
+        """移除指定索引的歌; 返回被移除的歌, 索引无效返 None.
+
+        - 移除 current 之前的: current_index 前移 1, 仍指向同一首;
+        - 移除 current 本身: current_index 不动 (顶上来的是原下一首),
+          越界 (移的是末尾) 则钳到新末尾, 队列空时 -1;
+        - SHUFFLE 池/历史同步剔除该索引并重映射.
+        """
+        if not (0 <= index < len(self.songs)):
+            return None
+        removed = self.songs.pop(index)
+        if index < self.current_index:
+            self.current_index -= 1
+        elif index == self.current_index and self.current_index >= len(self.songs):
+            self.current_index = len(self.songs) - 1
+        if self.mode == PlayMode.SHUFFLE:
+            self._shuffle_remaining = [
+                i - 1 if i > index else i for i in self._shuffle_remaining if i != index
+            ]
+            self._shuffle_history = [
+                i - 1 if i > index else i for i in self._shuffle_history if i != index
+            ]
+        return removed
+
     def append(self, songs: list[Song]) -> list[Song]:
         """在队列末尾追加歌曲, 去重已存在的 mid; 返回真正被加入的歌. 不改 current."""
         if not songs:

@@ -411,6 +411,7 @@ Dialog {
                         delegate: Rectangle {
                             id: simCell
 
+                            required property int index
                             required property string mid
                             required property string name
                             required property string singers
@@ -422,7 +423,23 @@ Dialog {
                             color: simHover.hovered ? ThemeTokens.Palette.stateHover : "transparent"
                             border.color: ThemeTokens.Palette.outlineMuted
 
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("播放 %1").arg(simCell.name)
+
                             HoverHandler { id: simHover }
+
+                            // 点击播放该相似歌曲 (以相似列表为队列), 并关闭弹窗
+                            TapHandler {
+                                onTapped: {
+                                    if (root.playerController && root.songDetailController) {
+                                        root.playerController.playFromModel(
+                                            root.songDetailController.similarSongsModel,
+                                            simCell.index
+                                        )
+                                        root.close()
+                                    }
+                                }
+                            }
 
                             RowLayout {
                                 anchors.fill: parent

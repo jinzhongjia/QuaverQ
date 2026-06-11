@@ -197,6 +197,7 @@ ColumnLayout {
                     libraryController: root.libraryController
                     coverController: root.coverController
                     songDetailController: root.songDetailController
+                    playerController: root.playerController
                     onActivated: function(songData, row) {
                         if (root.playerController)
                             root.playerController.playFromModel(root.serviceController.songResults, row)

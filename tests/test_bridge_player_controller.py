@@ -469,3 +469,123 @@ async def test_media_error_retry_counter_resets_after_successful_play():
     await controller.handle_media_error_async(QMediaPlayer.Error.NetworkError.value, "x")
 
     assert len(service.calls) == 3  # 首播 + 两次 (各自允许的) 重试
+
+
+# ============================================================== W5 队列增删
+
+
+def _song_map(mid: str, name: str) -> dict:
+    return {"mid": mid, "name": name, "singers": [], "albumName": "", "duration": 100}
+
+
+async def _settled(controller: PlayerController, attr: str = "sourceUrl", timeout: float = 1.0):
+    """等待异步加载落地 (sourceUrl 就位)."""
+    waited = 0.0
+    while waited < timeout:
+        if getattr(controller, attr):
+            return
+        await asyncio.sleep(0.01)
+        waited += 0.01
+
+
+async def test_play_song_next_inserts_after_current():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+
+    controller.playSongNext(_song_map("m9", "插队"))
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m1", "m9", "m2"]
+    assert controller.currentIndex == 0
+    assert controller.currentSong["mid"] == "m1"
+
+
+async def test_play_song_next_moves_existing_entry():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B"), _song("m3", "C")], 0)
+
+    controller.playSongNext(_song_map("m3", "C"))
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m1", "m3", "m2"]
+
+
+async def test_play_song_next_with_current_song_is_noop():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+
+    controller.playSongNext(_song_map("m1", "A"))
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m1", "m2"]
+    assert controller.currentIndex == 0
+
+
+async def test_play_song_next_on_empty_queue_starts_playback():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+
+    controller.playSongNext(_song_map("m1", "A"))
+    await _settled(controller)
+
+    assert controller.currentIndex == 0
+    assert controller.currentSong["mid"] == "m1"
+    assert controller.sourceUrl.endswith("m1.mp3")
+
+
+async def test_remove_queue_index_before_current_no_reload():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B"), _song("m3", "C")], 1)
+    calls_before = len(service.calls)
+
+    controller.removeQueueIndex(0)
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m2", "m3"]
+    assert controller.currentIndex == 0
+    assert controller.currentSong["mid"] == "m2"
+    assert len(service.calls) == calls_before  # 没触发重新取链
+
+
+async def test_remove_queue_index_current_advances_and_reloads():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    controller.removeQueueIndex(0)
+    for _ in range(100):
+        if controller.sourceUrl.endswith("m2.mp3"):
+            break
+        await asyncio.sleep(0.01)
+
+    assert [s.mid for s in controller.queueModel.songs()] == ["m2"]
+    assert controller.currentSong["mid"] == "m2"
+    assert controller.sourceUrl.endswith("m2.mp3")
+
+
+async def test_remove_last_remaining_song_stops():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A")], 0)
+
+    controller.removeQueueIndex(0)
+
+    assert controller.queueModel.count == 0
+    assert controller.currentSong == {}
+    assert controller.sourceUrl == ""
+    assert controller.playbackState == "stopped"
+
+
+async def test_clear_queue_stops_and_empties():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0, source="daily")
+
+    controller.clearQueue()
+
+    assert controller.queueModel.count == 0
+    assert controller.currentSong == {}
+    assert controller.sourceUrl == ""
+    assert controller.playbackState == "stopped"
+    assert controller.queueSource == ""
