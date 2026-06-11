@@ -1,10 +1,18 @@
 """测试全局夹具.
 
-主要做一件事: 把 ``keyring`` 全局换成进程内的 dict, 防止测试污染用户真实凭据存储
-(Windows Credential Manager / macOS Keychain / Linux Secret Service).
+两件事:
+1. Qt 平台插件默认 ``offscreen``: 测试不该依赖环境里有 X/Wayland 会话 —— 远程 shell
+   断开 DISPLAY 后裸建 QApplication 会 qFatal 直接 Abort 整个 pytest 进程 (实测).
+   ``setdefault`` 保留显式覆盖的口子.
+2. 把 ``keyring`` 全局换成进程内的 dict, 防止测试污染用户真实凭据存储
+   (Windows Credential Manager / macOS Keychain / Linux Secret Service).
 """
 
 from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import keyring
 import keyring.errors

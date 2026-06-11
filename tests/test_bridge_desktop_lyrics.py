@@ -47,17 +47,21 @@ def test_set_text_none_becomes_empty(qapp):
 
 
 def test_default_geometry_in_screen_bounds(qapp):
-    """默认位置应在主屏可视区内, 至少 900 宽."""
+    """默认位置应在主屏可视区内; 目标宽 900 但**钳到屏宽** (窄屏不许超界).
+
+    offscreen 平台屏幕 800 宽, 恰好充当"窄屏"用例: max(900, ...) 不钳屏时
+    窗口默认就超出屏幕 —— 这是真实缺陷, 不是测试环境问题.
+    """
     from PySide6.QtGui import QGuiApplication
 
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
     geo = w.geometry()
-    assert geo.width() >= 900
-    assert geo.height() > 0
     screen_geo = QGuiApplication.primaryScreen().availableGeometry()
-    # 窗口完全在屏幕内
+    assert geo.width() >= min(900, screen_geo.width())
+    assert geo.height() > 0
+    # 窗口完全在屏幕内 (含窄屏)
     assert screen_geo.contains(geo)
 
 

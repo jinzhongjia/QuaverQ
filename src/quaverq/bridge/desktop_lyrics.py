@@ -280,8 +280,8 @@ class DesktopLyricsWindow(QWidget):
             x = geo.x() + geo.width() - width - 80
             y = geo.y() + (geo.height() - height) // 2
         else:
-            # 横向: 宽 2/3 屏, 高 90, 距底 60px
-            width = max(900, geo.width() * 2 // 3)
+            # 横向: 宽 2/3 屏 (目标至少 900, 但钳到屏宽 —— 窄屏上不许超界), 高 90, 距底 60px
+            width = min(geo.width(), max(900, geo.width() * 2 // 3))
             height = 90
             x = geo.x() + (geo.width() - width) // 2
             y = geo.y() + geo.height() - height - 60
