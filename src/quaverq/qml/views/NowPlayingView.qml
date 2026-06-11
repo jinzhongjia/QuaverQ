@@ -28,6 +28,13 @@ Item {
     signal queueRequested()
     signal backRequested()
 
+    // 清空队列 (无歌) 时头图回占位: retainOnSwitch 的"换曲保留旧图"语义只该作用于
+    // 换曲过渡, "没歌了"必须显式清掉, 否则上一首封面残留 (真机验收反馈)
+    onHasSongChanged: {
+        if (!root.hasSong)
+            heroArt.displaySource = ""
+    }
+
     function singerText(songData) {
         if (!songData)
             return ""

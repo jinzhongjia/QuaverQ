@@ -854,7 +854,8 @@ ApplicationWindow {
         property bool everOpened: false
 
         active: everOpened
-        visible: opacity > 0
+        // 滑动期间保持可见 (实心页面滑出), 动画结束才隐藏
+        visible: root.nowPlayingOpen || nowPlayingSlideAnim.running
         clip: true
         anchors.top: headerBar.bottom
         anchors.left: parent.left
@@ -863,9 +864,10 @@ ApplicationWindow {
         anchors.leftMargin: root.windowShadowMargin
         anchors.rightMargin: root.windowShadowMargin
         z: 5
-        opacity: root.nowPlayingOpen ? 1 : 0
 
-        // 从播放栏上方滑入 (QQ 音乐"展开"隐喻): 入场减速 durSlow, 退场加速 durMed
+        // 从播放栏上方滑入/出 (QQ 音乐"展开/收起"隐喻): 入场减速 durSlow, 退场加速 durMed.
+        // 刻意**不叠加透明度淡出** —— 滑动+淡出并行会呈现"半透明页面在掉下去"的怪异观感
+        // (真机验收反馈); 实心面板滑动才是"收进播放栏"的正确隐喻.
         transform: Translate {
             id: nowPlayingSlide
 
@@ -874,15 +876,12 @@ ApplicationWindow {
             Behavior on y {
                 enabled: nowPlayingLoader.everOpened
                 NumberAnimation {
+                    id: nowPlayingSlideAnim
+
                     duration: root.nowPlayingOpen ? ThemeTokens.Motion.durSlow : ThemeTokens.Motion.durMed
                     easing.type: root.nowPlayingOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
                 }
             }
-        }
-
-        Behavior on opacity {
-            enabled: nowPlayingLoader.everOpened
-            NumberAnimation { duration: ThemeTokens.Motion.durMed }
         }
 
         sourceComponent: Component {
@@ -908,9 +907,9 @@ ApplicationWindow {
 
         active: root.queuePanelOpen || queuePanelLoader.everOpened
         onLoaded: queuePanelLoader.everOpened = true
-        visible: opacity > 0
+        // 与正在播放浮层同款: 实心滑动不叠加淡出, 动画结束才隐藏
+        visible: root.queuePanelOpen || queuePanelSlideAnim.running
         clip: true
-        opacity: root.queuePanelOpen ? 1 : 0
         anchors.top: headerBar.bottom
         anchors.right: parent.right
         anchors.bottom: playerBar.top
@@ -925,14 +924,12 @@ ApplicationWindow {
 
             Behavior on x {
                 NumberAnimation {
+                    id: queuePanelSlideAnim
+
                     duration: ThemeTokens.Motion.durMed
                     easing.type: root.queuePanelOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
                 }
             }
-        }
-
-        Behavior on opacity {
-            NumberAnimation { duration: ThemeTokens.Motion.durMed }
         }
 
         sourceComponent: Component {
