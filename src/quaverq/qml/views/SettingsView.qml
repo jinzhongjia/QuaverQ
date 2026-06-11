@@ -13,6 +13,7 @@ ScrollView {
     property var settingsController
 
     signal loginRequested()
+    signal logoutRequested()
 
     // 设置内容最大宽度: 宽窗口下行控件不随窗口无限拉开
     readonly property int contentMaxWidth: 840
@@ -70,7 +71,7 @@ ScrollView {
                 showSeparator: false
                 onActionRequested: {
                     if (root.appController && root.appController.authed) {
-                        root.appController.logout()
+                        root.logoutRequested()
                     } else {
                         root.loginRequested()
                     }

@@ -24,6 +24,7 @@
 | `volume.svg` | 音量 |
 | `more-horizontal.svg` | 更多操作（歌曲行 ⋯ / 播放栏窄窗溢出） |
 | `arrow-left.svg` | 顶栏返回 |
+| `chevron-down.svg` | 正在播放页「收起」 |
 
 ## 使用
 
@@ -32,12 +33,22 @@ import "../components" as Components
 
 Components.AppIcon {
     size: 18
-    source: "../icons/queue.svg"   // 相对调用方 QML 文件解析
+    source: "../icons/queue.svg"
     color: ThemeTokens.Palette.surfaceVariantText
 }
 ```
 
 按钮场景直接走 `IconButton.iconSource` / `NavItem.iconSource`（内部已接 AppIcon）。
+
+### ⚠️ 相对路径解析陷阱（实测踩过）
+
+字符串相对路径经 `url` 属性链传递时**不会**在书写处解析——它一路保持相对，直到
+`AppIcon` 内部的 `Image` 才按 **AppIcon 所在目录（`components/`）** 解析。因此：
+
+- `components/` 与 `views/` 下统一写 `"../icons/<name>.svg"`（两个目录与 `icons/` 同层，
+  无论按书写处还是按 AppIcon 解析结果一致，二义皆安全）；
+- **qml 根目录（`Main.qml`）必须用 `Qt.resolvedUrl("icons/<name>.svg")`** 立即解析成绝对
+  URL——裸写 `"icons/..."` 会被解析成 `components/icons/` 而静默加载失败（图标隐形）。
 仍保留字形的位置：`词`（CJK 字符渲染稳定且为 QQ 正统）、`×` 关闭、列表行 `♪` 状态标记、
 `AlbumArt` 占位符、设置页 `⌄/⌃` 下拉指示。
 

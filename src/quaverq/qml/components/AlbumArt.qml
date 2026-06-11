@@ -33,11 +33,14 @@ Item {
         ? "image://covers/" + encodeURIComponent(root.coverUrl) + "|" + root.imageSize + "|" + root.coverRadius + "|" + root.imageRevision
         : ""
     // 双缓冲前层标记: 换 source 时新图先在后台层解码, 就绪后才换层显示,
-    // 避免单 Image 换源瞬间清空画面导致占位图闪一下
+    // 避免单 Image 换源瞬间清空画面导致占位图闪一下.
+    // frontSource/backSource 是我们自己的记账串 —— 不能反读 Image.source 比较,
+    // image:// URL 的百分号转义会被 QUrl 规范化, 字符串对不上 (换层判定会永远失败)
     property bool frontIsA: true
-    readonly property bool hasImage: root.frontIsA
-        ? (coverImageA.status === Image.Ready && String(coverImageA.source).length > 0)
-        : (coverImageB.status === Image.Ready && String(coverImageB.source).length > 0)
+    property string frontSource: ""
+    property string backSource: ""
+    readonly property bool hasImage: root.frontSource.length > 0
+        && (root.frontIsA ? coverImageA.status : coverImageB.status) === Image.Ready
 
     implicitWidth: compact ? 36 : 52
     implicitHeight: implicitWidth
@@ -60,20 +63,41 @@ Item {
         if (target.length === 0) {
             coverImageA.source = ""
             coverImageB.source = ""
+            root.frontSource = ""
+            root.backSource = ""
             root.frontIsA = true
+            return
+        }
+        if (root.frontSource === target) {
+            root.backSource = ""
             return
         }
         const front = root.frontIsA ? coverImageA : coverImageB
         const back = root.frontIsA ? coverImageB : coverImageA
-        if (String(front.source) === target)
-            return
         // 前层还没有可展示的图: 直接加载进前层 (首图路径)
-        if (front.status !== Image.Ready || String(front.source).length === 0) {
+        if (front.status !== Image.Ready || root.frontSource.length === 0) {
             front.source = target
+            root.frontSource = target
+            root.backSource = ""
             return
         }
-        // 前层有图: 新图进后台层, 其 onStatusChanged 就绪后换层
+        // 前层有图: 新图进后台层, promoteBack 在其就绪后换层
         back.source = target
+        root.backSource = target
+    }
+
+    // back 层就绪且仍是当前目标 → 换层 (isA: 触发方是否为 A 层)
+    function promoteBack(isA) {
+        if (root.frontIsA === isA)
+            return
+        if (root.backSource.length === 0 || root.backSource !== root.displaySource)
+            return
+        const back = isA ? coverImageA : coverImageB
+        if (back.status !== Image.Ready)
+            return
+        root.frontIsA = isA
+        root.frontSource = root.backSource
+        root.backSource = ""
     }
 
     function updateImageSize() {
@@ -141,13 +165,7 @@ Item {
             asynchronous: true
             cache: false
             mipmap: true
-            onStatusChanged: {
-                if (coverImageA.status === Image.Ready
-                        && String(coverImageA.source) === root.displaySource
-                        && !root.frontIsA) {
-                    root.frontIsA = true
-                }
-            }
+            onStatusChanged: root.promoteBack(true)
 
             Behavior on opacity {
                 NumberAnimation {
@@ -165,13 +183,7 @@ Item {
             asynchronous: true
             cache: false
             mipmap: true
-            onStatusChanged: {
-                if (coverImageB.status === Image.Ready
-                        && String(coverImageB.source) === root.displaySource
-                        && root.frontIsA) {
-                    root.frontIsA = false
-                }
-            }
+            onStatusChanged: root.promoteBack(false)
 
             Behavior on opacity {
                 NumberAnimation {

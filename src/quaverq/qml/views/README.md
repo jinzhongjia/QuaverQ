@@ -10,7 +10,7 @@
 | `SearchView.qml` | `search` | **搜索页**。歌曲（分页）/ 歌手 / 专辑 / 歌单四分栏 `TabBar`；搜索框输入触发 `serviceController.search*`，结果支持一键进详情或起播。 |
 | `LibraryView.qml` | `library` | **资料库**。我喜欢、我的歌单、收藏专辑、关注艺人；从 `libraryController` 的同名 model 读，登录后首帧由 `prime_from_cache(account_key)` 立即填充。 |
 | `DetailView.qml` | `detail` | **详情页**（歌单 / 专辑 / 艺人 / 排行榜）。路由参数 `detailKind` + `detailId` 触发 `detailController` 加载，渲染标题 + 封面 + 描述 + 曲目列表，提供「播放全部」与单曲操作。 |
-| `NowPlayingView.qml` | `now-playing` | **正在播放页**。顶部 `AlbumArt` + 歌名 / 歌手 + 喜欢 + 队列按钮，主区域全屏挂 [`LyricPanel`](../panels/README.md)（`compact: false`）做沉浸式同步歌词；把 `settingsController` 透传给面板让歌词字体跟随用户偏好。 |
+| `NowPlayingView.qml` | `now-playing` | **正在播放页**。经 `Main.openNowPlaying()` **push 进导航栈**（不清栈）——顶栏返回 / Esc / 页内左上「收起 ˅」（`backRequested()`）/ 再点播放栏封面均可退回原处。顶部 收起 + `AlbumArt` + 歌名 / 歌手 + 喜欢 + 队列按钮，主区域全屏挂 [`LyricPanel`](../panels/README.md)（`compact: false`）做沉浸式同步歌词；把 `settingsController` 透传给面板让歌词字体跟随用户偏好。 |
 | `SettingsView.qml` | `settings` | **设置页**。账号 / 播放音质 / 主题 / 歌词字体（family、size、weight、italic + 一键重置）/ 封面缓存上限 + 一键清理。分区标题在卡片外（小号灰字 + 紧凑行卡），内容列最大宽 840px。行类型：`ChoiceRow`（下拉，经显式 `Binding` 同步外部重置）/ `SwitchRow`（二元开关，绿色 Switch）/ `SpinRow`（数字输入 + 框外后缀）/ `ColorRow`（色板 + QColorDialog）/ `FontPickerRow`（顶部 TextField 实时子串过滤、delegate 用对应 family 渲染做字形预览）。危险动作（退出登录）按钮文字走 `Palette.error`。挂载时主动 `refreshCoverCacheSize()` 拿当前占用。 |
 
 ## 约定

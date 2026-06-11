@@ -22,6 +22,7 @@ Item {
         && currentSong.name.length > 0
 
     signal queueRequested()
+    signal backRequested()
 
     function singerText(songData) {
         if (!songData)
@@ -46,6 +47,16 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: ThemeTokens.Spacing.s5
+
+            // 收起入口 (对应 QQ 音乐歌词页左上角 ˅): Esc / 顶栏返回也可退出
+            Components.IconButton {
+                Layout.alignment: Qt.AlignVCenter
+                text: qsTr("收起")
+                iconSource: "../icons/chevron-down.svg"
+                iconSize: 20
+                iconColor: ThemeTokens.Palette.surfaceText
+                onClicked: root.backRequested()
+            }
 
             Components.AlbumArt {
                 Layout.preferredWidth: 72

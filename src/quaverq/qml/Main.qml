@@ -110,12 +110,22 @@ ApplicationWindow {
             root.resetContent(libraryPageComponent, "library")
         } else if (route === "settings") {
             root.resetContent(settingsPageComponent, "settings")
-        } else if (route === "now-playing") {
-            root.resetContent(nowPlayingPageComponent, "now-playing")
-            root.currentTopRoute = ""
         } else {
             root.resetContent(searchPageComponent, "search")
         }
+    }
+
+    // 正在播放页走 push (不清栈): 返回键 / Esc / 页内收起均可退回原处,
+    // 已在页内时再次触发 (如点播放栏封面) 视为收起
+    function openNowPlaying() {
+        if (root.currentRoute === "now-playing") {
+            root.goBack()
+            return
+        }
+        root.queuePanelOpen = false
+        root.releaseTextFocus()
+        contentStack.push(nowPlayingPageComponent, {}, StackView.Immediate)
+        root.currentRoute = "now-playing"
     }
 
     function pushDetail(kind, detailId, title, subtitle, coverUrl) {
@@ -138,7 +148,10 @@ ApplicationWindow {
             return
         contentStack.pop(StackView.Immediate)
         root.currentDetailTitle = ""
-        root.currentRoute = root.currentTopRoute.length > 0 ? root.currentTopRoute : "home"
+        // pop 后仍在栈上 (>1) 说明落点是 push 进来的详情页; 否则回到顶层路由
+        root.currentRoute = contentStack.depth > 1
+            ? "detail"
+            : (root.currentTopRoute.length > 0 ? root.currentTopRoute : "home")
     }
 
     function searchAndOpen(keyword) {
@@ -444,9 +457,11 @@ ApplicationWindow {
                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
                 enabled: contentStack.depth > 1
                 text: qsTr("返回")
-                iconSource: "icons/arrow-left.svg"
+                // 相对路径会延迟到 AppIcon (components/) 才解析, 这里必须显式按本文件解析
+                iconSource: Qt.resolvedUrl("icons/arrow-left.svg")
                 iconSize: 20
-                iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.stateDisabled
+                // 禁用态用中灰: stateDisabled(#e0e0e0) 在白底上接近隐形
+                iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                 cornerRadius: width / 2
                 onClicked: root.goBack()
             }
@@ -603,6 +618,9 @@ ApplicationWindow {
             onLoginRequested: loginDialog.open()
             onRouteRequested: function(route) {
                 root.navigate(route)
+                // 点侧栏「搜索」= 想搜东西, 顺手聚焦输入框
+                if (route === "search")
+                    searchField.focusInput()
             }
             onOpenPlaylistRequested: function(pid, title, coverUrl) {
                 root.pushDetail("playlist", pid, title, "", coverUrl)
@@ -666,7 +684,7 @@ ApplicationWindow {
                 root.playerController.setMode(value)
         }
         onQueueRequested: root.queuePanelOpen = !root.queuePanelOpen
-        onNowPlayingRequested: root.navigate("now-playing")
+        onNowPlayingRequested: root.openNowPlaying()
     }
 
     Component {
@@ -686,7 +704,7 @@ ApplicationWindow {
             onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
                 root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
-            onNowPlayingRequested: root.navigate("now-playing")
+            onNowPlayingRequested: root.openNowPlaying()
         }
     }
 
@@ -715,6 +733,7 @@ ApplicationWindow {
             playerController: root.playerController
             songDetailController: root.songDetailController
             onLoginRequested: loginDialog.open()
+            onLogoutRequested: logoutConfirmDialog.open()
             onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
                 root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
@@ -753,6 +772,7 @@ ApplicationWindow {
             lyricController: root.lyricController
             settingsController: root.settingsController
             onQueueRequested: root.queuePanelOpen = true
+            onBackRequested: root.goBack()
         }
     }
 
@@ -763,6 +783,7 @@ ApplicationWindow {
             appController: root.appController
             settingsController: root.settingsController
             onLoginRequested: loginDialog.open()
+            onLogoutRequested: logoutConfirmDialog.open()
         }
     }
 
@@ -798,6 +819,28 @@ ApplicationWindow {
         id: loginDialog
 
         appController: root.appController
+    }
+
+    // 退出登录需重新扫码, 代价高 → 二次确认 (与清缓存确认同模式)
+    Dialog {
+        id: logoutConfirmDialog
+
+        modal: true
+        title: qsTr("退出登录")
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(420, Math.max(280, root.width - ThemeTokens.Spacing.s6 * 2))
+        onAccepted: {
+            if (root.appController)
+                root.appController.logout()
+        }
+
+        contentItem: Label {
+            text: qsTr("退出后播放与资料库同步会停用，重新使用需要再次扫码登录。")
+            color: ThemeTokens.Palette.surfaceText
+            wrapMode: Text.WordWrap
+            font.pixelSize: ThemeTokens.TypeScale.bodySm
+        }
     }
 
     Dialogs.SongDetailDialog {

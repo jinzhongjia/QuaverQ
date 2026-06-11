@@ -18,6 +18,7 @@ ColumnLayout {
     property int currentTab: 0
 
     signal loginRequested()
+    signal logoutRequested()
     signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
 
     spacing: 0
@@ -92,7 +93,7 @@ ColumnLayout {
                 Accessible.name: text
                 onClicked: {
                     if (root.appController && root.appController.authed) {
-                        root.appController.logout()
+                        root.logoutRequested()
                     } else {
                         root.loginRequested()
                     }
