@@ -23,6 +23,8 @@ Dialog {
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // 模态遮罩走 scrim token (W13): Basic 默认跟系统 palette.shadow, 暗色下偏弱
+    Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
     width: Math.min(parent ? parent.width - ThemeTokens.Spacing.s8 : 720, 720)
     height: Math.min(parent ? parent.height - ThemeTokens.Spacing.s8 : 560, 560)
     x: parent ? Math.round((parent.width - width) / 2) : 0

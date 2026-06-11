@@ -296,7 +296,11 @@ ScrollView {
         Layout.preferredHeight: root.availableWidth < 720 ? 184 : 156
         Layout.minimumHeight: Layout.preferredHeight
         radius: ThemeTokens.Spacing.radiusLg
-        color: ThemeTokens.Palette.primaryContainer
+        // 同色系微渐变 (上亮下沉): 暗色模式下整块 primaryContainer 平涂偏闷
+        gradient: Gradient {
+            GradientStop { position: 0; color: ThemeTokens.Palette.primaryContainerHi }
+            GradientStop { position: 1; color: ThemeTokens.Palette.primaryContainer }
+        }
         border.color: ThemeTokens.Palette.outlineMuted
 
         RowLayout {

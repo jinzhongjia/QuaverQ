@@ -132,7 +132,7 @@ Rectangle {
                 anchors.margins: -1
                 radius: parent.radius + 1
                 color: "transparent"
-                border.color: Qt.rgba(0, 0, 0, 0.06)
+                border.color: ThemeTokens.Palette.softShadow
                 z: -1
             }
         }

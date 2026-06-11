@@ -296,7 +296,7 @@ LLM 约定：
 - **`Theme.qml`** — 模式开关. `mode` ∈ `{"system", "light", "dark"}`, `dark` 派生属性. 系统模式以 `SystemTheme` (`bridge/system_theme.py`, 走 xdg-desktop-portal `color-scheme`) 为准, Qt 自带 `styleHints.colorScheme` 在 GNOME/Wayland 上把 portal `prefer-dark` 错映射成 `Light`, 不可靠. `Main.qml` 用两个 `Binding` 把 `settingsController.themeMode` + `systemTheme.dark` 灌进来.
 - **`Palette.qml`** — 全部颜色 token. 亮色: 品牌 `#31c27c` + 白底 `#ffffff` + 侧栏 `#f5f5f7` + 文本 `#333333` / `#767676`; 深色: `#1b1c1f` 底 + `#1f2024` 侧栏 + `#f0f1f3` / `#9a9ca2` 文本. 分层 token 含 `background` / `surface` / `surfaceElevated` / `surfaceVariant` / `surfaceContainerHigh`, 交互态 `stateHover` / `statePressed` / `stateSelected` / `stateDisabled` / `focusRing` / `scrim`, 品牌色 `primary` / `primaryHover` / `primaryActive` / `primaryContainer` / `primaryText`, 次级 `accent` (空间音频蓝), 状态 `error` / `warning`. 换肤只动这一个文件.
 - **`Spacing.qml`** — 间距 + 圆角 + 命中区. 间距 4 阶幂级数: `s2=4`, `s3=8`, `s4=12`, `s5=16`, `s6=24`, `s7=32`, `s8=48`. 圆角五档: `radiusSm=4`, `radiusMd=8`, `radiusLg=12`, `radiusXl=16`, `radiusPill=20`. 命中区 `toolHitSize=44` (WCAG 触控目标).
-- **`TypeScale.qml`** — 字号 + 字重. 字号: `display=32` / `h1=23` / `h2=19` / `body=16` / `bodySm=14` / `caption=13`. 字重: `regular=Font.Normal` / `medium=Font.Medium` / `bold=Font.DemiBold` (用 DemiBold 而非 Bold, 避免在 Linux 默认字体上糊).
+- **`TypeScale.qml`** — 字号 + 字重. 字号: `display=32` / `h1=23` / `h2=19` / `body=16` / `bodySm=14` / `caption=12` (与 bodySm 拉开 2px 字阶, W12). 字重: `regular=Font.Normal` / `medium=Font.Medium` / `bold=Font.DemiBold` (用 DemiBold 而非 Bold, 避免在 Linux 默认字体上糊).
 - **`Motion.qml`** — 动效时长 + 缓动. 时长三档: `durFast=120` / `durMed=220` / `durSlow=320` ms. 缓动: `easeOut=OutCubic` / `easeIn=InCubic` / `easeStd=InOutCubic`.
 
 ### 组件 / 视图分层

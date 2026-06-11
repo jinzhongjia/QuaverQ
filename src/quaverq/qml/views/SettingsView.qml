@@ -304,7 +304,6 @@ ScrollView {
             Layout.fillWidth: true
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
-            Layout.bottomMargin: ThemeTokens.Spacing.s6
             title: qsTr("缓存")
 
             ChoiceRow {
@@ -330,12 +329,38 @@ ScrollView {
                 onActionRequested: clearCacheDialog.open()
             }
         }
+
+        // O5: 给 MSI/Portable 装出去的用户一个"这是什么软件"的落点
+        SettingsSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            Layout.bottomMargin: ThemeTokens.Spacing.s6
+            title: qsTr("关于")
+
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("版本")
+                value: root.appController ? root.appController.appVersion : ""
+            }
+
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("开源仓库")
+                value: "github.com/jinzhongjia/QuaverQ"
+                actionText: qsTr("打开")
+                showSeparator: false
+                onActionRequested: Qt.openUrlExternally("https://github.com/jinzhongjia/QuaverQ")
+            }
+        }
     }
 
     Dialog {
         id: clearCacheDialog
 
         modal: true
+        // 模态遮罩走 scrim token (W13)
+        Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
         title: qsTr("清理封面缓存")
         standardButtons: Dialog.Cancel | Dialog.Ok
         anchors.centerIn: Overlay.overlay

@@ -917,6 +917,8 @@ ApplicationWindow {
         id: logoutConfirmDialog
 
         modal: true
+        // 模态遮罩走 scrim token (W13)
+        Overlay.modal: Rectangle { color: ThemeTokens.Palette.scrim }
         title: qsTr("退出登录")
         standardButtons: Dialog.Cancel | Dialog.Ok
         anchors.centerIn: Overlay.overlay

@@ -70,7 +70,7 @@ Item {
                 height: 20
                 width: metaLabel.implicitWidth + ThemeTokens.Spacing.s3
                 radius: ThemeTokens.Spacing.radiusSm
-                color: "#99000000"
+                color: ThemeTokens.Palette.imageOverlay
                 z: 2
 
                 Label {
@@ -78,7 +78,7 @@ Item {
 
                     anchors.centerIn: parent
                     text: "▶ " + root.meta
-                    color: "#ffffff"
+                    color: ThemeTokens.Palette.imageOverlayText
                     font.pixelSize: ThemeTokens.TypeScale.caption
                 }
             }
@@ -88,7 +88,7 @@ Item {
                 anchors.fill: parent
                 visible: hover.hovered
                 radius: root.circular ? Math.round(coverWrap.width / 2) : ThemeTokens.Spacing.radiusLg
-                color: "#2b000000"
+                color: ThemeTokens.Palette.imageOverlayHover
                 z: 2
 
                 Rectangle {

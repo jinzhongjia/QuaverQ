@@ -35,6 +35,8 @@ QtObject {
     readonly property color primaryFg: Theme.dark ? "#31c27c" : "#1d9a60"
     readonly property color primaryText: "#ffffff"
     readonly property color primaryContainer: Theme.dark ? "#173c2c" : "#e7f7ef"
+    // 猜你喜欢主推卡渐变上端: primaryContainer 暗色下整块偏闷, 配亮一档的同色系做微渐变
+    readonly property color primaryContainerHi: Theme.dark ? "#1f5039" : "#f2fbf6"
 
     // ---- 次级强调 (徽章 / 空间音频蓝等) ----
     readonly property color accent: Theme.dark ? "#5b9bff" : "#3b82f6"
@@ -56,4 +58,12 @@ QtObject {
     readonly property color stateDisabled: Theme.dark ? "#34363b" : "#e0e0e0"
     readonly property color focusRing: primaryFg
     readonly property color scrim: Theme.dark ? "#99000000" : "#66000000"
+
+    // ---- 封面图上的遮罩 (W13) ----
+    // 盖在封面图上而非主题底色上, 图片颜色不随主题变, 故这组不带 Theme.dark 分支
+    readonly property color imageOverlay: "#99000000"
+    readonly property color imageOverlayHover: "#2b000000"
+    readonly property color imageOverlayText: "#ffffff"
+    // 浮层 (右键菜单等) 的 1px 落影描边, 常量低透明黑
+    readonly property color softShadow: Qt.rgba(0, 0, 0, 0.06)
 }

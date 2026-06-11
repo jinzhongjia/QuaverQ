@@ -8,7 +8,7 @@
 
 | 文件 | 类 | 作用 |
 | --- | --- | --- |
-| `app_controller.py` | `AppController` | 应用级状态：登录态、二维码扫码登录流、凭据过期通知、深色模式切换。 |
+| `app_controller.py` | `AppController` | 应用级状态：登录态、二维码扫码登录流、凭据过期通知、深色模式切换、`appVersion` 常量属性（`application_version()` 读包元数据，读不到回退 "dev"）。 |
 | `service_controller.py` | `ServiceController` | QQ 音乐服务层（`core.service.QuaverService`）的 QML 包装：搜索、详情、首页 API。账号 key、凭据预热、网络有效性校验都在这里。 |
 | `home_controller.py` | `HomeController` | 首页发现：每日推荐 / 今日歌单 / 新歌速递 / 排行榜。SWR：先用 `home_cache` 同步喂首帧，再后台 `refresh_*_async`。猜你喜欢 (`daily`) 走 `DAILY_TTL_SECONDS = 6h` 门：启动 / 登录态变化触发的自动刷新若缓存还新鲜则跳过网络；只有用户主动从 QML 调 `refreshHome()` / `refreshDailyThirty()` 才 `force=True` 穿透 TTL。注入 `PlayerController` 后联动：`dailyPreviewSong` 跟随播放中曲目；监听 `queueExhausted("daily")` 自动 `extend_daily_async()` 续取下一批并 `append_to_queue` 续播。 |
 | `library_controller.py` | `LibraryController` | 资料库：我喜欢、我的歌单、收藏歌单、收藏专辑、关注艺人，登录后从 `home_cache` 私有区块同步首帧再刷新。 |
