@@ -19,6 +19,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import tomllib
@@ -237,6 +238,89 @@ def clean_stray_qt_objects() -> int:
     return removed
 
 
+def parse_ldd_outside_qt_deps(ldd_output: str, bundle_dir: Path) -> set[str]:
+    """从 ldd 输出提取"解析到 bundle 之外 (或 not found) 的 libQt6 依赖名".
+
+    非 libQt6 前缀的系统库 (libc / libicu 等) 不算 —— 那些本来就该走系统.
+    """
+    missing: set[str] = set()
+    bundle_resolved = str(bundle_dir.resolve())
+    for line in ldd_output.splitlines():
+        line = line.strip()
+        if not line.startswith("libQt6") or "=>" not in line:
+            continue
+        name, _, target = line.partition("=>")
+        name = name.strip()
+        target = target.strip()
+        if target.startswith("not found"):
+            missing.add(name)
+            continue
+        resolved = target.rsplit(" (", 1)[0].strip()
+        if resolved and not str(Path(resolved).resolve()).startswith(bundle_resolved):
+            missing.add(name)
+    return missing
+
+
+def _ldd_outside_deps(lib_path: Path, bundle_dir: Path) -> set[str]:
+    result = subprocess.run(["ldd", str(lib_path)], capture_output=True, text=True)
+    if result.returncode != 0:
+        return set()
+    return parse_ldd_outside_qt_deps(result.stdout, bundle_dir)
+
+
+def heal_qt_bundle(
+    bundle_dir: Path,
+    *,
+    wheel_lib_dir: Path,
+    outside_deps: Callable[[Path, Path], set[str]] = _ldd_outside_deps,
+) -> list[str]:
+    """补拷 Nuitka 漏掉的二阶 Qt 依赖 (踩雷记录, don't repeat):
+
+    构建机装有系统 Qt (如 Arch 的 qt6-declarative) 时, Nuitka 依赖遍历会把
+    bundle 内 Qt 库的下层依赖 (libQt6QmlModels / QmlMeta / QmlWorkerScript /
+    QuickTemplates2 / DBus / Concurrent ...) 解析到 /usr/lib 并当成"系统库"跳过
+    不拷. 产物在本机"恰好能跑"(混链系统 Qt, 私有 ABI 不兼容时直接 undefined
+    symbol), 在干净机器上 cannot open shared object. CI 干净 runner 没系统 Qt
+    所以从未暴露 —— 必须在构建后自检自愈.
+
+    做法: 对 bundle 顶层全部 libQt6*.so* 跑 ldd, 凡解析到包外的 libQt6 依赖,
+    从 PySide6 wheel 的 Qt/lib 补拷进 bundle 顶层 (库的 RPATH=$ORIGIN, 落同目录
+    即可被解析), 迭代到不动点以覆盖传递依赖. wheel 里也没有的依赖打 WARN.
+
+    返回实际补拷的库名列表 (排序后), 供调用方打日志 / 测试断言.
+    """
+    copied: set[str] = set()
+    while True:
+        wanted: set[str] = set()
+        for lib in bundle_dir.glob("libQt6*.so*"):
+            wanted |= outside_deps(lib, bundle_dir)
+        wanted -= {p.name for p in bundle_dir.glob("libQt6*.so*")}
+        progressed = False
+        for name in sorted(wanted):
+            src = wheel_lib_dir / name
+            if not src.exists():
+                print(
+                    f"[heal] WARN: {name} 解析到 bundle 外且 wheel 无此库, 无法自愈",
+                    file=sys.stderr,
+                )
+                continue
+            shutil.copy2(src, bundle_dir / name)
+            copied.add(name)
+            progressed = True
+        if not progressed:
+            break
+    return sorted(copied)
+
+
+def _pyside6_wheel_lib_dir() -> Path | None:
+    try:
+        import PySide6
+
+        return Path(PySide6.__file__).parent / "Qt" / "lib"
+    except ImportError:
+        return None
+
+
 def build(mode: str = "standalone", *, output_dir: str = "dist") -> int:
     clean_stray_qt_objects()
     root = resources.project_root()
@@ -250,7 +334,16 @@ def build(mode: str = "standalone", *, output_dir: str = "dist") -> int:
         ico_path = None
     cmd = nuitka_command(mode, output_dir=output_dir, icon_path=ico_path)
     print("[build]", " ".join(shlex.quote(c) for c in cmd))
-    return subprocess.run(cmd, cwd=root).returncode
+    rc = subprocess.run(cmd, cwd=root).returncode
+    if rc == 0 and mode == "standalone" and sys.platform == "linux":
+        # 构建机装有系统 Qt 时 Nuitka 会漏拷二阶 Qt 依赖, 见 heal_qt_bundle docstring
+        bundle_dir = root / output_dir / _NUITKA_DIST_DIRNAME
+        wheel_lib = _pyside6_wheel_lib_dir()
+        if bundle_dir.is_dir() and wheel_lib is not None and wheel_lib.is_dir():
+            copied = heal_qt_bundle(bundle_dir, wheel_lib_dir=wheel_lib)
+            if copied:
+                print(f"[heal] 补拷 Nuitka 漏掉的 Qt 依赖 ×{len(copied)}: {', '.join(copied)}")
+    return rc
 
 
 # UpgradeCode 固定 GUID: 跨版本保持不变, 让 MSI 的 MajorUpgrade 机制识别"同一个产品"
@@ -388,21 +481,30 @@ def build_msi(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     return rc
 
 
-def build_portable_zip(output_dir: str = "dist", *, rebuild: bool = True) -> int:
-    """Nuitka standalone 产物 ``dist/quaverq_entry.dist/`` -> ``dist/QuaverQ-{version}-portable.zip``.
+def portable_archive_name(version: str, *, platform: str = sys.platform) -> str:
+    """portable 归档文件名: Windows 用 zip (系统自带解压), 其余平台用 tar.gz.
 
-    用户解压后双击 ``QuaverQ.exe`` 即跑, 不需要安装 / admin 权限. 适合 U 盘携带 /
-    禁止 IT 装软件 / 临时试用场景.
+    zip 规范不保留 Unix 权限位 (Python zipfile 写入也不带), Linux/macOS 解出来的
+    主程序没有 +x, 用户还得手动 ``chmod``; tar.gz 原生保留 mode, 是类 Unix 平台
+    可移植归档的正确载体.
+    """
+    suffix = "zip" if platform == "win32" else "tar.gz"
+    return f"QuaverQ-{version}-portable.{suffix}"
 
-    zip 内部顶层目录命名为 ``QuaverQ-{version}/``, 解压不会污染当前目录 (避免
-    "解压到这里" 把上百个 dll 喷一地).
 
-    ``rebuild=False`` (CLI ``--no-rebuild``): 复用已存在的 Nuitka 产物, 只跑 zip
+def build_portable(output_dir: str = "dist", *, rebuild: bool = True) -> int:
+    """Nuitka standalone 产物 -> ``dist/QuaverQ-{version}-portable.{zip|tar.gz}``.
+
+    用户解压后双击 ``QuaverQ.exe`` (Windows) / 运行 ``./QuaverQ`` (Linux) 即跑,
+    不需要安装 / admin 权限. 适合 U 盘携带 / 禁止 IT 装软件 / 临时试用场景.
+
+    归档内部顶层目录命名为 ``QuaverQ-{version}/``, 解压不会污染当前目录 (避免
+    "解压到这里" 把上百个 dll 喷一地). 格式按平台分流见 :func:`portable_archive_name`.
+
+    ``rebuild=False`` (CLI ``--no-rebuild``): 复用已存在的 Nuitka 产物, 只跑归档
     那段; CI 里 ``--msi`` 已经把 Nuitka 跑过一遍, 紧接着 ``--portable --no-rebuild``
     复用即可, 省 5 分钟链接 + 250MB 复制.
     """
-    import zipfile
-
     root = resources.project_root()
     version = project_version()
     dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
@@ -418,18 +520,30 @@ def build_portable_zip(output_dir: str = "dist", *, rebuild: bool = True) -> int
         print(f"[portable] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
         return 1
 
-    zip_path = root / output_dir / f"QuaverQ-{version}-portable.zip"
-    top_dir = f"QuaverQ-{version}"  # zip 内顶层目录名
-    print(f"[portable] 打包 {dist_dir} -> {zip_path}")
-    # ZIP_DEFLATED + compresslevel=6: 压缩比 vs 速度的常见权衡; bundle 几百 MB,
-    # level=9 多 5% 压缩比但慢 3 倍, 不值得.
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-        for path in dist_dir.rglob("*"):
-            if path.is_file():
-                arcname = f"{top_dir}/{path.relative_to(dist_dir).as_posix()}"
-                zf.write(path, arcname)
-    size_mb = zip_path.stat().st_size / (1024 * 1024)
-    print(f"[portable] OK -> {zip_path} ({size_mb:.1f} MB)")
+    archive_path = root / output_dir / portable_archive_name(version)
+    top_dir = f"QuaverQ-{version}"  # 归档内顶层目录名
+    print(f"[portable] 打包 {dist_dir} -> {archive_path}")
+    if archive_path.name.endswith(".tar.gz"):
+        import tarfile
+
+        # tarfile 按文件系统 mode 写入成员, 主程序 / .so 的可执行位随之保留
+        with tarfile.open(archive_path, "w:gz", compresslevel=6) as tf:
+            for path in sorted(dist_dir.rglob("*")):
+                if path.is_file():
+                    arcname = f"{top_dir}/{path.relative_to(dist_dir).as_posix()}"
+                    tf.add(path, arcname=arcname)
+    else:
+        import zipfile
+
+        # ZIP_DEFLATED + compresslevel=6: 压缩比 vs 速度的常见权衡; bundle 几百 MB,
+        # level=9 多 5% 压缩比但慢 3 倍, 不值得.
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for path in sorted(dist_dir.rglob("*")):
+                if path.is_file():
+                    arcname = f"{top_dir}/{path.relative_to(dist_dir).as_posix()}"
+                    zf.write(path, arcname)
+    size_mb = archive_path.stat().st_size / (1024 * 1024)
+    print(f"[portable] OK -> {archive_path} ({size_mb:.1f} MB)")
     return 0
 
 
@@ -495,7 +609,7 @@ def main() -> None:
     parser.add_argument(
         "--portable",
         action="store_true",
-        help="standalone -> portable .zip (解压即跑, 不需要安装)",
+        help="standalone -> portable 归档 (Windows .zip / 其他平台 .tar.gz, 解压即跑)",
     )
     parser.add_argument(
         "--no-rebuild",
@@ -514,7 +628,7 @@ def main() -> None:
     if args.msi:
         sys.exit(build_msi(rebuild=not args.no_rebuild))
     if args.portable:
-        sys.exit(build_portable_zip(rebuild=not args.no_rebuild))
+        sys.exit(build_portable(rebuild=not args.no_rebuild))
     sys.exit(build("onefile" if args.onefile else "standalone"))
 
 

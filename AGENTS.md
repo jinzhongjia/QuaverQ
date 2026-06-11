@@ -145,6 +145,23 @@ LLM 约定：
 - **`DwmSetIconicThumbnail` 只接 DIB section**: 不接 `CreateBitmap` 产的 DDB. 任务栏自定义缩略图 (DWM iconic representation) 必须走 `CreateDIBSection` + 32bpp BGRA top-down (`biHeight = -h`). DDB 给 `HICON` 用 (`CreateIconIndirect` 路径).
 - **`SetWindowSubclass` SUBCLASSPROC 必须持有引用**: `ctypes.WINFUNCTYPE` 包出来的 callback 一被 GC 立刻变野指针, 下次 Windows 派发 WM 消息直接崩进程. 把 `self._subclass_proc = proc` 存到对象上, 不要图省事用局部变量.
 
+### Linux portable: 构建机装有系统 Qt 时 Nuitka 漏拷二阶 Qt 依赖
+
+- **现象**: 本机 (Arch, 装有 qt6-declarative) 打的 portable 包, 在本机跑直接
+  `libQt6Quick.so.6: undefined symbol ... version Qt_6_PRIVATE_API`; 干净机器上则是
+  `cannot open shared object`. CI 干净 runner 没系统 Qt, **从未暴露**.
+- **根因**: Nuitka 依赖遍历把 bundle 内 Qt 库的下层依赖 (libQt6QmlModels / QmlMeta /
+  QmlWorkerScript / QuickTemplates2 / DBus / Concurrent) 解析到 `/usr/lib` 并当成
+  "系统库"跳过不拷. 运行时 bundle 内库经 `$ORIGIN` RPATH 找不到同目录副本, 回落系统
+  Qt —— 发行版 Qt 构建与 PySide6 wheel 的私有 ABI 不兼容.
+- **修复**: `packaging.py` 的 `heal_qt_bundle()` —— `build()` 后对 bundle 顶层全部
+  `libQt6*.so*` 跑 ldd, 凡解析到包外的 libQt6 依赖从 PySide6 wheel 的 `Qt/lib` 补拷
+  进 bundle 顶层, 迭代到不动点 (覆盖传递依赖); wheel 也没有的打 WARN. AppImage /
+  portable 共同受益. **验收**: `for lib in <bundle>/libQt6*.so.6; do ldd $lib; done |
+  grep "=> /usr/lib/libQt6"` 必须零输出 + `python -m quaverq.packaging --smoke` PASS.
+- **portable 归档格式**: Windows `.zip` / 其他平台 `.tar.gz` (`portable_archive_name()`)
+  —— zip 不保留 Unix +x 位, Linux 解出来主程序不可执行.
+
 ### Nuitka + WiX 打包 (Windows MSI / Portable)
 
 **通用 Nuitka 配置 (`src/quaverq/packaging.py`)**:
@@ -211,7 +228,7 @@ LLM 约定：
 - `uv run python scripts/lint.py --fix` — 自动修复可修的 ruff 问题并执行 `ruff format`
 - `uv run python scripts/lint.py --py` / `--qml` — 只跑其中一项
 - `uv run python build.py --appimage` — 打 AppImage (Linux: Nuitka standalone + linuxdeploy)
-- `uv run python build.py --portable` — 打 portable zip (跨平台: Nuitka standalone → `dist/QuaverQ-{version}-portable.zip`, 解压即跑)
+- `uv run python build.py --portable` — 打 portable 归档 (跨平台: Nuitka standalone → Windows `QuaverQ-{version}-portable.zip` / 其他平台 `*.tar.gz`——zip 不保留 Unix +x 位, 解压即跑)
 - `uv run python build.py --msi` — 打 MSI 安装包 (Windows: Nuitka standalone + WiX 5 → `dist/QuaverQ-{version}.msi`; 需 `dotnet tool install --global wix`)
 
 ## 项目使用的 Lint

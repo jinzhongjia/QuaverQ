@@ -6,7 +6,7 @@
     uv run python build.py --onefile    # 单文件 exe
     uv run python build.py --appimage   # standalone + AppImage（Linux, 需 linuxdeploy）
     uv run python build.py --msi        # standalone + MSI 安装包 (Windows, 需 WiX 5)
-    uv run python build.py --portable   # standalone + portable zip (跨平台, 解压即跑)
+    uv run python build.py --portable   # standalone + portable 归档 (Win .zip / 其他 .tar.gz, 解压即跑)
 """
 
 from __future__ import annotations
