@@ -279,8 +279,8 @@ Rectangle {
             Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
             Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
             text: qsTr("更多操作")
-            iconText: "⋯"
-            iconSize: ThemeTokens.TypeScale.h2
+            iconSource: "../icons/more-horizontal.svg"
+            iconSize: 18
             onClicked: {
                 // 把菜单挂在按钮下方左对齐, 跟主流播放器一致
                 contextMenu.x = moreButton.x + moreButton.width - contextMenu.width

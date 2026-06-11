@@ -91,7 +91,8 @@ Item {
             Components.IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 text: qsTr("待播列表")
-                iconText: "☰"
+                iconSource: "../icons/queue.svg"
+                iconSize: 18
                 iconColor: ThemeTokens.Palette.surfaceVariantText
                 onClicked: root.queueRequested()
             }

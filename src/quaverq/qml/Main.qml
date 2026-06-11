@@ -444,8 +444,9 @@ ApplicationWindow {
                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
                 enabled: contentStack.depth > 1
                 text: qsTr("返回")
-                iconText: "←"
-                iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
+                iconSource: "icons/arrow-left.svg"
+                iconSize: 20
+                iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.stateDisabled
                 cornerRadius: width / 2
                 onClicked: root.goBack()
             }

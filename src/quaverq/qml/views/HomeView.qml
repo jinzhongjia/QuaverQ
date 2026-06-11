@@ -355,23 +355,32 @@ ScrollView {
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56
                 enabled: section.requiresLogin || section.hasPreview
-                text: section.requiresLogin ? qsTr("登录") : section.showsPause ? "❚❚" : "▶"
-                Accessible.name: section.requiresLogin
+                text: section.requiresLogin
                     ? qsTr("登录")
                     : section.showsPause ? qsTr("暂停猜你喜欢") : qsTr("播放猜你喜欢")
+                Accessible.name: text
                 onClicked: section.playRequested()
 
-                contentItem: Label {
-                    text: dailyPlayButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: dailyPlayButton.enabled
-                        ? ThemeTokens.Palette.primaryText
-                        : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: section.requiresLogin
-                        ? ThemeTokens.TypeScale.bodySm
-                        : ThemeTokens.TypeScale.h2
-                    font.weight: ThemeTokens.TypeScale.medium
+                contentItem: Item {
+                    Components.AppIcon {
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: section.showsPause ? 0 : 1
+                        visible: !section.requiresLogin
+                        size: 22
+                        source: section.showsPause ? "../icons/pause.svg" : "../icons/play.svg"
+                        color: dailyPlayButton.enabled
+                            ? ThemeTokens.Palette.primaryText
+                            : ThemeTokens.Palette.surfaceVariantText
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: section.requiresLogin
+                        text: qsTr("登录")
+                        color: ThemeTokens.Palette.primaryText
+                        font.pixelSize: ThemeTokens.TypeScale.bodySm
+                        font.weight: ThemeTokens.TypeScale.medium
+                    }
                 }
 
                 background: Rectangle {

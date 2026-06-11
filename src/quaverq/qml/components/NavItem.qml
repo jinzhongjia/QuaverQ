@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Effects
 import QtQuick.Layouts
 import "../Theme" as ThemeTokens
 
@@ -65,25 +64,12 @@ Rectangle {
             Layout.preferredWidth: root.compact ? parent.width : ThemeTokens.Spacing.s5
             Layout.preferredHeight: 22
 
-            Image {
-                id: navIconImage
-
+            AppIcon {
                 anchors.centerIn: parent
-                width: iconBox.iconPx
-                height: iconBox.iconPx
-                visible: false
-                source: root.iconSource
-                sourceSize.width: 48
-                sourceSize.height: 48
-            }
-
-            // SVG 单色着色: 白色源图按 token 色染色, 亮暗主题/选中态统一
-            MultiEffect {
-                anchors.fill: navIconImage
-                source: navIconImage
                 visible: root.iconSource.toString().length > 0
-                colorization: 1
-                colorizationColor: root.iconColor
+                size: iconBox.iconPx
+                source: root.iconSource
+                color: root.iconColor
             }
 
             // 后备: 没给 iconSource 时仍走字形

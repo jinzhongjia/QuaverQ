@@ -24,7 +24,8 @@
 | 组件 | 作用 |
 | --- | --- |
 | `SearchField.qml` | 搜索框 `FocusScope`。`searchRequested(text)` / `editingCancelled()` 信号，`loading` 时显示状态。 |
-| `IconButton.qml` | 统一的工具按钮：≥44 px 命中区、焦点环（`visualFocus`，仅键盘聚焦显示）、Enter/Space 触发；`text` 同时当无障碍名和 hover ToolTip（经 `AppToolTip`），`iconText` 当字形。 |
+| `AppIcon.qml` | 单色 SVG 图标：白色源图（[`../icons/`](../icons/README.md)）经 `MultiEffect.colorization` 按 `color` 染色，亮暗主题 / 选中 / 禁用态一份资产通吃。`size` 控制渲染尺寸（48px 栅格化保证高 DPI 锐利）。 |
+| `IconButton.qml` | 统一的工具按钮：≥44 px 命中区、焦点环（`visualFocus`，仅键盘聚焦显示）、Enter/Space 触发；`text` 同时当无障碍名和 hover ToolTip（经 `AppToolTip`）。图标走 `iconSource`（SVG，经 `AppIcon` 染 `iconColor`），`iconText` 字形作后备。 |
 | `AppToolTip.qml` | 统一样式 ToolTip：token 配色 + 600ms 延迟；显示前按 parent 的窗口位置自动选上方 / 下方，避免被窗口顶 / 底边裁掉。供 `IconButton`、`PlayerBar` 歌曲信息等复用。 |
 | `LikeButton.qml` | 喜欢按钮。绑 `libraryController.isLiked(mid)` + `likedRevision`，自动随同步状态变化。 |
 | `Snackbar.qml` | **轻量状态提示**。`show()` 触发，`autoHideMs` 后自动收起；`kind` ∈ `info` / `error` / `warning` / `success`。 |

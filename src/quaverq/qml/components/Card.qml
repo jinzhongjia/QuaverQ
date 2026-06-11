@@ -101,12 +101,12 @@ Item {
                     HoverHandler { id: playHover }
                     TapHandler { onTapped: root.playRequested() }
 
-                    Label {
+                    AppIcon {
                         anchors.centerIn: parent
-                        text: "▶"
+                        anchors.horizontalCenterOffset: 1
+                        size: 18
+                        source: "../icons/play.svg"
                         color: ThemeTokens.Palette.primaryText
-                        font.pixelSize: ThemeTokens.TypeScale.h2
-                        leftPadding: 3
                     }
                 }
             }

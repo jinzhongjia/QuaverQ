@@ -104,16 +104,16 @@ Rectangle {
         }
     }
 
-    function modeGlyph(value) {
+    function modeIcon(value) {
         switch (value) {
         case "repeat_all":
-            return "↻"
+            return "../icons/repeat.svg"
         case "repeat_one":
-            return "①"
+            return "../icons/repeat-one.svg"
         case "shuffle":
-            return "⇋"
+            return "../icons/shuffle.svg"
         default:
-            return "⇄"
+            return "../icons/sequence.svg"
         }
     }
 
@@ -244,8 +244,8 @@ Rectangle {
 
                     IconButton {
                         text: root.modeLabel(root.mode)
-                        iconText: root.modeGlyph(root.mode)
-                        iconSize: ThemeTokens.TypeScale.body
+                        iconSource: root.modeIcon(root.mode)
+                        iconSize: 18
                         iconColor: root.mode !== "sequence"
                             ? ThemeTokens.Palette.primaryFg
                             : ThemeTokens.Palette.surfaceVariantText
@@ -255,8 +255,8 @@ Rectangle {
 
                     IconButton {
                         text: qsTr("上一首")
-                        iconText: "◂◂"
-                        iconSize: ThemeTokens.TypeScale.h2
+                        iconSource: "../icons/skip-back.svg"
+                        iconSize: 20
                         iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
                         onClicked: root.prevRequested()
@@ -271,14 +271,17 @@ Rectangle {
                         Accessible.name: root.playbackState === "playing" ? qsTr("暂停") : qsTr("播放")
                         onClicked: root.playPauseRequested()
 
-                        contentItem: Label {
-                            text: root.playbackState === "playing" ? "❚❚" : "▶"
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: ThemeTokens.Palette.primaryText
-                            font.pixelSize: ThemeTokens.TypeScale.h2
-                            // optical centering for the play triangle
-                            leftPadding: root.playbackState === "playing" ? 0 : 3
+                        contentItem: Item {
+                            AppIcon {
+                                anchors.centerIn: parent
+                                // optical centering for the play triangle
+                                anchors.horizontalCenterOffset: root.playbackState === "playing" ? 0 : 1
+                                size: 22
+                                source: root.playbackState === "playing"
+                                    ? "../icons/pause.svg"
+                                    : "../icons/play.svg"
+                                color: ThemeTokens.Palette.primaryText
+                            }
                         }
 
                         background: Rectangle {
@@ -302,8 +305,8 @@ Rectangle {
 
                     IconButton {
                         text: qsTr("下一首")
-                        iconText: "▸▸"
-                        iconSize: ThemeTokens.TypeScale.h2
+                        iconSource: "../icons/skip-forward.svg"
+                        iconSize: 20
                         iconColor: enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
                         enabled: root.canControl
                         onClicked: root.nextRequested()
@@ -321,8 +324,8 @@ Rectangle {
                             anchors.fill: parent
                             visible: root.width < 920
                             text: qsTr("更多控制")
-                            iconText: "⋯"
-                            iconSize: ThemeTokens.TypeScale.h2
+                            iconSource: "../icons/more-horizontal.svg"
+                            iconSize: 20
                             iconColor: ThemeTokens.Palette.surfaceVariantText
                             onClicked: overflowPopup.open()
                             onVisibleChanged: {
@@ -397,10 +400,10 @@ Rectangle {
                                     Layout.rightMargin: ThemeTokens.Spacing.s4
                                     spacing: ThemeTokens.Spacing.s3
 
-                                    Label {
-                                        text: "♪"
+                                    AppIcon {
+                                        size: 18
+                                        source: "../icons/volume.svg"
                                         color: ThemeTokens.Palette.surfaceVariantText
-                                        font.pixelSize: ThemeTokens.TypeScale.bodySm
                                     }
 
                                     Slider {
@@ -538,8 +541,8 @@ Rectangle {
                     id: queueButton
                     anchors.fill: parent
                     text: qsTr("待播列表")
-                    iconText: "☰"
-                    iconSize: ThemeTokens.TypeScale.body
+                    iconSource: "../icons/queue.svg"
+                    iconSize: 18
                     iconColor: ThemeTokens.Palette.surfaceVariantText
                     onClicked: root.queueRequested()
                 }
@@ -566,10 +569,10 @@ Rectangle {
                 }
             }
 
-            Label {
-                text: "♪"
+            AppIcon {
+                size: 18
+                source: "../icons/volume.svg"
                 color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.bodySm
             }
 
             Slider {

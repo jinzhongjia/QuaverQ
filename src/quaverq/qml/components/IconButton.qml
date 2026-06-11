@@ -8,6 +8,8 @@ AbstractButton {
     id: control
 
     property string iconText: ""
+    // SVG 图标 (优先于 iconText): 经 AppIcon 按 iconColor 染色
+    property url iconSource: ""
     property int iconSize: ThemeTokens.TypeScale.h2
     property color iconColor: ThemeTokens.Palette.surfaceVariantText
     property int hitSize: ThemeTokens.Spacing.toolHitSize
@@ -50,11 +52,21 @@ AbstractButton {
         }
     }
 
-    contentItem: Label {
-        text: control.iconText
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        color: control.iconColor
-        font.pixelSize: control.iconSize
+    contentItem: Item {
+        AppIcon {
+            anchors.centerIn: parent
+            visible: control.iconSource.toString().length > 0
+            size: control.iconSize
+            source: control.iconSource
+            color: control.iconColor
+        }
+
+        Label {
+            anchors.centerIn: parent
+            visible: control.iconSource.toString().length === 0
+            text: control.iconText
+            color: control.iconColor
+            font.pixelSize: control.iconSize
+        }
     }
 }

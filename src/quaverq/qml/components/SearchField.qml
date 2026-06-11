@@ -40,10 +40,10 @@ FocusScope {
         anchors.rightMargin: ThemeTokens.Spacing.s2
         spacing: ThemeTokens.Spacing.s3
 
-        Label {
-            text: "⌕"
+        AppIcon {
+            size: 18
+            source: "../icons/search.svg"
             color: ThemeTokens.Palette.surfaceVariantText
-            font.pixelSize: ThemeTokens.TypeScale.h2
         }
 
         TextField {

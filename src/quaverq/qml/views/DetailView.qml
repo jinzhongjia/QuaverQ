@@ -226,13 +226,26 @@ ColumnLayout {
                                 root.playerController.playFromModel(root.detailController.songModel, 0)
                         }
 
-                        contentItem: Label {
-                            text: "▶  " + playAllButton.text
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
-                            font.pixelSize: ThemeTokens.TypeScale.bodySm
-                            font.weight: ThemeTokens.TypeScale.medium
+                        contentItem: RowLayout {
+                            spacing: ThemeTokens.Spacing.s2
+
+                            Item { Layout.fillWidth: true }
+
+                            Components.AppIcon {
+                                size: 16
+                                source: "../icons/play.svg"
+                                color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
+                            }
+
+                            Label {
+                                text: playAllButton.text
+                                verticalAlignment: Text.AlignVCenter
+                                color: playAllButton.enabled ? ThemeTokens.Palette.primaryText : ThemeTokens.Palette.surfaceVariantText
+                                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                font.weight: ThemeTokens.TypeScale.medium
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         background: Rectangle {

@@ -90,7 +90,7 @@ Rectangle {
         FunctionRow {
             Layout.fillWidth: true
             visible: !root.compact
-            iconText: "♥"
+            iconSource: "../icons/heart-filled.svg"
             iconColor: ThemeTokens.Palette.primaryFg
             label: qsTr("我喜欢")
             onActivated: root.routeRequested("library")
@@ -208,7 +208,7 @@ Rectangle {
     component FunctionRow: Rectangle {
         id: fr
 
-        property string iconText: ""
+        property url iconSource: ""
         property color iconColor: ThemeTokens.Palette.surfaceVariantText
         property string label: ""
 
@@ -242,12 +242,11 @@ Rectangle {
             anchors.rightMargin: ThemeTokens.Spacing.s4
             spacing: ThemeTokens.Spacing.s3
 
-            Label {
+            AppIcon {
                 Layout.preferredWidth: ThemeTokens.Spacing.s5
-                horizontalAlignment: Text.AlignHCenter
-                text: fr.iconText
+                size: 16
+                source: fr.iconSource
                 color: fr.iconColor
-                font.pixelSize: ThemeTokens.TypeScale.body
             }
 
             Label {
