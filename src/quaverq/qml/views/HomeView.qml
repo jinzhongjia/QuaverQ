@@ -308,6 +308,19 @@ ScrollView {
             anchors.margins: ThemeTokens.Spacing.s5
             spacing: ThemeTokens.Spacing.s5
 
+            // 封面放文字侧: 原"文字贴左、封面贴右"在宽窗下两端无限拉开, 卡片断成两截;
+            // 封面+文字成一组后, 右侧只剩常规右锚的播放键
+            Components.AlbumArt {
+                Layout.preferredWidth: root.availableWidth < 720 ? 72 : 92
+                Layout.preferredHeight: root.availableWidth < 720 ? 72 : 92
+                Layout.alignment: Qt.AlignVCenter
+                active: section.hasPreview
+                coverUrl: section.hasPreview && section.previewSong.coverUrl ? section.previewSong.coverUrl : ""
+                coverController: section.coverController
+                iconText: "♪"
+                iconSize: ThemeTokens.TypeScale.h1
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -341,16 +354,6 @@ ScrollView {
                     elide: Text.ElideRight
                 }
 
-            }
-
-            Components.AlbumArt {
-                Layout.preferredWidth: root.availableWidth < 720 ? 72 : 92
-                Layout.preferredHeight: root.availableWidth < 720 ? 72 : 92
-                active: section.hasPreview
-                coverUrl: section.hasPreview && section.previewSong.coverUrl ? section.previewSong.coverUrl : ""
-                coverController: section.coverController
-                iconText: "♪"
-                iconSize: ThemeTokens.TypeScale.h1
             }
 
             Button {

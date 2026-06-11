@@ -17,7 +17,8 @@ QtObject {
 
     // ---- 文本 ----
     readonly property color surfaceText: Theme.dark ? "#f0f1f3" : "#333333"
-    readonly property color surfaceVariantText: Theme.dark ? "#9a9ca2" : "#767676"
+    // 亮色 #6f6f6f 而非 #767676: 后者在侧栏 #f5f5f7 上只有 4.17:1, 压暗一档到 ≈4.66:1 达标 WCAG
+    readonly property color surfaceVariantText: Theme.dark ? "#9a9ca2" : "#6f6f6f"
 
     // ---- 描边 / 窗口边框 ----
     readonly property color outline: Theme.dark ? "#3a3c42" : "#e0e0e0"
@@ -58,6 +59,11 @@ QtObject {
     readonly property color stateDisabled: Theme.dark ? "#34363b" : "#e0e0e0"
     readonly property color focusRing: primaryFg
     readonly property color scrim: Theme.dark ? "#99000000" : "#66000000"
+
+    // ---- 歌词分层 (收编自 LyricPanel 内联 hex) ----
+    readonly property color lyricMuted: Theme.dark ? "#798292" : "#9aa3af"
+    readonly property color lyricCredit: Theme.dark ? "#5b6472" : "#b4bcc8"
+    readonly property color lyricCreditActive: Theme.dark ? "#87909f" : "#7d8794"
 
     // ---- 封面图上的遮罩 (W13) ----
     // 盖在封面图上而非主题底色上, 图片颜色不随主题变, 故这组不带 Theme.dark 分支

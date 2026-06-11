@@ -36,7 +36,7 @@
 | --- | --- |
 | **B1 详情页头图** | `pushDetail` 第 5 参透传卡片封面（头图即刻显示）+ 艺人头像 T001 CDN 模板兜底 + `AlbumArt` 双缓冲（新图后台解码、就绪后交叉淡变，卡片图→高清图无缝升级）。附带踩坑修复：`image://` URL 经 QUrl 规范化后字符串比对失效 → 换层记账改用自维护字符串 |
 | **C1 正在播放出口** | 入口改 `openNowPlaying()` push 进栈（不清栈）：顶栏返回 / Esc / 页内「收起 ˅」/ 再点播放栏封面四条退出路径全通，侧栏保持来源页高亮 |
-| **C2 品牌绿对比度** | 新 token `primaryFg`（亮 #1d9a60 ≈3.6:1 / 暗保持 #31c27c）替换全部前景用法：三处 tab 文字+下划线、歌词当前行+逐字、类型标签、♥、播放标记、3px 选中条、占位封面、focusRing。大色块填充（播放键/登录按钮/进度条/logo）**刻意保留** #31c27c 品牌原色（白字 on 绿 2.3:1 为已知取舍）。遗留：侧栏 `#767676` on `#f5f5f7` = 4.17:1 微差未调 |
+| **C2 品牌绿对比度** | 新 token `primaryFg`（亮 #1d9a60 ≈3.6:1 / 暗保持 #31c27c）替换全部前景用法：三处 tab 文字+下划线、歌词当前行+逐字、类型标签、♥、播放标记、3px 选中条、占位封面、focusRing。大色块填充（播放键/登录按钮/进度条/logo）**刻意保留** #31c27c 品牌原色（白字 on 绿 2.3:1 为已知取舍）。（遗留的侧栏 `#767676` on `#f5f5f7` = 4.17:1 已于零散收尾批调到 #6f6f6f ≈4.66:1） |
 | **C3 窄窗收纳** | <920px 时右区收进中央第 5 槽的 "⋯" 溢出菜单（歌词 / 待播列表(N) / 音量滑条，纯文字菜单行样式对齐右键菜单），队列非空带绿点；≥920 恢复原右区 |
 | **C4（确认半边）** | 退出登录加二次确认弹窗（设置页 + 资料库共用 `logoutConfirmDialog`） |
 | **W1 播放键居中** | 中央控制组第 5 槽对称布局，播放键正压进度条中轴（宽窗隐形占位 / 窄窗即 ⋯ 按钮，一槽两用） |
@@ -65,6 +65,7 @@
 | **交互杂项批（O6 音量 + Marquee 悬停暂停 + O9 简介展开）** | **O6**：`PlayerController` 加 `muted` 独立标志（TDD 3 新测试：不动音量值、恢复天然回原音量、不入会话快照）+ `toggleMute()` / `nudgeVolume(delta)`；任何主动调音量（拖滑条/快捷键，含拖回同值）自动解除静音——平台标准行为。`Main.qml`：`AudioOutput.muted` 绑定 + 全局快捷键 `Ctrl+↑/↓` 音量 ±5%。`PlayerBar`：两处音量图标（主行 + 窄窗溢出菜单）换成可点 IconButton（volume ↔ volume-mute 图标切换，新增 `volume-mute.svg`），静音时滑条填充/手柄降权 35%。**Marquee**：`MarqueeLabel` 加 HoverHandler，悬停暂停滚动（`paused` 非 stop，移开从当前位置继续）。**O9**：DetailView 长简介默认 2 行截断，确实截断（`truncated`）时出现「展开 ⌄ / 收起 ⌃」链接（primaryFg、hover 手型、命中区外扩），换详情数据自动收回。验证：lint 全绿 + 653 测试（+3）+ 离屏烟测 18 项（横滚三态像素级 x 采样/静音 QML 绑定全链/合成 Ctrl+↑↓ 键事件/简介展开切换）全过 |
 | **视觉杂项批（W12 字阶 + W10 显式字体 + 暗色猜你喜欢卡 + W13 遮罩 token + O5 关于区）** | **W12**：`TypeScale.caption` 13→12，与 bodySm(14) 拉开 2px 字阶。**W10**：`__main__.py` 启动期按平台设显式字体（纯函数 `_platform_default_font_family`，TDD 2 测试）——Windows → Microsoft YaHei UI（修 Segoe UI 无 CJK 字形的逐字 fallback 基线/字重漂移），Linux/macOS 返 None 交给系统。**暗色猜你喜欢卡**：新 token `primaryContainerHi`（暗 #1f5039 / 亮 #f2fbf6）与 `primaryContainer` 做上亮下沉同色系微渐变，替换整块平涂。**W13**：①Palette 新增封面图遮罩组 `imageOverlay`(#99000000) / `imageOverlayHover`(#2b000000) / `imageOverlayText`(#fff) / `softShadow`(rgba 0,0,0,.06)——**故意不带 Theme.dark 分支**（图片颜色不随主题变）；Card 播放量角标/hover 暗化、SongRow 菜单落影的裸 hex 全部收编；②四个模态 Dialog（登录/歌曲详情/退出确认/清缓存确认）显式 `Overlay.modal` 走 `Palette.scrim`——Basic 默认跟系统 palette.shadow，暗色下偏弱。**O5**：`AppController.appVersion` 常量属性（`application_version()` 读包元数据回退 "dev"，TDD 2 测试）+ 设置页新增「关于」分区（版本号 + 开源仓库链接 `Qt.openUrlExternally`）。验证：lint 全绿 + 657 测试（+4）+ 离屏烟测 11 项（字阶值/新 token 值形态/版本号 Python→QML 链路/设置页实例化）全过 |
 | **O2 页面动效 + reduceMotion 开关** | **reduceMotion**：`SettingsController.reduceMotion` 持久化设置（TDD 2 测试：默认 off / 持久化 / 同值幂等）→ Main.qml `Binding` 注入 `Motion.reduceMotion` → 三档时长 token 归零（过渡**瞬时化**而非放慢，符合无障碍指引；Qt 6.x 无系统级 prefers-reduced-motion 接口故走应用级），设置页「外观」分区加开关。**页面过渡**：StackView 六个 transition 全配 120ms 透明度交叉淡入（只动 opacity，GPU 合成）；`resetContent` 改 `replace(null, ...)` 走 replaceEnter/Exit，push/pop 去掉 `StackView.Immediate`——reduceMotion 时 durFast=0 行为等价旧 Immediate。**队列抽屉**：Loader 改首开常驻（onLoaded 闩锁）+ Translate 自右滑入 durMed（进 easeOut / 出 easeIn）；「打开时定位到当前曲」从依赖重新挂载改为 `onVisibleChanged` 触发。**持续性运动受控**：Marquee 横滚在 reduceMotion 下整体停用回退静态省略号（恢复时从头滚避免残留偏移）；SkeletonRect 脉动停用回静态灰块；LyricPanel 歌词跟随滚动直接跳到位；正在播放浮层滑入/出经时长 token 自动瞬时。**Spinner 加载旋转刻意不受控**（"正在工作"的必要反馈）。验证：lint 全绿 + 659 测试（+2）+ 离屏烟测 25 项（时长归零链路/导航瞬时/抽屉滑入与常驻/浮层瞬开/Marquee 回退/骨架静止）+ 浮层/TabRow 两套旧烟测回归全过 |
+| **零散收尾（猜你喜欢卡收束 + LyricPanel hex 收编 + 侧栏对比度）** | **卡两极分布**：猜你喜欢卡封面从右端挪到文字侧（封面+文字成组，右侧只剩常规右锚的播放键），宽窗不再断成两截。**LyricPanel hex 收编**：`lyricMuted` / `lyricCredit` / `lyricCreditActive` 三个明暗双值 token 进 Palette，面板内联 hex 清零（token-only 纪律补完）。**侧栏对比度**：`surfaceVariantText` 亮色 #767676→#6f6f6f（侧栏 #f5f5f7 上 4.17:1→≈4.66:1 达标 WCAG，白底 ≈5.0:1），全局次级文字微暗一档。验证：lint 全绿 + 659 测试 + 歌词/视觉两套烟测回归 + token 值离屏核对 |
 
 **W4 验收清单**：
 
@@ -136,12 +137,17 @@
 5. 关掉开关：以上全部恢复；重启应用开关状态保持（持久化）
 6. 动效开启时快速连续切页/开关抽屉：无闪烁、无残影、无卡顿
 
+**零散收尾验收清单**：
+
+1. 首页「猜你喜欢」卡：封面紧挨文字左侧，**最大化窗口**下卡片不再"文字一端、封面一端"断成两截；播放键仍在右端
+2. 歌词页观感与之前一致（纯 token 收编无视觉变化）
+3. 亮色侧栏的次级灰字（如「我的歌单」分组标题）比之前略深一点、更易读
+
 ### ❌ 未动（按建议优先级排序）
 
 | 项 | 备注 |
 | --- | --- |
 | C4 侧栏身份区（头像+昵称+VIP 徽章） | 需 Python 侧从 QQ API 取数据，是剩余项里唯一动后端的。**数据面调研已完成**（昵称/头像走 `get_homepage`；VIP 种类绿钻/豪华绿钻/SVIP/年费 + 官方徽章 icon 走 `_bypass_post` 裸调 `vip_login_base`，库模型未建模已提上游 [issue #257](https://github.com/L-1124/QQMusicApi/issues/257)），方案详见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md) |
-| 杂项 | 卡内容两极分布（仅剩此一项；~~暗色猜你喜欢卡~~ ~~O5 关于区~~ ~~W10 显式字体~~ ~~W13 遮罩 token~~ ~~O6 音量快捷键/静音~~ ~~O9 简介展开~~ ~~BusyIndicator 品牌化~~ 已完成） |
 
 ---
 
@@ -333,10 +339,10 @@ headerBar 只有 DragHandler（`Main.qml:408-415`），无双击切换最大化/
 两轮（代码 + 截图）结论已合并，问题清单即为上文 C1-C4 / W1-W16 / O 系列。修复按项目惯例拆阶段（每步 ≤300 行 + 手动验证清单），各阶段执行状态（详见上方「实施进度」表）：
 
 0. ~~**Bug 修复**（B1 详情页头图）~~ ✅ 完成（封面透传 + 艺人头像兜底 + 双缓冲无缝升级）；
-1. ~~**Token / 一行级速赢**~~ ✅ 基本完成（C2 primaryFg + W14 visualFocus + W16 selected + W2 ToolTip + W11 双击 + subtitle 去重；**遗留** W12 字阶、LyricPanel hex 收编、侧栏次级文字 4.17:1 微调）；
+1. ~~**Token / 一行级速赢**~~ ✅ 基本完成（C2 primaryFg + W14 visualFocus + W16 selected + W2 ToolTip + W11 双击 + subtitle 去重；遗留三项后续批次全部清掉：W12 字阶 ✅、LyricPanel hex 收编 ✅、侧栏次级文字对比度 ✅）；
 2. ~~**导航级**（C1 出口 + W6 搜索 + 退出确认）~~ ✅ 完成；
 3. **组件级** —— W7 Switch ✅、W15 设置密度 ✅、弹窗底部裁切 ✅、W5 右键/队列增删/相似歌曲点击 🕐 待验收、W3 TabRow + W9 错误统一 🕐 待验收——**组件级全部完成**；
 4. ~~**布局级**（C3 收纳 + W1 居中 + W8 网格 + 搜索居中 + W4 骨架屏）~~ ✅ 完成（W4 🕐 待验收；**未动** 猜你喜欢卡内容收束）；
 5. **观感级** —— O3 SVG 图标 ✅、O1 正在播放沉浸页重做 🕐 待验收、暗色猜你喜欢卡 + W13 scrim 🕐 待验收（视觉杂项批）、O2 页面动效 + reduceMotion 🕐 待验收——**除挂起的 C4 外全部完成**。
 
-**剩余**：零散收尾（卡内容两极分布、LyricPanel 内联 hex 收编、侧栏次级文字 4.17:1 微调）+ C4 侧栏身份区（挂起中，调研见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)）。**审查清单的成批项至此全部完成**，待验收累计 7 批。
+**剩余**：仅 C4 侧栏身份区（挂起中，调研见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md)）。**审查清单除 C4 外全部完成**，待验收累计 8 批。

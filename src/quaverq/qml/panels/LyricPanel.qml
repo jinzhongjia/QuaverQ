@@ -44,9 +44,9 @@ Rectangle {
     readonly property int activeIndex: root.lyricController ? root.lyricController.activeIndex : -1
     readonly property bool loading: root.lyricController ? root.lyricController.loading : false
     readonly property string errorMessage: root.lyricController ? root.lyricController.errorMessage : ""
-    readonly property color mutedLineColor: ThemeTokens.Theme.dark ? "#798292" : "#9aa3af"
-    readonly property color creditLineColor: ThemeTokens.Theme.dark ? "#5b6472" : "#b4bcc8"
-    readonly property color creditActiveColor: ThemeTokens.Theme.dark ? "#87909f" : "#7d8794"
+    readonly property color mutedLineColor: ThemeTokens.Palette.lyricMuted
+    readonly property color creditLineColor: ThemeTokens.Palette.lyricCredit
+    readonly property color creditActiveColor: ThemeTokens.Palette.lyricCreditActive
     property int lastRevealedIndex: -1
     // 逐字高亮: 当前播放位置 + 已唱/未唱字色 (hex, 供 RichText <font>)
     readonly property int positionMs: root.lyricController ? root.lyricController.positionMs : 0
