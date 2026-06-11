@@ -98,7 +98,7 @@
 
 | 项 | 备注 |
 | --- | --- |
-| C4 侧栏身份区（头像+昵称） | 需 Python 侧从 QQ API 取 nickname/头像，是剩余项里唯一动后端的 |
+| C4 侧栏身份区（头像+昵称+VIP 徽章） | 需 Python 侧从 QQ API 取数据，是剩余项里唯一动后端的。**数据面调研已完成**（昵称/头像走 `get_homepage`；VIP 种类绿钻/豪华绿钻/SVIP/年费 + 官方徽章 icon 走 `_bypass_post` 裸调 `vip_login_base`，库模型未建模已提上游 [issue #257](https://github.com/L-1124/QQMusicApi/issues/257)），方案详见 [search-user-profile-vip-api.md](search-user-profile-vip-api.md) |
 | W3 TabRow 抽取 | 三处 tab 实现仍各自复制（36 vs 38px 漂移仍在） |
 | W9 错误展示统一 | Detail/Search 红底通栏 vs Banner vs Snackbar 三套并存 |
 | O2 页面切换/抽屉轻动效 + reduceMotion 开关 | AlbumArt 淡变、Switch 动效已局部落地 |
