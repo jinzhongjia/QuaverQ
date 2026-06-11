@@ -193,11 +193,9 @@ Dialog {
                 visible: root.isLoading
                 spacing: ThemeTokens.Spacing.s3
 
-                BusyIndicator {
+                Components.Spinner {
                     Layout.alignment: Qt.AlignHCenter
-                    implicitWidth: 40
-                    implicitHeight: 40
-                    running: root.isLoading
+                    size: 36
                 }
 
                 Label {

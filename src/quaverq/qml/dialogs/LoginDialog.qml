@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../components" as Components
 import "../Theme" as ThemeTokens
 
 Dialog {
@@ -193,9 +194,9 @@ Dialog {
                 fillMode: Image.PreserveAspectFit
             }
 
-            BusyIndicator {
+            Components.Spinner {
                 anchors.centerIn: parent
-                running: visible
+                size: 36
                 visible: root.appController
                     && root.appController.loggingIn
                     && root.appController.qrcodeDataUrl.length === 0

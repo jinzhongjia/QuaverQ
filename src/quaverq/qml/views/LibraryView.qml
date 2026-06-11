@@ -277,12 +277,27 @@ ColumnLayout {
                 }
             }
 
-            Label {
-                anchors.centerIn: parent
-                visible: root.libraryController && root.libraryController.loading
-                text: qsTr("正在同步喜欢")
-                color: ThemeTokens.Palette.surfaceVariantText
-                font.pixelSize: ThemeTokens.TypeScale.body
+            // 首次同步骨架 (已有数据时刷新不闪骨架)
+            ColumnLayout {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: root.libraryController
+                    && root.libraryController.authed
+                    && root.libraryController.loading
+                    && root.libraryController.likedCount === 0
+                spacing: ThemeTokens.Spacing.s2
+
+                Repeater {
+                    model: 6
+
+                    delegate: Components.SongRowSkeleton {
+                        required property int index
+
+                        Layout.fillWidth: true
+                        titleRatio: 0.3 + (index % 3) * 0.14
+                    }
+                }
             }
         }
 
@@ -446,15 +461,30 @@ ColumnLayout {
             }
         }
 
-        Label {
-            anchors.centerIn: parent
+        // 首次同步骨架: 一排卡片占位
+        GridLayout {
+            id: tabSkeletonGrid
+
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
             visible: root.libraryController
                 && root.libraryController.authed
                 && root.libraryController.loading
                 && !tab.hasCards
-            text: qsTr("正在同步")
-            color: ThemeTokens.Palette.surfaceVariantText
-            font.pixelSize: ThemeTokens.TypeScale.body
+            columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
+            columnSpacing: ThemeTokens.Spacing.s3
+            rowSpacing: ThemeTokens.Spacing.s3
+
+            Repeater {
+                model: tabSkeletonGrid.columns
+
+                delegate: Components.CardSkeleton {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                }
+            }
         }
     }
 

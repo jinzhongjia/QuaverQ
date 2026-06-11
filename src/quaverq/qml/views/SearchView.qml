@@ -335,6 +335,54 @@ ColumnLayout {
                 }
             }
 
+            // 首屏搜索骨架 (翻页时旧结果保留 + 底部"加载中", 不走骨架)
+            ColumnLayout {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: root.isSongs
+                    && root.serviceController
+                    && root.serviceController.loading
+                    && root.serviceController.songResults.count === 0
+                spacing: ThemeTokens.Spacing.s2
+
+                Repeater {
+                    model: 6
+
+                    delegate: Components.SongRowSkeleton {
+                        required property int index
+
+                        Layout.fillWidth: true
+                        titleRatio: 0.3 + (index % 3) * 0.14
+                    }
+                }
+            }
+
+            GridLayout {
+                id: searchSkeletonGrid
+
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: !root.isSongs
+                    && root.serviceController
+                    && root.serviceController.loading
+                    && root.serviceController.cardResults.count === 0
+                columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
+                columnSpacing: ThemeTokens.Spacing.s3
+                rowSpacing: ThemeTokens.Spacing.s3
+
+                Repeater {
+                    model: searchSkeletonGrid.columns
+
+                    delegate: Components.CardSkeleton {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
+                    }
+                }
+            }
+
             Label {
                 anchors.centerIn: parent
                 width: parent.width - ThemeTokens.Spacing.s8

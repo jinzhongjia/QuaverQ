@@ -476,13 +476,24 @@ ColumnLayout {
             ScrollBar.vertical: ScrollBar {}
         }
 
-        // loading
-        BusyIndicator {
-            anchors.centerIn: parent
-            running: songPage.loading && !songPage.hasItems
-            visible: running
-            implicitWidth: 40
-            implicitHeight: 40
+        // 加载骨架: 几何对齐真实歌曲行, 数据到达无跳动
+        ColumnLayout {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            visible: songPage.loading && !songPage.hasItems
+            spacing: ThemeTokens.Spacing.s2
+
+            Repeater {
+                model: 6
+
+                delegate: Components.SongRowSkeleton {
+                    required property int index
+
+                    Layout.fillWidth: true
+                    titleRatio: 0.3 + (index % 3) * 0.14
+                }
+            }
         }
 
         // empty
@@ -584,12 +595,25 @@ ColumnLayout {
             ScrollBar.vertical: ScrollBar {}
         }
 
-        BusyIndicator {
-            anchors.centerIn: parent
-            running: gridPage.loading && !gridPage.hasItems
-            visible: running
-            implicitWidth: 40
-            implicitHeight: 40
+        // 加载骨架: 两排卡片占位
+        GridLayout {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            visible: gridPage.loading && !gridPage.hasItems
+            columns: gridView.cols
+            columnSpacing: ThemeTokens.Spacing.s3
+            rowSpacing: ThemeTokens.Spacing.s3
+
+            Repeater {
+                model: gridView.cols * 2
+
+                delegate: Components.CardSkeleton {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                }
+            }
         }
 
         Label {

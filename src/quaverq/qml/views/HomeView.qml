@@ -455,6 +455,24 @@ ScrollView {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            // 冷启动骨架: 无缓存数据时的加载占位 (SWR 有缓存直出, 不闪骨架)
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: section.loading && !section.hasRows
+                spacing: ThemeTokens.Spacing.s2
+
+                Repeater {
+                    model: 3
+
+                    delegate: Components.SongRowSkeleton {
+                        required property int index
+
+                        Layout.fillWidth: true
+                        titleRatio: 0.3 + (index % 3) * 0.14
+                    }
+                }
+            }
+
             Repeater {
                 model: section.hasRows ? section.model : null
 
@@ -528,6 +546,27 @@ ScrollView {
                 color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.bodySm
                 horizontalAlignment: Text.AlignHCenter
+            }
+
+            // 冷启动骨架: 一排卡片占位
+            GridLayout {
+                id: cardSkeletonGrid
+
+                Layout.fillWidth: true
+                visible: section.loading && !section.hasCards
+                columns: Math.max(2, Math.min(8, Math.floor(width / 180)))
+                columnSpacing: ThemeTokens.Spacing.s5
+                rowSpacing: ThemeTokens.Spacing.s5
+
+                Repeater {
+                    model: cardSkeletonGrid.columns
+
+                    delegate: Components.CardSkeleton {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.alignment: Qt.AlignTop
+                    }
+                }
             }
 
             GridLayout {
