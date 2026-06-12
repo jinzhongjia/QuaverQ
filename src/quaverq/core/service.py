@@ -1726,9 +1726,19 @@ class QuaverService:
         cred = self._effective_credential()
         if cred is None or not cred.encrypt_uin:
             return None
+
+        # 库 API 是同步方法, 返回 awaitable 但 unhashable 的 Request 对象
+        # (pydantic __eq__ 无 __hash__); 直接塞 gather 会在内部去重时炸
+        # TypeError, 必须包成本地 coroutine (真机踩过, 见回归测试).
+        async def _fetch_homepage() -> Any:
+            return await self.client.user.get_homepage(cred.encrypt_uin, credential=cred)
+
+        async def _fetch_vip_info() -> Any:
+            return await self.client.user.get_vip_info(credential=cred)
+
         homepage, vip_info = await asyncio.gather(
-            self.client.user.get_homepage(cred.encrypt_uin, credential=cred),
-            self.client.user.get_vip_info(credential=cred),
+            _fetch_homepage(),
+            _fetch_vip_info(),
             return_exceptions=True,
         )
         for result in (homepage, vip_info):

@@ -67,3 +67,25 @@ client.user.get_homepage(euin, credential=cred)
 3. **桥接层**：`ServiceController.get_user_profile()` 走 `call_service` 统一过期处理；`AppController` 暴露 `nickname / avatarUrl / vipKind / vipIconUrl` + `profileChanged`，`_set_authed` 变 true 时 fire-and-forget 刷新、变 false 同步清空 + 取消在途任务 + 丢弃迟到结果。
 4. **UI**（`Sidebar.qml` 顶部 `IdentityArea`）：头像（`AlbumArt circular` 复用封面缓存管道，回退昵称首字）+ 昵称（回退"已登录"）+ VIP 徽章（官方 icon 图优先，`Image.status !== Ready` 回退文字 pill：SVIP/豪华绿钻金色 `vipGold` token、绿钻 `primaryFg`）；未登录显示人形占位（新增 `icons/user.svg`）+ "点击登录"即登录入口（原"登录同步"按钮移除）；已登录点击进资料库；紧凑态只显头像。
 5. **测试**：+28（service 解析/并发容错 15、AppController 身份生命周期 6、ServiceController 包装 2、Sidebar 离屏契约 5），720 全绿 + lint 全绿。
+
+### 真机验收修复（2026-06-12，截图反馈轮）
+
+- **现象**：登录后身份区双回退（昵称「已登录」+ 首字占位），但歌单/猜你喜欢正常（凭据有效）。
+- **根因**：`qqmusic-api` 的 client API（`client.user.get_homepage()` 等）是**同步方法，返回 awaitable 但 unhashable 的 `Request` 对象**（pydantic 系 `__eq__` 无 `__hash__`）。直接塞 `asyncio.gather` 在其内部去重 dict 查找时炸 `TypeError: unhashable type: 'Request'`，被 `refresh_profile_async` 兜底捕获后静默缺席。async-def mock 是真 coroutine，单测暴露不了——本机缓存凭据跑诊断脚本即复现。
+- **修复**：`get_user_profile` 把两个库调用包成本地 coroutine 再 gather（与 `get_song_info` / `get_song_related` 的既有先例同款）；新增 `_RequestLike`（awaitable + unhashable）回归测试还原库真实形态。真凭据端到端验证：`UserProfile(nickname='影翼', vip_kind='svip', is_year_vip=True, vip_icon_url=…lv_7.png)` 完整返回。721 测试全绿。
+
+### 画像缓存（2026-06-12，二轮反馈：冷启动"已登录→昵称"两态跳变）
+
+每次启动身份区先占位再被网络结果替换，体验差。**接入 HomeCache SWR 私有区块**（与"猜你喜欢/我的歌单"同管道）：
+
+- `home_cache.py`：`_PRIVATE_SECTIONS` 加 `"profile"`，`HomeSnapshot.profile` + `update(profile=...)`，per-block `account_key` 归属校验（换号不串）；登出抹除由既有 `clear_private()` 两处调用点自动覆盖，零新增清理代码。`serde.py` 加 `user_profile_to_dict / from_dict`（缺字段容错，旧缓存升级安全）。
+- `AppController`：构造注入 `home_cache`；`prime_profile_from_cache(account_key)` 启动期同步喂首帧（`__main__.py` 与其他 prime 同批、`engine.load()` 前，符合 SWR 首帧契约）；`refresh_profile_async` 成功后 `_persist_profile` 回写。**零跳变契约**：缓存值与网络值相同时 `_set_profile` 经 dataclass 相等去重不再发 `profileChanged`（有专项测试）。
+- 头像图本身已走 CoverCache 磁盘缓存，二次启动同步命中；徽章官方图仍是 QML Image 网络加载，加载完成前显示文字 pill（语义一致的过渡，验收后真在意再处理）。
+- 测试 +11（HomeCache profile 块 5、serde 往返 2、AppController prime/回写/零跳变 4），732 全绿。
+
+### 徽章 icon 语义修正（2026-06-12，三轮反馈：SVIP 账号显示成绿钻）
+
+- **现象**：SVIP 账号（svip=1、hugevip=1 双持）侧栏徽章显示绿色钻石图——看起来是"绿钻"。数据层 `vip_kind='svip'` 正确。
+- **根因**：`identity.icon`（`…/vip_icon/lv_N.png`）是**"绿钻等级"徽章**（绿钻图标 + 等级数），**不表达会员种类**——SVIP 账号它也给绿钻图。"官方 icon 图优先"策略加载成功后把正确的 SVIP 文字 pill 顶掉了。调研时把"等级徽章"误判为"种类徽章"。
+- **修复**：侧栏徽章**放弃 icon 图，统一文字 pill** 按 `vipKind` 显示（SVIP / 豪华绿钻金色、绿钻绿色）——种类零歧义，顺带消掉"pill → 图"的加载切换。`vipIconUrl` 数据与属性保留（docstring 注明真实语义），留作未来资料页等级展示，侧栏不消费。
+- **回归测试**：Sidebar 离屏断言 SVIP 账号 `vipBadgeLabel` 实际渲染 "SVIP" 且可见。733 全绿。

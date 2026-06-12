@@ -301,25 +301,11 @@ Rectangle {
                     visible: ia.vipLabel.length > 0
                     spacing: ThemeTokens.Spacing.s2
 
-                    // 服务端官方等级徽章图优先; 拉不到 (离线 / 无 TLS) 回退文字 pill
-                    Image {
-                        id: vipIconImage
-
-                        readonly property bool ready: vipIconImage.status === Image.Ready
-
-                        visible: vipIconImage.ready
-                        source: root.appController ? (root.appController.vipIconUrl || "") : ""
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        Layout.preferredHeight: 14
-                        Layout.preferredWidth: vipIconImage.ready
-                            ? Math.round(14 * vipIconImage.sourceSize.width
-                                / Math.max(1, vipIconImage.sourceSize.height))
-                            : 0
-                    }
-
+                    // 文字 pill 按 vipKind 种类显示 (SVIP > 豪华绿钻 > 绿钻).
+                    // 故意不用服务端 identity.icon 图: 那是"绿钻等级"徽章
+                    // (lv_N.png 绿钻图标), 不表达会员种类 —— SVIP 账号会被它
+                    // 显示成绿钻 (真机验收踩过). vipIconUrl 数据保留备用.
                     Rectangle {
-                        visible: !vipIconImage.ready
                         implicitHeight: 16
                         implicitWidth: vipBadgeLabel.implicitWidth + ThemeTokens.Spacing.s2 * 2
                         radius: height / 2
@@ -330,6 +316,7 @@ Rectangle {
                         Label {
                             id: vipBadgeLabel
 
+                            objectName: "vipBadgeLabel"
                             anchors.centerIn: parent
                             text: ia.vipLabel
                             color: ia.vipKind === "vip"

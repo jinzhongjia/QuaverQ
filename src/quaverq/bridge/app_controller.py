@@ -10,6 +10,7 @@ from importlib import metadata
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
+from quaverq.core.home_cache import HomeCache
 from quaverq.core.models import UserProfile
 
 from .service_controller import ServiceController
@@ -48,10 +49,12 @@ class AppController(QObject):
     def __init__(
         self,
         service_controller: ServiceController | None = None,
+        home_cache: HomeCache | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
+        self._home_cache = home_cache
         self._authed = False
         self._dark_mode = False
         self._logging_in = False
@@ -125,6 +128,8 @@ class AppController(QObject):
 
     @Property(str, notify=profileChanged)
     def vipIconUrl(self) -> str:
+        """服务端"绿钻等级"徽章图 (lv_N.png), **不表达会员种类** —— SVIP 账号
+        它也给绿钻图. 侧栏徽章按 vipKind 走文字 pill, 此属性留作未来等级展示."""
         return self._profile.vip_icon_url if self._profile else ""
 
     def _login_type_label(self) -> str:
@@ -281,6 +286,19 @@ class AppController(QObject):
         self.authedChanged.emit()
         self.authChanged.emit(value, reason)
 
+    def prime_profile_from_cache(self, account_key: str) -> None:
+        """启动首帧: 同步用上次缓存的画像填充身份区 (本地, 不联网).
+
+        SWR: 与 prime_private_from_cache 同批在 engine.load 前调用, 首帧直出
+        头像/昵称/徽章; 真值由随后的后台刷新校正 (同值时 _set_profile 去重零跳变).
+        归属由 HomeCache 的 per-block account_key 校验, 换号不串.
+        """
+        if self._home_cache is None or not account_key:
+            return
+        profile = self._home_cache.load(account_key).profile
+        if profile is not None and self._profile is None:
+            self._set_profile(profile)
+
     def _schedule_profile_refresh(self) -> None:
         self._cancel_profile_task()
         try:
@@ -313,6 +331,20 @@ class AppController(QObject):
         if not self._authed:  # 拉取期间已登出, 丢弃迟到结果
             return
         self._set_profile(profile)
+        self._persist_profile(profile)
+
+    def _persist_profile(self, profile: UserProfile | None) -> None:
+        """网络刷新成功后回写缓存, 下次启动首帧直出; 登出清理走 clear_private 链路."""
+        if self._home_cache is None or profile is None:
+            return
+        get_key = getattr(self._service_controller, "account_key", None)
+        key = get_key() if callable(get_key) else ""
+        if not key:
+            return
+        try:
+            self._home_cache.update(profile=profile, account_key=key)
+        except OSError as exc:
+            logger.warning("persist user profile failed: %s", exc)
 
     def _set_profile(self, profile: UserProfile | None) -> None:
         if self._profile == profile:

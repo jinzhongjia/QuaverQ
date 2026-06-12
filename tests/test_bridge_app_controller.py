@@ -9,6 +9,7 @@ import logging
 from PySide6.QtCore import QObject, Signal
 
 from quaverq.bridge.app_controller import AppController
+from quaverq.core.home_cache import HomeCache
 from quaverq.core.models import UserProfile
 
 
@@ -26,12 +27,17 @@ class _FakeServiceController(QObject):
         self.last_login_type = None
         self.profile_calls = 0
         self.profile_error: Exception | None = None
+        self.account_key_value = ""
+
         self.profile_result = UserProfile(
             nickname="鹿鸣",
             avatar_url="http://thirdqq.qlogo.cn/g?k=abc",
             vip_kind="svip",
             vip_icon_url="https://y.qq.com/mediastyle/global/vip_icon/lv_7.png",
         )
+
+    def account_key(self) -> str:
+        return self.account_key_value
 
     async def get_user_profile(self) -> UserProfile | None:
         self.profile_calls += 1
@@ -463,3 +469,84 @@ async def test_profile_discarded_when_logged_out_during_fetch():
 
     assert controller.nickname == ""
     assert controller.vipKind == ""
+
+
+# ============================================================== profile 缓存 (SWR 首帧)
+
+
+def _cached_profile() -> UserProfile:
+    return UserProfile(
+        nickname="影翼",
+        avatar_url="http://thirdqq.qlogo.cn/g?k=abc",
+        vip_kind="svip",
+        is_year_vip=True,
+        vip_icon_url="http://y.gtimg.cn/lv_7.png",
+    )
+
+
+def _home_cache_with_profile(tmp_path, account_key: str) -> HomeCache:
+    cache = HomeCache(tmp_path / "home.json")
+    cache.update(profile=_cached_profile(), account_key=account_key)
+    return cache
+
+
+async def test_prime_profile_from_cache_fills_first_frame(tmp_path):
+    """启动期同步喂缓存画像: 不联网、立即可读、profileChanged 发射."""
+    service = _FakeServiceController()
+    cache = _home_cache_with_profile(tmp_path, "acc1")
+    controller = AppController(service, home_cache=cache)  # type: ignore[arg-type]
+    changes: list[str] = []
+    controller.profileChanged.connect(lambda: changes.append(controller.nickname))
+
+    controller.prime_profile_from_cache("acc1")
+
+    assert service.profile_calls == 0  # 纯本地
+    assert controller.nickname == "影翼"
+    assert controller.vipKind == "svip"
+    assert changes == ["影翼"]
+
+
+async def test_prime_profile_skips_on_account_mismatch(tmp_path):
+    service = _FakeServiceController()
+    cache = _home_cache_with_profile(tmp_path, "acc1")
+    controller = AppController(service, home_cache=cache)  # type: ignore[arg-type]
+
+    controller.prime_profile_from_cache("other")
+    assert controller.nickname == ""
+
+    controller.prime_profile_from_cache("")
+    assert controller.nickname == ""
+
+
+async def test_refresh_writes_profile_back_to_cache(tmp_path):
+    """网络刷新成功后回写缓存 (带 account_key), 下次启动首帧直出."""
+    service = _FakeServiceController()
+    service.account_key_value = "acc1"
+    cache = HomeCache(tmp_path / "home.json")
+    controller = AppController(service, home_cache=cache)  # type: ignore[arg-type]
+
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    cached = cache.load("acc1").profile
+    assert cached is not None
+    assert cached.nickname == "鹿鸣"
+    assert cached.vip_kind == "svip"
+
+
+async def test_same_profile_refresh_does_not_re_emit(tmp_path):
+    """SWR 零跳变契约: prime 的缓存值与网络值相同时, 刷新不再发 profileChanged."""
+    service = _FakeServiceController()
+    service.account_key_value = "acc1"
+    service.profile_result = _cached_profile()
+    cache = _home_cache_with_profile(tmp_path, "acc1")
+    controller = AppController(service, home_cache=cache)  # type: ignore[arg-type]
+    controller.prime_profile_from_cache("acc1")
+    changes: list[str] = []
+    controller.profileChanged.connect(lambda: changes.append(controller.nickname))
+
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    assert service.profile_calls == 1  # 网络刷新仍发生 (SWR 的 revalidate)
+    assert changes == []  # 但同值不引发第二次 UI 跳变

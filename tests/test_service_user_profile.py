@@ -129,6 +129,31 @@ def test_parse_profile_upstream_model_contract():
 # ============================================================== get_user_profile (并发 + 容错)
 
 
+class _RequestLike:
+    """还原 qqmusic-api ``Request`` 的真实形态: awaitable 但 **unhashable**.
+
+    库的 ``client.user.get_homepage()`` 是同步方法, 返回实现了 ``__await__`` 的
+    Request 对象 (pydantic 系 ``__eq__`` 无 ``__hash__``). 直接塞进
+    ``asyncio.gather`` 会在其内部去重 dict 查找时炸
+    ``TypeError: unhashable type: 'Request'`` —— 真机实测踩到, async-def mock
+    是真 coroutine 暴露不了 (2026-06-12 回归).
+    """
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __init__(self, result):
+        self._result = result
+
+    def __eq__(self, other):
+        return self is other
+
+    def __await__(self):
+        async def _run():
+            return self._result
+
+        return _run().__await__()
+
+
 def _cred():
     return SimpleNamespace(encrypt_uin="euin42", musickey="key", musicid=7)
 
@@ -200,6 +225,21 @@ async def test_get_user_profile_none_when_both_fail():
         raise RuntimeError("boom")
 
     assert await _svc_with_user_api(homepage, vip).get_user_profile() is None
+
+
+async def test_get_user_profile_accepts_library_request_objects():
+    """库 API 返回 Request 对象 (同步方法 + awaitable + unhashable), 并发路径必须兼容."""
+
+    def homepage(euin, *, credential=None):
+        return _RequestLike(_homepage())
+
+    def vip(*, credential=None):
+        return _RequestLike(_vip_info(svip=1))
+
+    profile = await _svc_with_user_api(homepage, vip).get_user_profile()
+    assert profile is not None
+    assert profile.nickname == "鹿鸣"
+    assert profile.vip_kind == "svip"
 
 
 async def test_get_user_profile_raises_on_expired_credential():

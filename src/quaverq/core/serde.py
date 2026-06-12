@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from .models import Singer, Song
+from .models import Singer, Song, UserProfile
 
 
 def song_to_dict(song: Song) -> dict:
@@ -40,4 +40,20 @@ def song_from_dict(data: dict) -> Song:
         file_qualities=set(data.get("file_qualities") or []),
         media_mid=data.get("media_mid", "") or "",
         id=int(data.get("id", 0) or 0),
+    )
+
+
+def user_profile_to_dict(profile: UserProfile) -> dict:
+    """UserProfile -> JSON 友好 dict (home.json 身份区块缓存)."""
+    return asdict(profile)
+
+
+def user_profile_from_dict(data: dict) -> UserProfile:
+    """dict -> UserProfile; 容忍缺字段 / 多字段 (旧版缓存升级安全)."""
+    return UserProfile(
+        nickname=str(data.get("nickname", "") or ""),
+        avatar_url=str(data.get("avatar_url", "") or ""),
+        vip_kind=str(data.get("vip_kind", "") or ""),
+        is_year_vip=bool(data.get("is_year_vip", False)),
+        vip_icon_url=str(data.get("vip_icon_url", "") or ""),
     )

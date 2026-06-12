@@ -164,3 +164,21 @@ async def test_identity_logout_resets_to_login_entry(sidebar):
     assert sidebar.identity.property("loggedIn") is False
     assert sidebar.identity.property("displayName") == "点击登录"
     assert sidebar.identity.property("vipLabel") == ""
+
+
+async def test_identity_svip_badge_pill_actually_renders(sidebar):
+    """回归: SVIP 账号徽章必须渲染「SVIP」文字 pill.
+
+    此前官方 identity.icon 图 (lv_N.png 是"绿钻等级"徽章, 不表达种类) 加载
+    成功后会顶掉文字 pill, SVIP 账号被显示成绿钻 —— 徽章已改为纯文字 pill.
+    """
+    sidebar.service.profile_result = UserProfile(nickname="影翼", vip_kind="svip")
+    sidebar.service.authed = True
+    sidebar.service.authStateChanged.emit()
+    await _drain_profile_task(sidebar.controller)
+    _process(sidebar.app)
+
+    badge = sidebar.item.findChild(QObject, "vipBadgeLabel")
+    assert badge is not None
+    assert badge.property("text") == "SVIP"
+    assert badge.property("visible") is True
