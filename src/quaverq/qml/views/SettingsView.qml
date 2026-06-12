@@ -12,6 +12,7 @@ ScrollView {
     property string routeName: "settings"
     property var appController
     property var settingsController
+    property var audioDeviceController
 
     signal loginRequested()
     signal logoutRequested()
@@ -117,10 +118,22 @@ ScrollView {
                 model: ["0.2 s", "0.3 s", "0.5 s", "0.8 s", "1.0 s", "1.5 s", "2.0 s"]
                 values: ["200", "300", "500", "800", "1000", "1500", "2000"]
                 currentValue: root.settingsController ? String(root.settingsController.fadeDurationMs) : "500"
-                showSeparator: false
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setFadeDurationMs(parseInt(value))
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("输出设备")
+                model: root.audioDeviceController ? root.audioDeviceController.deviceLabels : [qsTr("跟随系统默认")]
+                values: root.audioDeviceController ? root.audioDeviceController.deviceValues : [""]
+                currentValue: root.settingsController ? root.settingsController.audioOutputDeviceId : ""
+                showSeparator: false
+                onValueRequested: function(value) {
+                    if (root.audioDeviceController)
+                        root.audioDeviceController.selectDevice(value)
                 }
             }
         }

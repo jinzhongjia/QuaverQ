@@ -1161,8 +1161,8 @@ wheels = [
 
 [[package]]
 name = "qqmusic-api-python"
-version = "0.6.4"
-source = { registry = "https://pypi.org/simple" }
+version = "0.6.2"
+source = { git = "https://github.com/luren-dc/QQMusicApi.git?rev=650437317290c4905bc81fefed169a9e725f7c29#650437317290c4905bc81fefed169a9e725f7c29" }
 dependencies = [
     { name = "anyio" },
     { name = "cryptography" },
@@ -1173,10 +1173,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "tarsio" },
     { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2f/06/600fef6cdb24124129971d0f785145ba80efc52d37d466c904a271aa1142/qqmusic_api_python-0.6.4.tar.gz", hash = "sha256:75849df77177664f21fd2232378c16ae3f6d4406642893ca9e56c567141af287", size = 329650, upload-time = "2026-06-12T07:02:17.989Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/eb/5dcb897ce55cecfad54f3573884ee9a29861b021c5ab5c63a7ec8eba2136/qqmusic_api_python-0.6.4-py3-none-any.whl", hash = "sha256:f04c26b2e77fa98e5d64884a6dbd718c02eb8a72403cc0972cbb78c72cff7db3", size = 115972, upload-time = "2026-06-12T07:02:18.982Z" },
 ]
 
 [[package]]
@@ -1211,7 +1207,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.0" },
     { name = "pyside6", specifier = ">=6.6" },
     { name = "qasync", specifier = ">=0.27" },
-    { name = "qqmusic-api-python", specifier = ">=0.6.1,<0.7" },
+    { name = "qqmusic-api-python", git = "https://github.com/luren-dc/QQMusicApi.git?rev=650437317290c4905bc81fefed169a9e725f7c29" },
     { name = "tomli-w", specifier = ">=1.0" },
 ]
 
