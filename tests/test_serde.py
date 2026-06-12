@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import json
 
-from quaverq.core.models import Singer, Song
-from quaverq.core.serde import song_from_dict, song_to_dict
+from quaverq.core.models import Singer, Song, UserProfile
+from quaverq.core.serde import (
+    song_from_dict,
+    song_to_dict,
+    user_profile_from_dict,
+    user_profile_to_dict,
+)
 
 
 def _sample_song() -> Song:
@@ -55,3 +60,26 @@ def test_from_dict_tolerates_missing_fields() -> None:
 def test_from_dict_singer_without_avatar() -> None:
     song = song_from_dict({"singers": [{"mid": "s", "name": "n"}]})
     assert song.singers[0].avatar_url == ""
+
+
+# ============================================================== UserProfile <-> dict
+
+
+def test_user_profile_round_trip():
+    p = UserProfile(
+        nickname="影翼",
+        avatar_url="http://thirdqq.qlogo.cn/g?k=abc",
+        vip_kind="svip",
+        is_year_vip=True,
+        vip_icon_url="http://y.gtimg.cn/lv_7.png",
+    )
+    assert user_profile_from_dict(user_profile_to_dict(p)) == p
+
+
+def test_user_profile_from_dict_tolerates_missing_and_extra():
+    p = user_profile_from_dict({"nickname": "鹿鸣", "unknown_field": 1})
+    assert p.nickname == "鹿鸣"
+    assert p.avatar_url == ""
+    assert p.vip_kind == ""
+    assert p.is_year_vip is False
+    assert p.vip_icon_url == ""

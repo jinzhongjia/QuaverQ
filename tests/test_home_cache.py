@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from quaverq.core.home_cache import HomeCache, HomeSnapshot
-from quaverq.core.models import Singer, Song
+from quaverq.core.models import Singer, Song, UserProfile
 
 ACC = "acc-123"
 OTHER = "acc-999"
@@ -179,3 +179,55 @@ def test_clear_removes_file(home_cache: HomeCache) -> None:
     home_cache.clear()
     assert not home_cache.path.exists()
     assert home_cache.load(account_key=ACC).is_empty()
+
+
+# ============================================================== profile 私有区块 (C4 身份缓存)
+
+
+def _profile(nickname: str = "影翼") -> UserProfile:
+    return UserProfile(
+        nickname=nickname,
+        avatar_url="http://thirdqq.qlogo.cn/g?k=abc",
+        vip_kind="svip",
+        is_year_vip=True,
+        vip_icon_url="http://y.gtimg.cn/mediastyle/global/vip_icon/lv_7.png",
+    )
+
+
+def test_profile_round_trips(home_cache: HomeCache) -> None:
+    home_cache.update(profile=_profile(), account_key=ACC)
+    snap = home_cache.load(account_key=ACC)
+    assert snap.profile == _profile()
+
+
+def test_profile_dropped_on_account_mismatch(home_cache: HomeCache) -> None:
+    home_cache.update(profile=_profile(), account_key=ACC)
+    assert home_cache.load(account_key=OTHER).profile is None
+    assert home_cache.load(account_key="").profile is None
+
+
+def test_profile_none_keeps_existing(home_cache: HomeCache) -> None:
+    """profile=None 表示"本次不更新" (与 daily 的 None 语义一致)."""
+    home_cache.update(profile=_profile(), account_key=ACC)
+    home_cache.update(daily=[_song("1")], account_key=ACC)  # 不带 profile
+    assert home_cache.load(account_key=ACC).profile == _profile()
+
+
+def test_clear_private_wipes_profile(home_cache: HomeCache) -> None:
+    home_cache.update(profile=_profile(), account_key=ACC)
+    home_cache.clear_private()
+    assert home_cache.load(account_key=ACC).profile is None
+
+
+def test_profile_tolerates_missing_fields(home_cache: HomeCache) -> None:
+    """旧版缓存 / 手工损坏的 profile 块: 缺字段回默认值, 不抛."""
+    home_cache.update(profile=_profile(), account_key=ACC)
+    raw = json.loads(home_cache.path.read_text(encoding="utf-8"))
+    raw["sections"]["profile"]["data"] = {"nickname": "只有昵称"}
+    home_cache.path.write_text(json.dumps(raw), encoding="utf-8")
+
+    snap = home_cache.load(account_key=ACC)
+    assert snap.profile is not None
+    assert snap.profile.nickname == "只有昵称"
+    assert snap.profile.vip_kind == ""
+    assert snap.profile.is_year_vip is False

@@ -8,7 +8,7 @@ import logging
 import pytest
 
 from quaverq.bridge.service_controller import ServiceController
-from quaverq.core.models import Album, Playlist, Singer, Song
+from quaverq.core.models import Album, Playlist, Singer, Song, UserProfile
 from quaverq.core.service import CredentialExpiredError
 
 
@@ -421,3 +421,37 @@ async def test_logout_async_clears_credential_cache(tmp_path, caplog):
     assert not credential_file.exists()
     assert "cleared QQ Music credential from memory" in caplog.text
     assert "removed cached QQ Music credential" in caplog.text
+
+
+async def test_get_user_profile_passes_through_service():
+    class _ProfileService(_FakeAuthService):
+        async def get_user_profile(self):
+            return UserProfile(nickname="鹿鸣", vip_kind="hugevip")
+
+    controller = ServiceController(service=_ProfileService())
+
+    profile = await controller.get_user_profile()
+
+    assert profile.nickname == "鹿鸣"
+    assert profile.vip_kind == "hugevip"
+
+
+async def test_get_user_profile_converts_expired_credential_to_signal(tmp_path):
+    class _ExpiredProfileService(_FakeAuthService):
+        async def get_user_profile(self):
+            raise CredentialExpiredError("credential expired")
+
+    service = _ExpiredProfileService()
+    service.credential = object()
+    service.is_authenticated = True
+    credential_file = tmp_path / "credential.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    service.credential_path = str(credential_file)
+    controller = ServiceController(service=service)
+    expired_messages: list[str] = []
+    controller.credentialExpired.connect(expired_messages.append)
+
+    with pytest.raises(CredentialExpiredError):
+        await controller.get_user_profile()
+
+    assert expired_messages == ["登录已过期，请重新扫码"]

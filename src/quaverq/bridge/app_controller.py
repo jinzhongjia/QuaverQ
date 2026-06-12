@@ -10,6 +10,9 @@ from importlib import metadata
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
+from quaverq.core.home_cache import HomeCache
+from quaverq.core.models import UserProfile
+
 from .service_controller import ServiceController
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,7 @@ class AppController(QObject):
     loginStateChanged = Signal()
     loginMessageChanged = Signal()
     loginTypeChanged = Signal()
+    profileChanged = Signal()
     errorRaised = Signal(str)
 
     _LOGIN_TYPE_LABELS: dict[str, str] = {
@@ -45,10 +49,12 @@ class AppController(QObject):
     def __init__(
         self,
         service_controller: ServiceController | None = None,
+        home_cache: HomeCache | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
+        self._home_cache = home_cache
         self._authed = False
         self._dark_mode = False
         self._logging_in = False
@@ -58,6 +64,8 @@ class AppController(QObject):
         self._login_state = "idle"
         self._login_message = ""
         self._login_type = "qq"
+        self._profile: UserProfile | None = None
+        self._profile_task: asyncio.Task[None] | None = None
 
         if self._service_controller is not None:
             self._service_controller.authStateChanged.connect(self._sync_auth_state)
@@ -104,6 +112,25 @@ class AppController(QObject):
     @Property(str, notify=loginTypeChanged)
     def loginType(self) -> str:
         return self._login_type
+
+    @Property(str, notify=profileChanged)
+    def nickname(self) -> str:
+        return self._profile.nickname if self._profile else ""
+
+    @Property(str, notify=profileChanged)
+    def avatarUrl(self) -> str:
+        return self._profile.avatar_url if self._profile else ""
+
+    @Property(str, notify=profileChanged)
+    def vipKind(self) -> str:
+        """ "" 非会员 / "vip" 绿钻 / "hugevip" 豪华绿钻 / "svip" 超级会员."""
+        return self._profile.vip_kind if self._profile else ""
+
+    @Property(str, notify=profileChanged)
+    def vipIconUrl(self) -> str:
+        """服务端"绿钻等级"徽章图 (lv_N.png), **不表达会员种类** —— SVIP 账号
+        它也给绿钻图. 侧栏徽章按 vipKind 走文字 pill, 此属性留作未来等级展示."""
+        return self._profile.vip_icon_url if self._profile else ""
 
     def _login_type_label(self) -> str:
         return self._LOGIN_TYPE_LABELS.get(self._login_type, "QQ")
@@ -250,8 +277,84 @@ class AppController(QObject):
         if self._authed == value:
             return
         self._authed = value
+        # 身份区随登录态联动: 登录 (login/cached) 拉画像, 登出/过期立刻清空
+        if value:
+            self._schedule_profile_refresh()
+        else:
+            self._cancel_profile_task()
+            self._set_profile(None)
         self.authedChanged.emit()
         self.authChanged.emit(value, reason)
+
+    def prime_profile_from_cache(self, account_key: str) -> None:
+        """启动首帧: 同步用上次缓存的画像填充身份区 (本地, 不联网).
+
+        SWR: 与 prime_private_from_cache 同批在 engine.load 前调用, 首帧直出
+        头像/昵称/徽章; 真值由随后的后台刷新校正 (同值时 _set_profile 去重零跳变).
+        归属由 HomeCache 的 per-block account_key 校验, 换号不串.
+        """
+        if self._home_cache is None or not account_key:
+            return
+        profile = self._home_cache.load(account_key).profile
+        if profile is not None and self._profile is None:
+            self._set_profile(profile)
+
+    def _schedule_profile_refresh(self) -> None:
+        self._cancel_profile_task()
+        try:
+            self._profile_task = asyncio.ensure_future(self.refresh_profile_async())
+        except RuntimeError:  # 无事件循环 (同步上下文), 等下一次登录态变化再拉
+            self._profile_task = None
+
+    def _cancel_profile_task(self) -> None:
+        task = self._profile_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._profile_task = None
+
+    async def refresh_profile_async(self) -> None:
+        """拉登录账号画像 (昵称 / 头像 / VIP). 失败静默缺席, 不挡登录主流程."""
+        if self._service_controller is None or not self._authed:
+            return
+        get_profile = getattr(self._service_controller, "get_user_profile", None)
+        if not callable(get_profile):
+            return
+        try:
+            profile = await get_profile()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # 凭据过期已由 ServiceController.call_service 链路广播 credentialExpired;
+            # 这里只兜底防 fire-and-forget task 抛未处理异常.
+            logger.warning("refresh user profile failed: %s", exc)
+            return
+        if not self._authed:  # 拉取期间已登出, 丢弃迟到结果
+            return
+        # service 在双请求都失败 (断网) 时"成功返回 None"而非抛异常 —— 此时
+        # 保留 prime 自 HomeCache 的画像 (SWR: 刷新失败不回退首帧); 清空职责
+        # 完全由 _set_authed(False) 的登出/过期路径承担.
+        if profile is not None:
+            self._set_profile(profile)
+            self._persist_profile(profile)
+
+    def _persist_profile(self, profile: UserProfile | None) -> None:
+        """网络刷新成功后回写缓存, 下次启动首帧直出; 登出清理走 clear_private 链路."""
+        if self._home_cache is None or profile is None:
+            return
+        get_key = getattr(self._service_controller, "account_key", None)
+        key = get_key() if callable(get_key) else ""
+        if not key:
+            return
+        try:
+            self._home_cache.update(profile=profile, account_key=key)
+        except OSError as exc:
+            logger.warning("persist user profile failed: %s", exc)
+
+    def _set_profile(self, profile: UserProfile | None) -> None:
+        if self._profile == profile:
+            return
+        self._profile = profile
+        self.profileChanged.emit()
 
     def _set_logging_in(self, value: bool) -> None:
         if self._logging_in == value:

@@ -360,7 +360,7 @@ def main() -> None:
     if system_theme_watcher is not None:
         loop.run_until_complete(system_theme_watcher.start())
     cover_controller = CoverController(cover_cache)
-    app_controller = AppController(service_controller)
+    app_controller = AppController(service_controller, home_cache=home_cache)
     detail_controller_factory = DetailControllerFactory(service_controller)
     song_detail_controller = SongDetailController(service_controller)
     library_controller = LibraryController(service_controller, home_cache=home_cache)
@@ -408,6 +408,7 @@ def main() -> None:
     home_controller.prime_public_from_cache()
     home_controller.prime_private_from_cache(account_key)
     library_controller.prime_from_cache(account_key)
+    app_controller.prime_profile_from_cache(account_key)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():

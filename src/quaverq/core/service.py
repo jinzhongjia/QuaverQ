@@ -46,6 +46,7 @@ from .models import (
     SongInfo,
     SongUrl,
     TopList,
+    UserProfile,
 )
 
 if TYPE_CHECKING:
@@ -1714,6 +1715,84 @@ class QuaverService:
                 )
             )
         return out
+
+    async def get_user_profile(self) -> UserProfile | None:
+        """登录账号画像 (昵称 / 头像 / VIP 种类), 供侧栏身份区.
+
+        并发拉 ``get_homepage`` (昵称 / 头像) 与 ``get_vip_info`` (VIP 身份块,
+        上游 #258 起建模); 任一失败不挡另一半, 双失败返 None, 凭据过期统一
+        抛 :class:`CredentialExpiredError` 交 ServiceController 处理.
+        """
+        cred = self._effective_credential()
+        if cred is None or not cred.encrypt_uin:
+            return None
+
+        # 库 API 是同步方法, 返回 awaitable 但 unhashable 的 Request 对象
+        # (pydantic __eq__ 无 __hash__); 直接塞 gather 会在内部去重时炸
+        # TypeError, 必须包成本地 coroutine (真机踩过, 见回归测试).
+        async def _fetch_homepage() -> Any:
+            return await self.client.user.get_homepage(cred.encrypt_uin, credential=cred)
+
+        async def _fetch_vip_info() -> Any:
+            return await self.client.user.get_vip_info(credential=cred)
+
+        homepage, vip_info = await asyncio.gather(
+            _fetch_homepage(),
+            _fetch_vip_info(),
+            return_exceptions=True,
+        )
+        for result in (homepage, vip_info):
+            if isinstance(result, BaseException) and is_credential_expired_error(result):
+                raise CredentialExpiredError("登录已过期，请重新登录") from result
+        if isinstance(homepage, BaseException):
+            logger.warning("get_homepage 失败: %s", homepage)
+            homepage = None
+        if isinstance(vip_info, BaseException):
+            logger.warning("get_vip_info 失败: %s", vip_info)
+            vip_info = None
+        if homepage is None and vip_info is None:
+            return None
+        return self._parse_user_profile(homepage, vip_info)
+
+    @staticmethod
+    def _parse_user_profile(homepage: Any, vip_info: Any) -> UserProfile:
+        """纯函数: 两个响应 (可各自为 None) 合成 UserProfile, 缺字段一律默认空.
+
+        徽章优先级 SVIP > 豪华绿钻 > 绿钻 > 无; 非会员抑制服务端等级 icon
+        (不显示负面标签). 年费标志随种类取 huge_year_flag / yearflag.
+        """
+        base = getattr(homepage, "base_info", None)
+        nickname = _clean_text(getattr(base, "name", "") or "", max_len=40)
+        avatar_url = str(getattr(base, "avatar", "") or "")
+
+        identity = getattr(vip_info, "identity", None)
+        svip = int(getattr(vip_info, "svip", 0) or 0)
+        huge_vip = int(getattr(identity, "huge_vip", 0) or 0)
+        vip = int(getattr(identity, "vip", 0) or 0)
+        year_flag = int(getattr(identity, "year_flag", 0) or 0)
+        huge_year_flag = int(getattr(identity, "huge_year_flag", 0) or 0)
+
+        if svip:
+            kind = "svip"
+            is_year = bool(huge_year_flag or year_flag)
+        elif huge_vip:
+            kind = "hugevip"
+            is_year = bool(huge_year_flag)
+        elif vip:
+            kind = "vip"
+            is_year = bool(year_flag)
+        else:
+            kind = ""
+            is_year = False
+        icon = str(getattr(identity, "icon", "") or "") if kind else ""
+
+        return UserProfile(
+            nickname=nickname,
+            avatar_url=avatar_url,
+            vip_kind=kind,
+            is_year_vip=is_year,
+            vip_icon_url=icon,
+        )
 
     async def unlike_song(self, song: Song) -> bool:
         cred = self._effective_credential()

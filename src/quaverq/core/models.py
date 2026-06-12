@@ -155,6 +155,17 @@ class Playlist:
     is_mine: bool = False  # True = 我创建的; False = 收藏的 / 外部
 
 
+@dataclass
+class UserProfile:
+    """登录账号画像 (侧栏身份区: 昵称 / 头像 / VIP 徽章)."""
+
+    nickname: str = ""
+    avatar_url: str = ""
+    vip_kind: str = ""  # "" 非会员 / "vip" 绿钻 / "hugevip" 豪华绿钻 / "svip" 超级会员
+    is_year_vip: bool = False  # 年费标志 (随 vip_kind 取对应 year flag)
+    vip_icon_url: str = ""  # 服务端官方等级徽章图; 非会员为空
+
+
 __all__ = [
     "Singer",
     "Song",
@@ -168,4 +179,5 @@ __all__ = [
     "Playlist",
     "ProducerGroup",
     "TopList",
+    "UserProfile",
 ]
