@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings
 
-from quaverq.bridge.download_controller import DownloadController
+from quaverq.bridge.download_controller import DownloadController, DownloadListModel
 from quaverq.bridge.models import song_from_map
 from quaverq.bridge.service_controller import ServiceController
 from quaverq.bridge.settings_controller import SettingsController
+from quaverq.core.download_store import DownloadRecord, DownloadStore
 from quaverq.core.downloader import DownloadTask
 from quaverq.core.models import Lyric, LyricLine, SongUrl
 
@@ -109,6 +112,7 @@ def _make_controller(tmp_path, http_server, **service_flags):
     controller = DownloadController(
         service_controller,
         settings_controller,
+        store=DownloadStore(tmp_path / "downloads.json"),
         cover_url_builder=lambda album_mid: f"{http_server}/cover/{album_mid}",
     )
     return controller, service, settings_controller
@@ -251,6 +255,39 @@ async def test_download_invalid_song_data_raises_error_signal(tmp_path, http_ser
     assert controller.downloadModel.rowCount() == 0
 
 
+async def test_worker_survives_unexpected_process_crash(tmp_path, http_server):
+    """_process 裸露区抛未捕获异常时: 该任务转 failed, worker 不死, 队列继续推进."""
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    # 让第一个任务在 _process 的非 try 区段 (Path(self._download_directory())) 炸掉
+    calls = {"n": 0}
+    original = controller._download_directory  # noqa: SLF001
+
+    def flaky_directory() -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return original()
+
+    controller._download_directory = flaky_directory  # noqa: SLF001
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    await controller.download_song_async(_song_map("m2", "稻香"))
+    await controller.wait_idle()
+
+    model = controller.downloadModel
+    first = model.task_at(0)
+    assert first.status == "failed"
+    assert first.error
+    assert errors  # 用户能看到错误提示, 而不是行永远卡在"下载中"
+    # 第二个任务不受影响, worker 继续跑完
+    assert model.task_at(1).status == "done"
+    assert (tmp_path / "music" / "周杰伦 - 稻香.mp3").exists()
+    assert controller.activeCount == 0
+
+
 async def test_cancel_pending_task_skips_processing(tmp_path, http_server):
     controller, _service, _ = _make_controller(tmp_path, http_server)
 
@@ -361,3 +398,189 @@ async def test_retry_ignores_done_task(tmp_path, http_server):
 
     assert controller.downloadModel.task_at(0).status == "done"
     assert controller.downloadModel.rowCount() == 1
+
+
+# ============================================================== 持久化 (阶段 8)
+
+
+def test_model_exposes_cover_and_song_roles():
+    model = DownloadListModel()
+    model.append_task(DownloadTask(song=song_from_map(_song_map()), quality_preference="balanced"))
+    role_names = {bytes(v).decode() for v in model.roleNames().values()}
+    assert "coverUrl" in role_names
+    assert "song" in role_names
+
+
+async def test_download_persists_record(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+
+    # 独立 store 读盘验证 (downloads.json 落在 tmp_path 根)
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.load()
+    rec = store.find("m1")
+    assert rec is not None
+    assert rec.song.name == "晴天"
+    assert rec.path.endswith("周杰伦 - 晴天.mp3")
+    assert rec.quality_label == "MP3_320"
+    assert rec.size > 0
+
+
+async def test_history_loaded_on_startup(tmp_path, http_server):
+    c1, _s, _ = _make_controller(tmp_path, http_server)
+    await c1.download_song_async(_song_map("m1", "晴天"))
+    await c1.wait_idle()
+
+    # 模拟重启: 同 tmp_path 新建 controller, 应从 downloads.json 加载历史
+    c2, _s2, _ = _make_controller(tmp_path, http_server)
+    model = c2.downloadModel
+    assert model.rowCount() == 1
+    task = model.task_at(0)
+    assert task.status == "done"
+    assert task.song.name == "晴天"
+    assert task.dest_path.endswith("周杰伦 - 晴天.mp3")
+
+
+async def test_local_path_for_returns_existing_file(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+
+    path = controller.local_path_for("m1")
+    assert path.endswith("周杰伦 - 晴天.mp3")
+    assert Path(path).is_file()
+
+
+async def test_local_path_for_empty_when_not_downloaded(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    assert controller.local_path_for("nope") == ""
+
+
+async def test_local_path_for_empty_when_file_removed(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+
+    Path(controller.local_path_for("m1")).unlink()  # 用户在外部删了文件
+    assert controller.local_path_for("m1") == ""
+
+
+# ============================================================== 失效标记 + 清理
+
+
+def test_missing_status_text():
+    from quaverq.bridge.download_controller import _STATUS_TEXT
+
+    assert _STATUS_TEXT["missing"] == "文件已删除"
+
+
+async def test_history_marks_missing_when_file_gone(tmp_path, http_server):
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.add(
+        DownloadRecord(
+            song=song_from_map(_song_map()),
+            path=str(tmp_path / "gone.mp3"),
+            quality_label="FLAC",
+        )
+    )
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    assert controller.downloadModel.task_at(0).status == "missing"
+
+
+async def test_history_done_when_file_exists(tmp_path, http_server):
+    real = tmp_path / "song.flac"
+    real.write_bytes(b"x")
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.add(
+        DownloadRecord(
+            song=song_from_map(_song_map()),
+            path=str(real),
+            quality_label="FLAC",
+        )
+    )
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    assert controller.downloadModel.task_at(0).status == "done"
+
+
+async def test_remove_task_clears_model_and_store(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+    assert controller.downloadModel.rowCount() == 1
+
+    controller.removeTask(0)
+    assert controller.downloadModel.rowCount() == 0
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.load()
+    assert store.find("m1") is None
+
+
+async def test_remove_task_ignores_running_task(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    task = DownloadTask(
+        song=song_from_map(_song_map()), quality_preference="balanced", status="running"
+    )
+    row = controller.downloadModel.append_task(task)
+    controller.removeTask(row)
+    assert controller.downloadModel.rowCount() == 1  # 进行中不直接移除
+
+
+async def test_retry_missing_redownloads(tmp_path, http_server):
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.add(
+        DownloadRecord(
+            song=song_from_map(_song_map()),
+            path=str(tmp_path / "music" / "gone.mp3"),
+            quality_label="FLAC",
+        )
+    )
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    assert controller.downloadModel.task_at(0).status == "missing"
+
+    controller.retryTask(0)
+    await controller.wait_idle()
+
+    task = controller.downloadModel.task_at(0)
+    assert task.status == "done"
+    assert Path(task.dest_path).is_file()
+
+
+async def test_cancel_uses_mid_not_row(tmp_path, http_server):
+    # _cancel_events 按 mid 存: 即便前面的行被移除导致 row 偏移, 取消仍命中正确任务
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    cancel_seen: list[str] = []
+
+    # 注入一个永不结束的下载, 验证 cancelTask 能按 mid 找到事件
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def _slow_download(url, dest, *, progress_cb=None, cancel=None):
+        started.set()
+        # 等取消信号或释放; 取消时抛 DownloadCanceled (与真实 Downloader 一致)
+        while not release.wait(0.02):
+            if cancel is not None and cancel.is_set():
+                cancel_seen.append("canceled")
+                from quaverq.core.downloader import DownloadCanceled
+
+                raise DownloadCanceled
+        from pathlib import Path as _P
+
+        _P(dest).write_bytes(b"x")
+
+    controller._downloader.download_file = _slow_download  # noqa: SLF001
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    # 等下载线程真正开始
+    for _ in range(200):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.02)
+
+    controller.cancelTask(0)
+    await controller.wait_idle()
+
+    assert cancel_seen == ["canceled"]
+    assert controller.downloadModel.task_at(0).status == "canceled"

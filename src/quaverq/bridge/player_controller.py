@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtMultimedia import QMediaPlayer
 from qasync import asyncSlot
 
@@ -88,6 +88,9 @@ class PlayerController(QObject):
         self._settings_controller = settings_controller
         self._session_state = session_state
         self._stream_proxy = stream_proxy
+        # 本地优先播放: mid -> 已下载且文件仍在的本地路径 (or "")。由 DownloadController
+        # 提供, 延迟注入 (set_local_resolver) 避免与其创建顺序耦合。
+        self._local_resolver: Callable[[str], str] | None = None
         self._queue = PlayQueue()
         self._queue_model = SongListModel(self)
         self._source_url = ""
@@ -107,6 +110,20 @@ class PlayerController(QObject):
         # REPEAT_ALL 绕圈无限空转, 到上限停下报错; 任一首成功取链即清零
         self._url_failure_streak = 0
         self._restore_session_snapshot()
+
+    def set_local_resolver(self, resolver: Callable[[str], str] | None) -> None:
+        """注入本地文件解析器 (mid -> 本地路径 or "")，供本地优先播放; 延迟注入。"""
+        self._local_resolver = resolver
+
+    def _resolve_local(self, mid: str) -> str:
+        """查已下载的本地文件路径; 无解析器 / 未命中 / 异常都返 "" (回退在线)。"""
+        if self._local_resolver is None or not mid:
+            return ""
+        try:
+            return self._local_resolver(mid) or ""
+        except Exception:
+            logger.warning("本地文件解析失败 mid=%s", mid)
+            return ""
 
     @Property("QVariant", notify=currentSongChanged)
     def currentSong(self) -> dict[str, Any]:
@@ -533,6 +550,21 @@ class PlayerController(QObject):
         self._set_error_message("")
         self._set_loading(True)
         self._set_playback_state("loading")
+
+        # 本地优先: 已下载且文件仍在 → 直接播本地文件, 跳过 vkey 取链 + stream_proxy
+        # (离线 / 未登录也能播下载好的歌). 文件失效时 resolver 返 "" → 回落在线流程。
+        local_path = self._resolve_local(song.mid)
+        if local_path:
+            self._url_failure_streak = 0
+            self._set_loading(False)
+            self._set_source_url(QUrl.fromLocalFile(local_path).toString())
+            if resume_position_ms > 0:
+                self.seekRequested.emit(resume_position_ms)
+            if play_when_ready:
+                self.playRequested.emit()
+            logger.info("本地播放: %s (mid=%s)", song.name, song.mid)
+            return
+
         try:
             song_url = await self._service_controller.get_song_url(
                 song,

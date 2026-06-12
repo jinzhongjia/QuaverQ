@@ -211,3 +211,68 @@ class DownloadController(QObject):
 - 产物为 `音频 + .lrc 歌词 + .jpg 封面` 三件套，落在用户可配置的音乐目录，文件名跨平台安全。
 - 下载行为有队列、进度、完成/失败提示；设置页可配置默认音质、目录、歌词/封面开关。
 - 全程 TDD：core 纯函数与下载器、controller 状态机均有 pytest 覆盖；`scripts/lint.py` 与 `pytest` 全绿后才进入下一阶段。
+
+---
+
+# 六、PR #16 UI 反馈后的重构（路线2：本地播放 + 持久化 + 整页）
+
+阶段 1–6 完成并开 PR #16 后，真机使用暴露 4 个 UI/UX 问题，与用户讨论后定稿如下方案。
+
+## 6.1 反馈与决策
+
+| 反馈 | 根因 | 决策 |
+|------|------|------|
+| 下载抽屉与背景混色看不清 | 浅色下 `surfaceElevated == background == #ffffff`，边框 `outlineMuted #f0f0f0` 极淡，所有右侧抽屉通病 | **改整页后浮层消失，问题自然解决**（不单独改配色） |
+| 播放栏下载按钮呼出抽屉、不该 | 阶段 4→5 设计反复 | 改回**直接下载当前歌曲**（默认音质，设置里配） |
+| 缺独立下载页入口 | 只有播放栏抽屉入口 | **侧边栏加「下载」导航项 → 整页 `DownloadsView`**，废弃抽屉 |
+| 下载页信息不全、item 不可点 | 模型无封面、delegate 无点击 | 加封面；**点击 = 在 QuaverQ 内播放下载的本地文件（路线2）** |
+
+补充决策:**下载记录持久化**（重启后下载页保留历史，且本地播放要靠它定位文件）。
+
+## 6.2 架构设计
+
+### 下载记录持久化（新子系统）
+
+- **`core/download_store.py`**:`DownloadRecord` dataclass + `DownloadStore`，存 `CONFIG_DIR/downloads.json`（配置型数据，**不放 CACHE_DIR**——会被 LRU 清）。路径由 controller 注入（遵 core 约定）。
+- `DownloadRecord` 字段:`mid / name / singers / album_mid / album_name / cover_url / quality_label / path / size / downloaded_at`——够还原列表显示、找到文件、重建 `Song` 用于播放/详情。
+- `DownloadStore` 接口:`load() -> list[DownloadRecord]`（坏文件返空不抛，遵 core 容错）/ `add(record)` / `remove(mid)` / `find(mid) -> record|None` / `all()`；原子写（tmp + `os.replace`）、显式 `encoding="utf-8"`（Windows GBK 雷）。
+
+### 播放核心本地优先（路线2）
+
+- `PlayerController` 注入一个**本地解析器** `local_resolver(mid) -> path|None`（由 `DownloadController`/`DownloadStore` 提供）。
+- `_load_current` 开头查本地:命中且文件存在 → `QUrl.fromLocalFile(path)` 直接 setSource，**跳过 `get_song_url` + stream_proxy**（本地播放不需登录/不需 vkey/不走代理，离线可听）。
+- **失效回退**:记录有但文件已删/移动 → 删 store 记录 + 回退在线流程（绝不因本地缺失而播放失败）。
+
+### DownloadController 改造
+
+- 注入 `DownloadStore`:任务 `done` 时 `store.add(record)`；启动时 `store.load()` 填充 `DownloadListModel`（重启后显示历史，文件失效的标 invalid）。
+- `DownloadListModel` 加 `coverUrl` + `song`（完整 dict）两个 role:封面显示、点击播放/详情传参。
+- 暴露 `local_path_for(mid) -> str` 给 PlayerController 当解析器。
+- 加「移除记录」（可选连带删文件）能力。
+
+### 整页 DownloadsView（替代抽屉）
+
+- 新建 `views/DownloadsView.qml`:行 = 封面（`image://covers`）+ 歌名 + 歌手 + 状态/音质/进度 + 失效标记 + 行尾操作。
+- **整行点击 → `playerController.playSongs([song])`**（播放核心自动命中本地文件）。
+- 行尾操作:完成 → 打开所在文件夹 / 移除；进行中 → 取消；失败/失效 → 重试/重新下载。
+- 顶部:统计 + 打开下载目录 + 清空已完成（可选）；空态引导。
+- 侧边栏（`Sidebar.qml`）加 `{route:"downloads", icon:"download.svg"}`；`Main.qml` 路由三处；**删除** `DownloadsPanel.qml` + 抽屉全套接线（`downloadsPanelOpen`/Loader/Esc 互斥）。
+- `PlayerBar` 下载按钮改回"下载当前歌曲"（去角标，进度去下载页看）。
+
+## 6.3 分阶段（接续阶段编号，每步 ≤300 行，TDD）
+
+- **阶段 7**:`core/download_store.py`（DownloadRecord + DownloadStore，原子写/容错/失效检测）+ `test_download_store.py`。纯 core，验证 pytest。
+- **阶段 8**:DownloadController 接 store（done 写入、启动加载历史、`local_path_for`）+ 模型加 coverUrl/song role + `__main__` 注入。验证 pytest（持久化文件模拟重启）。
+- **阶段 9**:PlayerController 本地优先 + 失效回退。验证 pytest + 手动（下一首→下载页点它→断网仍能播）。
+- **阶段 10**:整页 `DownloadsView` + 侧边栏入口 + 删抽屉 + 播放栏按钮改回。验证 lint + 手动点 UI。
+- **阶段 11**:README/plan/CLAUDE.md 同步 + 全量回归。
+
+## 6.4 风险与边界（增量）
+
+| 风险 | 应对 |
+|------|------|
+| 本地文件被用户在外部删除/移动 | 播放与列表展示都做失效检测，删记录回退在线，不崩 |
+| downloads.json 损坏 | `load()` 返空快照（遵 core 容错），不阻塞启动 |
+| 本地文件进播放队列后被 `state.json` 持久化、重启文件已失效 | 恢复后 `_load_current` 走失效回退，自动转在线 |
+| 同一首歌多次下载（不同音质）覆盖记录 | `store` 按 mid 唯一，后下载的覆盖前者（path 也覆盖，旧文件留盘不动） |
+| 本地播放 vs 在线播放的音质标识 | 列表展示 record 里存的 quality_label；播放本地时不重新协商音质 |

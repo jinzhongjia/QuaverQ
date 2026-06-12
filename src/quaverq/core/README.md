@@ -28,6 +28,7 @@
 | `cover_cache.py` | **封面磁盘缓存**（`~/.cache/quaverq/covers/`）。文件名 `sha1(url) + 扩展名`；`get_path` 同步秒级查询给 UI 渲染前用，命中时按节流刷新 mtime 充当 LRU 访问时间；`fetch` 异步用 `niquests` 同步下载放进 `to_thread`，新下载后触发上限淘汰。`max_bytes <= 0` = 不限。 |
 | `home_cache.py` | **首屏发现页快照**（`~/.cache/quaverq/home.json`）。SWR：先显示上次缓存，再后台刷新。公共区块无条件恢复（今日推荐 / 新歌 / 排行榜），私有区块按 `account_key`（`hash(musicid)`）匹配才恢复。`update(**sections)`：`None` 表示该区块本次不更新（保留旧值），`[]` 表示明确清空。`daily` 区块写入时附 `updated_at` 时间戳，`HomeSnapshot.daily_updated_at` 给上层判 TTL 用（启动 6h 内复用缓存，不主动重拉猜你喜欢）。 |
 | `state.py` | **会话快照**（`~/.config/quaverq/state.json`）。退出存 / 启动恢复 `queue + current_index + position + mode`。`play_mode` 用 `enum.name` 持久化，未知值回退 `SEQUENCE`。不自动恢复播放——UI 显示历史 queue 但停在 paused 状态。 |
+| `download_store.py` | **下载记录持久化**（`~/.config/quaverq/downloads.json`，配置型数据**不放 CACHE_DIR**）。`DownloadRecord`（song + path + quality_label + size + downloaded_at，`file_exists()` 查本地文件是否还在）；`DownloadStore` 内存镜像 + 持久化，`load()`（不存在/损坏返 `[]` 不抛）/ `add`（按 mid 去重，原位替换或追加）/ `remove` / `find(mid)` / `all()`，`add`/`remove` 立即原子落盘（tmp + `os.replace`）、显式 UTF-8。供下载页重启恢复历史 + 播放核心按 mid 定位本地文件（本地优先播放）。Song↔dict 复用 `serde`。 |
 
 ## 模块边界
 

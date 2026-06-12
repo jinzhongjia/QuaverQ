@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QDesktopServices
 from qasync import asyncSlot
 
+from quaverq.core.download_store import DownloadRecord, DownloadStore
 from quaverq.core.downloader import (
     DownloadCanceled,
     Downloader,
@@ -40,7 +42,7 @@ from quaverq.core.models import Song
 from quaverq.core.service import cover_url_for
 
 from .error_utils import log_bridge_error
-from .models import SongListModel, song_from_map
+from .models import SongListModel, song_from_map, song_to_map
 
 if TYPE_CHECKING:
     from .service_controller import ServiceController
@@ -69,6 +71,7 @@ _STATUS_TEXT = {
     "exists": "已存在",
     "failed": "失败",
     "canceled": "已取消",
+    "missing": "文件已删除",
 }
 
 
@@ -83,6 +86,8 @@ class DownloadListModel(QAbstractListModel):
     QualityTextRole = Qt.ItemDataRole.UserRole + 6
     ErrorTextRole = Qt.ItemDataRole.UserRole + 7
     DestPathRole = Qt.ItemDataRole.UserRole + 8
+    CoverUrlRole = Qt.ItemDataRole.UserRole + 9
+    SongRole = Qt.ItemDataRole.UserRole + 10
 
     countChanged = Signal()
 
@@ -124,6 +129,10 @@ class DownloadListModel(QAbstractListModel):
             return task.error
         if role == self.DestPathRole:
             return task.dest_path
+        if role == self.CoverUrlRole:
+            return task.song.cover_url
+        if role == self.SongRole:
+            return song_to_map(task.song)
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
@@ -136,6 +145,8 @@ class DownloadListModel(QAbstractListModel):
             self.QualityTextRole: QByteArray(b"qualityText"),
             self.ErrorTextRole: QByteArray(b"errorText"),
             self.DestPathRole: QByteArray(b"destPath"),
+            self.CoverUrlRole: QByteArray(b"coverUrl"),
+            self.SongRole: QByteArray(b"song"),
         }
 
     # ---- 任务操作 (行号即任务 id; 列表只增不删, 行号稳定) ----
@@ -147,6 +158,14 @@ class DownloadListModel(QAbstractListModel):
         self.endInsertRows()
         self.countChanged.emit()
         return row
+
+    def remove_at(self, row: int) -> None:
+        if not (0 <= row < len(self._tasks)):
+            return
+        self.beginRemoveRows(QModelIndex(), row, row)
+        self._tasks.pop(row)
+        self.endRemoveRows()
+        self.countChanged.emit()
 
     def task_at(self, row: int) -> DownloadTask | None:
         if 0 <= row < len(self._tasks):
@@ -205,6 +224,7 @@ class DownloadController(QObject):
         service_controller: ServiceController,
         settings_controller: SettingsController,
         *,
+        store: DownloadStore | None = None,
         downloader: Downloader | None = None,
         cover_url_builder: Callable[[str], str] | None = None,
         parent: QObject | None = None,
@@ -212,6 +232,7 @@ class DownloadController(QObject):
         super().__init__(parent)
         self._service_controller = service_controller
         self._settings_controller = settings_controller
+        self._store = store
         self._downloader = downloader or Downloader()
         self._cover_url_builder = cover_url_builder or (
             lambda album_mid: cover_url_for(album_mid, _COVER_SIZE)
@@ -221,6 +242,24 @@ class DownloadController(QObject):
         self._worker: asyncio.Task[None] | None = None
         self._cancel_events: dict[int, threading.Event] = {}
         self._closing = False
+        self._load_history()
+
+    def _load_history(self) -> None:
+        """启动时把持久化的已下载记录填进 model (status=done), 供重启后展示."""
+        if self._store is None:
+            return
+        for record in self._store.load():
+            self._model.append_task(
+                DownloadTask(
+                    song=record.song,
+                    quality_preference="",
+                    status="done" if record.file_exists() else "missing",
+                    quality_label=record.quality_label,
+                    dest_path=record.path,
+                    total=record.size,
+                    received=record.size,
+                )
+            )
 
     # ------------------------------------------------------------------ QML API
 
@@ -249,10 +288,13 @@ class DownloadController(QObject):
 
     @Slot(int)
     def retryTask(self, row: int) -> None:
-        """失败/已取消的任务重新入队下载."""
+        """失败 / 已取消 / 文件失效的任务重新入队下载."""
         task = self._model.task_at(row)
-        if task is None or task.status not in {"failed", "canceled"}:
+        if task is None or task.status not in {"failed", "canceled", "missing"}:
             return
+        # 历史 / 失效记录没存下载偏好 (quality_preference=""), 重下用当前设置默认音质
+        if not task.quality_preference:
+            task.quality_preference = self._default_quality()
         task.received = 0
         task.total = 0
         self._model.set_status(row, "pending")
@@ -269,9 +311,32 @@ class DownloadController(QObject):
             self._model.set_status(row, "canceled")
             self.activeCountChanged.emit()
         elif task.status == "running":
-            event = self._cancel_events.get(row)
+            # _cancel_events 按 mid 存 (不按 row): 移除历史行后 row 偏移仍能命中
+            event = self._cancel_events.get(task.song.mid)
             if event is not None:
                 event.set()
+
+    @Slot(int)
+    def removeTask(self, row: int) -> None:
+        """从列表 + 持久化中移除一条记录（清理失效 / 历史死记录，不删音频文件本体）;
+        进行中的任务需先取消, 不直接移除。"""
+        task = self._model.task_at(row)
+        if task is None or task.status in {"pending", "running"}:
+            return
+        if self._store is not None:
+            self._store.remove(task.song.mid)
+        self._model.remove_at(row)
+        self.activeCountChanged.emit()
+
+    @Slot(str, result=str)
+    def local_path_for(self, mid: str) -> str:
+        """返回已下载且文件仍存在的本地路径; 否则 ""（供 PlayerController 本地优先播放）."""
+        if self._store is None:
+            return ""
+        record = self._store.find(mid)
+        if record is not None and record.file_exists():
+            return record.path
+        return ""
 
     @Slot()
     def openDownloadDirectory(self) -> None:
@@ -350,7 +415,13 @@ class DownloadController(QObject):
             task = self._model.task_at(row)
             if task is None or task.status != "pending":
                 continue  # 已被取消等
-            await self._process(row, task)
+            try:
+                await self._process(row, task)
+            except Exception as exc:
+                # _process 内各步骤已自带 try/except 转 _fail; 这里兜底捕获其裸露区
+                # (路径拼接 / model 更新等) 的意外异常, 防单个任务崩掉整个 worker
+                # 导致后续 pending 任务卡死 (见 PR #16 review).
+                self._fail(row, log_bridge_error(logger, f"download task {task.song.name}", exc))
 
     async def _process(self, row: int, task: DownloadTask) -> None:
         song = task.song
@@ -381,7 +452,7 @@ class DownloadController(QObject):
             return
 
         cancel = threading.Event()
-        self._cancel_events[row] = cancel
+        self._cancel_events[song.mid] = cancel
         loop = asyncio.get_running_loop()
         last_emit = 0
 
@@ -409,16 +480,35 @@ class DownloadController(QObject):
             self._fail(row, log_bridge_error(logger, f"download audio {song.name}", exc))
             return
         finally:
-            self._cancel_events.pop(row, None)
+            self._cancel_events.pop(song.mid, None)
 
         # 歌词 / 封面 / 标签都是附加产物: 单项失败不影响任务成败
         await self._save_lyric(song, dest)
         await self._save_cover(song, dest)
         await self._embed_tags(song, dest)
 
+        self._record_done(task, dest, quality_label)
         self._model.set_status(row, "done")
         self.activeCountChanged.emit()
         self.downloadFinished.emit(song.name, _QUALITY_TEXT.get(quality_label, quality_label))
+
+    def _record_done(self, task: DownloadTask, dest: Path, quality_label: str) -> None:
+        """下载成功后持久化记录 (供重启展示 + 本地优先播放)."""
+        if self._store is None:
+            return
+        try:
+            size = dest.stat().st_size
+        except OSError:
+            size = task.total
+        self._store.add(
+            DownloadRecord(
+                song=task.song,
+                path=str(dest),
+                quality_label=quality_label,
+                size=size,
+                downloaded_at=int(time.time()),
+            )
+        )
 
     async def _save_lyric(self, song: Song, audio_dest: Path) -> None:
         if not bool(getattr(self._settings_controller, "downloadWithLyric", True)):
