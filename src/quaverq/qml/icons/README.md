@@ -27,6 +27,7 @@
 | `more-horizontal.svg` | 更多操作（歌曲行 ⋯ / 播放栏窄窗溢出） |
 | `arrow-left.svg` | 顶栏返回 |
 | `chevron-down.svg` | 正在播放页「收起」 |
+| `user.svg` | 侧栏身份区未登录占位头像（人形剪影） |
 
 ## 使用
 

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from . import diagnostics, diagnostics_crash, resources
 from .bridge import (
     AppController,
+    AudioDeviceController,
     CoverController,
     CoverImageProvider,
     DetailControllerFactory,
@@ -82,45 +83,67 @@ def _install_qt_message_filter() -> None:
     qInstallMessageHandler(_qt_message_handler)
 
 
-def _libavutil_candidates(pyside_dir: Path, platform: str = sys.platform) -> list[Path]:
-    """PySide6 自带 libavutil 的候选库路径 (跨平台 + 子目录).
+def _libavutil_candidates(platform: str, pyside_dir: Path) -> list[Path]:
+    """该平台下 PySide6 自带 libavutil 的候选路径 (按搜索优先级).
 
-    版本号会变 (58 / 59 / ...), 用 glob 兜底. **关键**: Linux/macOS 的 PySide6 把
-    Qt 库放在 ``Qt/lib`` 子目录 (Windows 放顶层), 必须搜子目录否则 Linux 上从未命中
-    导致 FFmpeg 静音失效 (每次切歌刷 stderr 元数据 + 内嵌封面 mjpeg 警告).
+    Linux / macOS 的 ffmpeg 库在 ``PySide6/Qt/lib/``, Windows 在 ``PySide6/`` 顶层
+    或 ``Qt/bin/``. 旧实现只搜顶层, Linux 上 candidates 恒空 -> av_log_set_level
+    从未被调到 -> ffmpeg 一直刷 invalid sync code / Input #0 到 stderr (issue #11
+    真机排查发现). 版本号会变 (58 / 59 / ...), 用 glob 兜底.
     """
     if platform == "win32":
+        dirs = [pyside_dir, pyside_dir / "Qt" / "bin"]
         pattern = "avutil-*.dll"
     elif platform == "linux":
-        pattern = "libavutil.so*"
+        # 只取带版本号的 (libavutil.so.59 / .so.59.39.100); 裸 libavutil.so 可能是
+        # 链接器专用 ld script, 不可 dlopen.
+        dirs = [pyside_dir / "Qt" / "lib", pyside_dir]
+        pattern = "libavutil.so.*"
     elif platform == "darwin":
+        dirs = [pyside_dir / "Qt" / "lib", pyside_dir]
         pattern = "libavutil*.dylib"
     else:
         return []
-    candidates: list[Path] = []
-    for sub in (pyside_dir, pyside_dir / "Qt" / "lib", pyside_dir / "Qt" / "bin"):
-        candidates.extend(sorted(sub.glob(pattern)))
-    return candidates
+    out: list[Path] = []
+    for directory in dirs:
+        if directory.exists():
+            out.extend(sorted(directory.glob(pattern)))
+    return out
 
 
 def _silence_ffmpeg_logs() -> None:
     """把 PySide6 自带 ffmpeg 的全局日志级别置 ``AV_LOG_QUIET`` (-8),
-    防止 ``av_dump_format`` 在每次切歌时把 ``Input #0, mp3, ...`` 元数据直接
-    printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到), 也压掉
-    解析本地 FLAC 内嵌封面 (mutagen 嵌的 mjpeg) 时的 ``unable to decode APP fields`` 警告.
+    防止 ``av_dump_format`` 在每次切歌时把 ``Input #0, mp3, ...`` 元数据 + FLAC
+    解码器的 ``invalid sync code`` (CDN 音频文件尾部坏帧, 见 player_controller 的
+    流末尾豁免) 直接 printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到),
+    也压掉解析本地 FLAC 内嵌封面 (mutagen 嵌的 mjpeg) 时的
+    ``unable to decode APP fields`` 警告.
 
     必须在任何 ``QMediaPlayer`` 实例化前调; 否则 ffmpeg 后端首帧 dump 已发生.
     best-effort: 找不到对应平台的 libavutil 时静默跳过, 不影响功能.
     """
     try:
+        import contextlib
         import ctypes
+        import ctypes.util
 
         from PySide6 import __file__ as pyside_init
 
         pyside_dir = Path(pyside_init).parent
-        for dll_path in _libavutil_candidates(pyside_dir):
+        candidates = _libavutil_candidates(sys.platform, pyside_dir)
+        if not candidates:
+            return
+        # Linux / macOS: PySide6 的 libavutil 引用 OpenSSL 的 RAND_bytes, 单独 dlopen
+        # 会 "undefined symbol: RAND_bytes"; 先 RTLD_GLOBAL 预加载 libcrypto 让符号
+        # 对后续 dlopen 可见. Windows 不需要 (依赖随 dll 同目录解析).
+        if sys.platform != "win32":
+            crypto = ctypes.util.find_library("crypto")
+            if crypto:
+                with contextlib.suppress(OSError):
+                    ctypes.CDLL(crypto, mode=ctypes.RTLD_GLOBAL)
+        for path in candidates:
             try:
-                lib = ctypes.CDLL(str(dll_path))
+                lib = ctypes.CDLL(str(path), mode=ctypes.RTLD_GLOBAL)
                 lib.av_log_set_level.argtypes = [ctypes.c_int]
                 lib.av_log_set_level.restype = None
                 lib.av_log_set_level(-8)  # AV_LOG_QUIET
@@ -372,7 +395,7 @@ def main() -> None:
     if system_theme_watcher is not None:
         loop.run_until_complete(system_theme_watcher.start())
     cover_controller = CoverController(cover_cache)
-    app_controller = AppController(service_controller)
+    app_controller = AppController(service_controller, home_cache=home_cache)
     detail_controller_factory = DetailControllerFactory(service_controller)
     song_detail_controller = SongDetailController(service_controller)
     library_controller = LibraryController(service_controller, home_cache=home_cache)
@@ -399,6 +422,8 @@ def main() -> None:
     )
     # 本地优先播放: 已下载的歌直接放本地文件 (离线可听), 失效自动回落在线
     player_controller.set_local_resolver(download_controller.local_path_for)
+    # 输出设备路由 (issue #7): QML 侧 audioOutput 在 Component.onCompleted attach 进来
+    audio_device_controller = AudioDeviceController(settings_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
     app.aboutToQuit.connect(stream_proxy.stop)
     # 置位取消事件让在途下载线程尽快退出并清掉 .part (aboutToQuit 可能被 qasync 的
@@ -419,6 +444,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     engine.rootContext().setContextProperty("SettingsController", settings_controller)
     engine.rootContext().setContextProperty("DownloadController", download_controller)
+    engine.rootContext().setContextProperty("AudioDeviceController", audio_device_controller)
     engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
     # 启动同步读盘加载凭据 -> 首帧即登录态 (本地, 不联网, 不需事件循环);
     # connect + 网络有效性校验由后台 start() 完成. 让私有区块也能在 QML 绑定前用缓存填好.
@@ -428,6 +454,7 @@ def main() -> None:
     home_controller.prime_public_from_cache()
     home_controller.prime_private_from_cache(account_key)
     library_controller.prime_from_cache(account_key)
+    app_controller.prime_profile_from_cache(account_key)
     qml_path = _qml_main_path()
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():

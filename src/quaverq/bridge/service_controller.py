@@ -351,6 +351,13 @@ class ServiceController(QObject):
             operation_name="get lyric",
         )
 
+    async def get_user_profile(self) -> Any:
+        """登录账号画像 (昵称 / 头像 / VIP 种类); 走 call_service 统一过期处理."""
+        return await self.call_service(
+            lambda service: service.get_user_profile(),
+            operation_name="get user profile",
+        )
+
     async def login_by_qrcode(
         self,
         on_qrcode: Callable[[bytes, str, str], None],

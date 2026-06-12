@@ -5,8 +5,9 @@
 区块:
 - 公共 (无条件恢复):   playlists(今日推荐) / new_songs(新歌速递) / tops(排行榜)
 - 账号私有 (各自 account_key 匹配才恢复): daily(猜你喜欢) / my_playlists(我的歌单)
+  / profile(侧栏身份区画像)
   每个私有区块单独存自己的 account_key (= hash(musicid)); 防止账号切换时一个区块
-  刚刷新、另一个还是旧账号数据被错误归属到新账号. 登出时 clear_private() 抹掉两块.
+  刚刷新、另一个还是旧账号数据被错误归属到新账号. 登出时 clear_private() 全部抹掉.
 
 策略 (对齐 core/state.py):
 - update(**sections): 读现有 -> 仅覆盖传入 (not None) 的 section -> 写回.
@@ -25,13 +26,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .models import Song
-from .serde import song_from_dict, song_to_dict
+from .models import Song, UserProfile
+from .serde import song_from_dict, song_to_dict, user_profile_from_dict, user_profile_to_dict
 
 logger = logging.getLogger(__name__)
 
 _VERSION = 1
-_PRIVATE_SECTIONS = ("daily", "my_playlists")
+_PRIVATE_SECTIONS = ("daily", "my_playlists", "profile")
 
 
 @dataclass
@@ -43,6 +44,7 @@ class HomeSnapshot:
     playlists: list[dict[str, Any]] = field(default_factory=list)
     tops: list[dict[str, Any]] = field(default_factory=list)
     my_playlists: list[dict[str, Any]] = field(default_factory=list)
+    profile: UserProfile | None = None
     account_key: str = ""
     daily_updated_at: float = 0.0
 
@@ -94,6 +96,10 @@ class HomeCache:
                 snap.daily_updated_at = 0.0
         if private_ok("my_playlists"):
             snap.my_playlists = cards("my_playlists")
+        if private_ok("profile"):
+            data = (sections.get("profile") or {}).get("data")
+            if isinstance(data, dict):
+                snap.profile = user_profile_from_dict(data)
         return snap
 
     # ------------------------------------------------------------------ 写
@@ -105,12 +111,13 @@ class HomeCache:
         playlists: list[dict[str, Any]] | None = None,
         tops: list[dict[str, Any]] | None = None,
         my_playlists: list[dict[str, Any]] | None = None,
+        profile: UserProfile | None = None,
         account_key: str | None = None,
     ) -> None:
         """仅覆盖传入 (not None) 的 section; None 保留旧值, 空 list 清空该 section.
 
-        私有区块 (daily / my_playlists) 把当次 account_key 写进自己的 block,
-        各自独立判定归属.
+        私有区块 (daily / my_playlists / profile) 把当次 account_key 写进自己的
+        block, 各自独立判定归属. profile 是单对象无"清空"形参, 登出走 clear_private().
         """
         raw = self._read_raw() or {"version": _VERSION, "sections": {}}
         sections = raw.setdefault("sections", {})
@@ -124,6 +131,11 @@ class HomeCache:
         if my_playlists is not None:
             sections["my_playlists"] = {
                 "cards": [dict(c) for c in my_playlists],
+                "account_key": key,
+            }
+        if profile is not None:
+            sections["profile"] = {
+                "data": user_profile_to_dict(profile),
                 "account_key": key,
             }
         if new_songs is not None:

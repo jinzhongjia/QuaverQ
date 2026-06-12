@@ -321,3 +321,62 @@ def test_remove_at_shuffle_keeps_pool_indices_valid():
     q.remove_at(1)
     assert all(0 <= i < len(q.songs) for i in q._shuffle_remaining)  # noqa: SLF001
     assert all(0 <= i < len(q.songs) for i in q._shuffle_history)  # noqa: SLF001
+
+
+# ------------------------------------------------------------------ peek_next (issue #11 预取)
+# 非变异地看"自然播完后将播哪首" (on_song_end 语义), 供 PlayerController 预取下一首链接.
+
+
+def test_peek_next_sequence_returns_following_song_without_advancing():
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, start_index=0)
+    peeked = q.peek_next()
+    assert peeked is not None
+    assert peeked.mid == "m1"
+    assert q.current_index == 0  # 非变异
+
+
+def test_peek_next_sequence_at_end_returns_none():
+    q = PlayQueue()
+    q.push(_make_songs(2), play_now=True, start_index=1)
+    assert q.peek_next() is None
+
+
+def test_peek_next_repeat_all_wraps_to_first():
+    q = PlayQueue()
+    q.push(_make_songs(2), play_now=True, start_index=1)
+    q.set_mode(PlayMode.REPEAT_ALL)
+    assert q.peek_next().mid == "m0"
+
+
+def test_peek_next_repeat_one_returns_current():
+    q = PlayQueue()
+    q.push(_make_songs(3), play_now=True, start_index=1)
+    q.set_mode(PlayMode.REPEAT_ONE)
+    assert q.peek_next().mid == "m1"
+    assert q.current_index == 1
+
+
+def test_peek_next_shuffle_matches_actual_advance():
+    q = PlayQueue(rng=random.Random(42))
+    q.push(_make_songs(5), play_now=True, start_index=0)
+    q.set_mode(PlayMode.SHUFFLE)
+    peeked = q.peek_next()
+    advanced = q.on_song_end()
+    assert peeked is not None
+    assert peeked.mid == advanced.mid
+
+
+def test_peek_next_shuffle_empty_pool_returns_none_without_reshuffle():
+    q = PlayQueue(rng=random.Random(7))
+    q.push(_make_songs(2), play_now=True, start_index=0)
+    q.set_mode(PlayMode.SHUFFLE)
+    q.on_song_end()  # 耗尽剩余池 (2 首, 池里只有非当前那 1 首)
+    assert q._shuffle_remaining == []  # noqa: SLF001
+    assert q.peek_next() is None
+    assert q._shuffle_remaining == []  # noqa: SLF001 重洗只在真正 advance 时发生
+
+
+def test_peek_next_empty_queue_returns_none():
+    q = PlayQueue()
+    assert q.peek_next() is None

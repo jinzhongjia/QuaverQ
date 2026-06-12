@@ -1,54 +1,58 @@
-"""FFmpeg 日志静音的 libavutil 路径查找契约.
+"""issue #11 排查: Linux 上 ffmpeg 日志静音失效的纯函数契约.
 
-回归: PySide6 在 Linux/macOS 把 Qt 库放 ``Qt/lib`` 子目录, 旧实现只搜顶层
-导致 ``av_log_set_level`` 从未命中, FFmpeg 每次切歌仍刷 stderr.
+`_silence_ffmpeg_logs` 旧实现只在 PySide6 顶层 glob libavutil, 但 Linux/macOS 的
+ffmpeg 库实际在 `PySide6/Qt/lib/` 子目录 -> candidates 为空 -> av_log_set_level
+从未被调到 -> ffmpeg 一直刷 invalid sync code / Input #0 元数据到 stderr.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-import pytest
-
 from quaverq.__main__ import _libavutil_candidates
 
 
-def test_finds_library_in_qt_lib_subdir(tmp_path):
-    qtlib = tmp_path / "Qt" / "lib"
+def test_linux_searches_qt_lib_subdir(tmp_path):
+    # Linux: 库在 PySide6/Qt/lib/, 必须搜到子目录 (旧实现漏了 -> 静音全失效)
+    pyside = tmp_path / "PySide6"
+    qtlib = pyside / "Qt" / "lib"
     qtlib.mkdir(parents=True)
-    lib = qtlib / "libavutil.so.59"
-    lib.write_bytes(b"")
-    assert lib in _libavutil_candidates(tmp_path, "linux")
+    (qtlib / "libavutil.so").touch()  # ld-script / symlink 占位, 应跳过
+    (qtlib / "libavutil.so.59").touch()
+    (qtlib / "libavutil.so.59.39.100").touch()
+
+    names = [c.name for c in _libavutil_candidates("linux", pyside)]
+
+    assert "libavutil.so.59" in names
+    # 只取带版本号的, 不取裸 libavutil.so (可能是链接器专用 ld script, 不可 dlopen)
+    assert "libavutil.so" not in names
 
 
-def test_finds_top_level_windows_dll(tmp_path):
-    dll = tmp_path / "avutil-59.dll"
-    dll.write_bytes(b"")
-    assert dll in _libavutil_candidates(tmp_path, "win32")
+def test_linux_empty_when_no_qt_lib(tmp_path):
+    pyside = tmp_path / "PySide6"
+    pyside.mkdir()
+    assert _libavutil_candidates("linux", pyside) == []
 
 
-def test_finds_macos_dylib_in_qt_lib(tmp_path):
-    qtlib = tmp_path / "Qt" / "lib"
+def test_windows_searches_top_level_and_qt_bin(tmp_path):
+    pyside = tmp_path / "PySide6"
+    (pyside / "Qt" / "bin").mkdir(parents=True)
+    (pyside / "avutil-59.dll").touch()
+    (pyside / "Qt" / "bin" / "avutil-58.dll").touch()
+
+    names = [c.name for c in _libavutil_candidates("win32", pyside)]
+
+    assert "avutil-59.dll" in names
+    assert "avutil-58.dll" in names
+
+
+def test_macos_searches_qt_lib(tmp_path):
+    pyside = tmp_path / "PySide6"
+    qtlib = pyside / "Qt" / "lib"
     qtlib.mkdir(parents=True)
-    lib = qtlib / "libavutil.58.dylib"
-    lib.write_bytes(b"")
-    assert lib in _libavutil_candidates(tmp_path, "darwin")
+    (qtlib / "libavutil.59.dylib").touch()
+
+    names = [c.name for c in _libavutil_candidates("darwin", pyside)]
+    assert "libavutil.59.dylib" in names
 
 
 def test_unknown_platform_returns_empty(tmp_path):
-    assert _libavutil_candidates(tmp_path, "freebsd") == []
-
-
-def test_no_match_returns_empty(tmp_path):
-    # 目录里没有 libavutil → 空列表 (best-effort, 不抛)
-    assert _libavutil_candidates(tmp_path, "linux") == []
-
-
-@pytest.mark.skipif(sys.platform != "linux", reason="验证真实 Linux PySide6 布局")
-def test_real_pyside6_linux_has_libavutil():
-    # 修复前此处返回空 (只搜顶层) → 静音失效; 修复后应在 Qt/lib 命中
-    import PySide6
-
-    pyside_dir = Path(PySide6.__file__).parent
-    assert _libavutil_candidates(pyside_dir, "linux"), "应在 PySide6/Qt/lib 找到 libavutil"
+    assert _libavutil_candidates("sunos", tmp_path) == []

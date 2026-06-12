@@ -38,6 +38,12 @@ _LYRIC_FONT_SIZE_DEFAULT = 22
 # master 不开放给播放 (161MB 级文件拉流浪费带宽)
 _DOWNLOAD_QUALITIES = {"standard", "balanced", "high", "master"}
 
+# 切歌淡入淡出 (issue #11): 200ms 以下听感同硬切, 2s 以上拖沓; 默认 500ms 对齐
+# QQ 官方桌面端的衔接节奏. 这是音频包络时长, 与 reduceMotion (视觉动效) 无关.
+_FADE_DURATION_MIN_MS = 200
+_FADE_DURATION_MAX_MS = 2000
+_FADE_DURATION_DEFAULT_MS = 500
+
 
 def _default_download_dir() -> str:
     """默认下载目录: <系统音乐目录>/QuaverQ.
@@ -115,6 +121,23 @@ class SettingsController(QObject):
         self._download_with_lyric = self._read_bool("download/withLyric", True)
         self._download_with_cover = self._read_bool("download/withCover", True)
         self._download_embed_tags = self._read_bool("download/embedTags", True)
+        self._fade_enabled = self._read_bool("playback/fadeEnabled", True)
+        self._fade_duration_ms = self._read_int_clamped(
+            "playback/fadeDurationMs",
+            _FADE_DURATION_DEFAULT_MS,
+            _FADE_DURATION_MIN_MS,
+            _FADE_DURATION_MAX_MS,
+        )
+        # 输出设备: id 为 base64 编码的 QAudioDevice.id() 字节串, 空 = 跟随系统默认;
+        # label 是选择时的设备显示名快照, 设备断开时设置页占位 "xxx (已断开)" 用
+        self._audio_output_device_id = str(
+            self._settings.value("playback/audioOutputDeviceId", "") or ""
+        )
+        self._audio_output_device_label = str(
+            self._settings.value("playback/audioOutputDeviceLabel", "") or ""
+        )
+        if not self._audio_output_device_id:
+            self._audio_output_device_label = ""
         self._cover_cache_max_bytes = self._read_int(
             "cache/coverMaxBytes",
             _DEFAULT_COVER_MAX_BYTES,
@@ -201,6 +224,25 @@ class SettingsController(QObject):
     @Property(bool, notify=settingsChanged)
     def downloadEmbedTags(self) -> bool:
         return self._download_embed_tags
+
+    @Property(bool, notify=settingsChanged)
+    def fadeEnabled(self) -> bool:
+        """切歌淡入淡出总开关; 关闭后播放行为与无 fade 的旧实现完全一致."""
+        return self._fade_enabled
+
+    @Property(int, notify=settingsChanged)
+    def fadeDurationMs(self) -> int:
+        return self._fade_duration_ms
+
+    @Property(str, notify=settingsChanged)
+    def audioOutputDeviceId(self) -> str:
+        """所选输出设备 id (base64 编码字节串); 空串 = 跟随系统默认."""
+        return self._audio_output_device_id
+
+    @Property(str, notify=settingsChanged)
+    def audioOutputDeviceLabel(self) -> str:
+        """所选输出设备的显示名快照; 跟随系统默认时恒为空串."""
+        return self._audio_output_device_label
 
     @Property(str, notify=cacheChanged)
     def coverCacheSizeText(self) -> str:
@@ -357,6 +399,47 @@ class SettingsController(QObject):
             return
         self._download_embed_tags = value
         self._settings.setValue("download/embedTags", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setFadeEnabled(self, enabled: bool) -> None:
+        value = bool(enabled)
+        if self._fade_enabled == value:
+            return
+        self._fade_enabled = value
+        self._settings.setValue("playback/fadeEnabled", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(int)
+    def setFadeDurationMs(self, duration_ms: int) -> None:
+        try:
+            value = int(duration_ms)
+        except (TypeError, ValueError):
+            return
+        value = max(_FADE_DURATION_MIN_MS, min(_FADE_DURATION_MAX_MS, value))
+        if self._fade_duration_ms == value:
+            return
+        self._fade_duration_ms = value
+        self._settings.setValue("playback/fadeDurationMs", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str, str)
+    def setAudioOutputDevice(self, device_id: str, label: str) -> None:
+        """选择输出设备: id 为 base64 字符串 (空 = 跟随系统默认), label 为设备显示名."""
+        id_value = str(device_id or "").strip()
+        label_value = str(label or "").strip() if id_value else ""
+        if (self._audio_output_device_id, self._audio_output_device_label) == (
+            id_value,
+            label_value,
+        ):
+            return
+        self._audio_output_device_id = id_value
+        self._audio_output_device_label = label_value
+        self._settings.setValue("playback/audioOutputDeviceId", id_value)
+        self._settings.setValue("playback/audioOutputDeviceLabel", label_value)
         self._settings.sync()
         self.settingsChanged.emit()
 

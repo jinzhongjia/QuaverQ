@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .app_controller import AppController
+from .audio_device_controller import AudioDeviceController
 from .cover_provider import CoverController, CoverImageProvider
 from .detail_controller import DetailController, DetailControllerFactory
 from .download_controller import DownloadController, DownloadListModel
@@ -26,6 +27,7 @@ from .song_detail_controller import SongDetailController
 
 __all__ = [
     "AppController",
+    "AudioDeviceController",
     "CoverController",
     "CoverImageProvider",
     "DetailController",
