@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../components" as Components
+import "../dialogs" as Dialogs
 import "../Theme" as ThemeTokens
 
 // 下载管理整页: 侧边栏「下载」入口进入. 行 = 封面 + 歌名 + 状态/音质/进度 + 操作;
@@ -15,6 +16,10 @@ Item {
     property var downloadController
     property var coverController
     property var playerController
+
+    // 删除确认: 记下待删行与歌名, 确认后删本地文件
+    property int pendingDeleteRow: -1
+    property string pendingDeleteTitle: ""
 
     readonly property var downloadModel: root.downloadController ? root.downloadController.downloadModel : null
     readonly property int taskCount: root.downloadModel ? root.downloadModel.count : 0
@@ -243,6 +248,18 @@ Item {
                                     root.downloadController.removeTask(taskRow.index)
                             }
                         }
+
+                        // 删除已下载的音乐 (删本地文件, 破坏性 → 二次确认)
+                        RowActionButton {
+                            visible: taskRow.status === "done"
+                            text: qsTr("删除")
+                            Accessible.name: qsTr("删除 %1").arg(taskRow.title)
+                            onClicked: {
+                                root.pendingDeleteRow = taskRow.index
+                                root.pendingDeleteTitle = taskRow.title
+                                deleteConfirmDialog.open()
+                            }
+                        }
                     }
                 }
             }
@@ -296,6 +313,21 @@ Item {
                 ? ThemeTokens.Palette.statePressed
                 : actionBtn.hovered ? ThemeTokens.Palette.stateHover : "transparent"
             border.color: ThemeTokens.Palette.outlineMuted
+        }
+    }
+
+    // 删除本地文件不可逆 → 二次确认, 确认键用 error 红
+    Dialogs.ConfirmDialog {
+        id: deleteConfirmDialog
+
+        title: qsTr("删除已下载的音乐")
+        message: qsTr("将删除《%1》的本地音频、歌词与封面文件，此操作不可恢复。").arg(root.pendingDeleteTitle)
+        confirmText: qsTr("删除")
+        destructive: true
+        onAccepted: {
+            if (root.downloadController && root.pendingDeleteRow >= 0)
+                root.downloadController.deleteTask(root.pendingDeleteRow)
+            root.pendingDeleteRow = -1
         }
     }
 }

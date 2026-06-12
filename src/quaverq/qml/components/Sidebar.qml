@@ -13,6 +13,7 @@ Rectangle {
     property var appController
     property var libraryController
     property var coverController
+    property int downloadActiveCount: 0
 
     signal loginRequested()
     signal routeRequested(string route)
@@ -75,6 +76,7 @@ Rectangle {
                     iconSource: modelData.icon
                     compact: root.compact
                     selected: modelData.route === root.selectedRoute
+                    badgeCount: modelData.route === "downloads" ? root.downloadActiveCount : 0
                     onActivated: root.routeRequested(modelData.route)
                 }
             }

@@ -64,6 +64,16 @@ _QUALITY_TEXT = {
     "MP3_128": "MP3 128K",
 }
 
+# 文件名里的音质短标识 (区分换音质重下 / 同名翻唱, 避免被误判"已存在"跳过)
+_QUALITY_SHORT = {
+    "MASTER": "母带",
+    "ATMOS_2": "全景声",
+    "FLAC": "无损",
+    "MP3_320": "320K",
+    "OGG_192": "192K",
+    "MP3_128": "128K",
+}
+
 _STATUS_TEXT = {
     "pending": "等待中",
     "running": "下载中",
@@ -215,7 +225,7 @@ class DownloadController(QObject):
     """歌曲下载编排: 入队 → 取 vkey URL → 流式落盘 → 歌词/封面旁置."""
 
     activeCountChanged = Signal()
-    downloadFinished = Signal(str, str)  # (歌名, 实际命中音质显示文本)
+    downloadFinished = Signal(str)  # 一批下载完成的聚合提示文案 (避免逐首刷屏)
     errorRaised = Signal(str)
     noticeRaised = Signal(str)
 
@@ -240,8 +250,10 @@ class DownloadController(QObject):
         self._model = DownloadListModel(self)
         self._queue: asyncio.Queue[int] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
-        self._cancel_events: dict[int, threading.Event] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
         self._closing = False
+        # 本轮 worker 运行期间成功完成的 (歌名, 音质文本): 队列清空时聚合成一条提示
+        self._session_completed: list[tuple[str, str]] = []
         self._load_history()
 
     def _load_history(self) -> None:
@@ -328,6 +340,25 @@ class DownloadController(QObject):
         self._model.remove_at(row)
         self.activeCountChanged.emit()
 
+    @Slot(int)
+    def deleteTask(self, row: int) -> None:
+        """删除已下载的音乐: 删本地音频 + 旁置 .lrc/.jpg + 记录 + 列表行（破坏性，
+        UI 侧带二次确认）。进行中的需先取消; 文件已不在也照常清记录不抛。"""
+        task = self._model.task_at(row)
+        if task is None or task.status in {"pending", "running"}:
+            return
+        if task.dest_path:
+            audio = Path(task.dest_path)
+            for path in (audio, audio.with_suffix(".lrc"), audio.with_suffix(".jpg")):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.warning("删除文件失败 %s: %s", path, exc)
+        if self._store is not None:
+            self._store.remove(task.song.mid)
+        self._model.remove_at(row)
+        self.activeCountChanged.emit()
+
     @Slot(str, result=str)
     def local_path_for(self, mid: str) -> str:
         """返回已下载且文件仍存在的本地路径; 否则 ""（供 PlayerController 本地优先播放）."""
@@ -362,6 +393,7 @@ class DownloadController(QObject):
         row = self._model.append_task(DownloadTask(song=song, quality_preference=preference))
         self._queue.put_nowait(row)
         self.activeCountChanged.emit()
+        self.noticeRaised.emit(f"已加入下载：{song.name}")  # 即时反馈, 不必等下载完成
         self._ensure_worker()
 
     async def download_songs_async(self, songs: list[Song]) -> None:
@@ -411,6 +443,7 @@ class DownloadController(QObject):
             try:
                 row = self._queue.get_nowait()
             except asyncio.QueueEmpty:
+                self._flush_completion()
                 return
             task = self._model.task_at(row)
             if task is None or task.status != "pending":
@@ -422,6 +455,20 @@ class DownloadController(QObject):
                 # (路径拼接 / model 更新等) 的意外异常, 防单个任务崩掉整个 worker
                 # 导致后续 pending 任务卡死 (见 PR #16 review).
                 self._fail(row, log_bridge_error(logger, f"download task {task.song.name}", exc))
+
+    def _flush_completion(self) -> None:
+        """worker 队列清空时把本轮成功完成的歌聚合成一条提示, 避免批量逐首刷屏 Snackbar."""
+        items = self._session_completed
+        if not items:
+            return
+        self._session_completed = []
+        if len(items) == 1:
+            name, quality = items[0]
+            self.downloadFinished.emit(
+                f"已下载：{name}（{quality}）" if quality else f"已下载：{name}"
+            )
+        else:
+            self.downloadFinished.emit(f"已下载 {len(items)} 首")
 
     async def _process(self, row: int, task: DownloadTask) -> None:
         song = task.song
@@ -440,9 +487,11 @@ class DownloadController(QObject):
             return
 
         quality_label = song_url.quality or ""
-        dest = Path(self._download_directory()) / (
-            f"{self._file_stem(song)}.{quality_extension(quality_label)}"
-        )
+        # 文件名带音质后缀: 换音质重下 / 同名翻唱不会撞名被误判"已存在"跳过
+        short = _QUALITY_SHORT.get(quality_label, quality_label)
+        stem = self._file_stem(song)
+        name = f"{stem} [{short}]" if short else stem
+        dest = Path(self._download_directory()) / f"{name}.{quality_extension(quality_label)}"
         self._model.set_result(row, quality_label=quality_label, dest_path=str(dest))
 
         if dest.exists():
@@ -490,7 +539,8 @@ class DownloadController(QObject):
         self._record_done(task, dest, quality_label)
         self._model.set_status(row, "done")
         self.activeCountChanged.emit()
-        self.downloadFinished.emit(song.name, _QUALITY_TEXT.get(quality_label, quality_label))
+        # 攒着, 等 worker 队列清空时由 _flush_completion 聚合成一条提示
+        self._session_completed.append((song.name, _QUALITY_TEXT.get(quality_label, quality_label)))
 
     def _record_done(self, task: DownloadTask, dest: Path, quality_label: str) -> None:
         """下载成功后持久化记录 (供重启展示 + 本地优先播放)."""

@@ -12,6 +12,8 @@ Rectangle {
     property url iconSource: ""
     property bool selected: false
     property bool compact: false
+    // >0 时右上角显示数字角标 (如下载进行中任务数)
+    property int badgeCount: 0
     readonly property color iconColor: root.selected
         ? ThemeTokens.Palette.primaryFg
         : ThemeTokens.Palette.surfaceVariantText
@@ -91,6 +93,30 @@ Rectangle {
             font.pixelSize: ThemeTokens.TypeScale.bodySm
             font.weight: root.selected ? ThemeTokens.TypeScale.medium : ThemeTokens.TypeScale.regular
             elide: Text.ElideRight
+        }
+    }
+
+    // 进行中数字角标: compact 浮图标右上, 展开放行右端居中
+    Rectangle {
+        visible: root.badgeCount > 0
+        width: Math.max(16, badgeLabel.implicitWidth + 8)
+        height: 16
+        radius: 8
+        color: ThemeTokens.Palette.primary
+        z: 2
+        anchors.right: parent.right
+        anchors.rightMargin: root.compact ? 6 : ThemeTokens.Spacing.s4
+        anchors.top: root.compact ? parent.top : undefined
+        anchors.topMargin: root.compact ? 4 : 0
+        anchors.verticalCenter: root.compact ? undefined : parent.verticalCenter
+
+        Label {
+            id: badgeLabel
+            anchors.centerIn: parent
+            text: root.badgeCount > 99 ? "99+" : root.badgeCount
+            color: ThemeTokens.Palette.primaryText
+            font.pixelSize: 10
+            font.weight: ThemeTokens.TypeScale.medium
         }
     }
 }

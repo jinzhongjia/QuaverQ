@@ -120,20 +120,20 @@ def _make_controller(tmp_path, http_server, **service_flags):
 
 async def test_download_song_produces_three_files(tmp_path, http_server):
     controller, _service, _ = _make_controller(tmp_path, http_server)
-    finished: list[tuple[str, str]] = []
-    controller.downloadFinished.connect(lambda name, quality: finished.append((name, quality)))
+    finished: list[str] = []
+    controller.downloadFinished.connect(lambda message: finished.append(message))
 
     await controller.download_song_async(_song_map())
     await controller.wait_idle()
 
     music = tmp_path / "music"
     # 默认嵌入 ID3 标签: 音频本体字节在标签块之后
-    assert (music / "周杰伦 - 晴天.mp3").read_bytes().endswith(_AUDIO)
-    lrc = (music / "周杰伦 - 晴天.lrc").read_text(encoding="utf-8")
+    assert (music / "周杰伦 - 晴天 [320K].mp3").read_bytes().endswith(_AUDIO)
+    lrc = (music / "周杰伦 - 晴天 [320K].lrc").read_text(encoding="utf-8")
     assert "[00:00.00]第一行" in lrc
     assert "[ti:晴天]" in lrc
-    assert (music / "周杰伦 - 晴天.jpg").read_bytes() == _COVER
-    assert finished == [("晴天", "MP3 320K")]
+    assert (music / "周杰伦 - 晴天 [320K].jpg").read_bytes() == _COVER
+    assert finished == ["已下载：晴天（MP3 320K）"]
     assert controller.downloadModel.task_at(0).status == "done"
     assert controller.activeCount == 0
 
@@ -144,7 +144,7 @@ async def test_download_uses_quality_extension(tmp_path, http_server):
     await controller.download_song_async(_song_map(), "high")
     await controller.wait_idle()
 
-    assert (tmp_path / "music" / "周杰伦 - 晴天.flac").exists()
+    assert (tmp_path / "music" / "周杰伦 - 晴天 [无损].flac").exists()
 
 
 async def test_download_passes_quality_preference(tmp_path, http_server):
@@ -163,7 +163,7 @@ async def test_download_skips_existing_file(tmp_path, http_server):
     controller, _service, _ = _make_controller(tmp_path, http_server)
     notices: list[str] = []
     controller.noticeRaised.connect(notices.append)
-    dest = tmp_path / "music" / "周杰伦 - 晴天.mp3"
+    dest = tmp_path / "music" / "周杰伦 - 晴天 [320K].mp3"
     dest.parent.mkdir(parents=True)
     dest.write_bytes(b"old")
 
@@ -199,7 +199,7 @@ async def test_download_http_error_marks_failed(tmp_path, http_server):
 
     assert controller.downloadModel.task_at(0).status == "failed"
     assert errors
-    assert not (tmp_path / "music" / "周杰伦 - 晴天.mp3").exists()
+    assert not (tmp_path / "music" / "周杰伦 - 晴天 [320K].mp3").exists()
 
 
 async def test_lyric_failure_does_not_fail_task(tmp_path, http_server):
@@ -209,8 +209,8 @@ async def test_lyric_failure_does_not_fail_task(tmp_path, http_server):
     await controller.wait_idle()
 
     music = tmp_path / "music"
-    assert (music / "周杰伦 - 晴天.mp3").exists()
-    assert not (music / "周杰伦 - 晴天.lrc").exists()
+    assert (music / "周杰伦 - 晴天 [320K].mp3").exists()
+    assert not (music / "周杰伦 - 晴天 [320K].lrc").exists()
     assert controller.downloadModel.task_at(0).status == "done"
 
 
@@ -223,9 +223,9 @@ async def test_download_respects_lyric_and_cover_switches(tmp_path, http_server)
     await controller.wait_idle()
 
     music = tmp_path / "music"
-    assert (music / "周杰伦 - 晴天.mp3").exists()
-    assert not (music / "周杰伦 - 晴天.lrc").exists()
-    assert not (music / "周杰伦 - 晴天.jpg").exists()
+    assert (music / "周杰伦 - 晴天 [320K].mp3").exists()
+    assert not (music / "周杰伦 - 晴天 [320K].lrc").exists()
+    assert not (music / "周杰伦 - 晴天 [320K].jpg").exists()
 
 
 async def test_download_queue_serializes_multiple_songs(tmp_path, http_server):
@@ -236,8 +236,8 @@ async def test_download_queue_serializes_multiple_songs(tmp_path, http_server):
     await controller.wait_idle()
 
     music = tmp_path / "music"
-    assert (music / "周杰伦 - 晴天.mp3").exists()
-    assert (music / "周杰伦 - 稻香.mp3").exists()
+    assert (music / "周杰伦 - 晴天 [320K].mp3").exists()
+    assert (music / "周杰伦 - 稻香 [320K].mp3").exists()
     model = controller.downloadModel
     assert model.rowCount() == 2
     assert {model.task_at(i).status for i in range(2)} == {"done"}
@@ -284,7 +284,7 @@ async def test_worker_survives_unexpected_process_crash(tmp_path, http_server):
     assert errors  # 用户能看到错误提示, 而不是行永远卡在"下载中"
     # 第二个任务不受影响, worker 继续跑完
     assert model.task_at(1).status == "done"
-    assert (tmp_path / "music" / "周杰伦 - 稻香.mp3").exists()
+    assert (tmp_path / "music" / "周杰伦 - 稻香 [320K].mp3").exists()
     assert controller.activeCount == 0
 
 
@@ -313,9 +313,9 @@ async def test_download_songs_batch_enqueues_all(tmp_path, http_server):
     await controller.wait_idle()
 
     music = tmp_path / "music"
-    assert (music / "周杰伦 - 晴天.mp3").exists()
-    assert (music / "周杰伦 - 稻香.mp3").exists()
-    assert (music / "周杰伦 - 七里香.mp3").exists()
+    assert (music / "周杰伦 - 晴天 [320K].mp3").exists()
+    assert (music / "周杰伦 - 稻香 [320K].mp3").exists()
+    assert (music / "周杰伦 - 七里香 [320K].mp3").exists()
     assert notices  # "已加入 N 首" 提示
     assert controller.downloadModel.rowCount() == 3
 
@@ -348,7 +348,7 @@ async def test_retry_failed_task_redownloads(tmp_path, http_server):
     task = controller.downloadModel.task_at(0)
     assert task.status == "done"
     assert task.error == ""
-    assert (tmp_path / "music" / "周杰伦 - 晴天.mp3").read_bytes().endswith(_AUDIO)
+    assert (tmp_path / "music" / "周杰伦 - 晴天 [320K].mp3").read_bytes().endswith(_AUDIO)
 
 
 async def test_download_embeds_id3_tags_into_mp3(tmp_path, http_server):
@@ -359,7 +359,7 @@ async def test_download_embeds_id3_tags_into_mp3(tmp_path, http_server):
     await controller.download_song_async(_song_map())
     await controller.wait_idle()
 
-    audio = tmp_path / "music" / "周杰伦 - 晴天.mp3"
+    audio = tmp_path / "music" / "周杰伦 - 晴天 [320K].mp3"
     tags = ID3(audio)
     assert str(tags["TIT2"]) == "晴天"
     assert str(tags["TPE1"]) == "周杰伦"
@@ -377,7 +377,7 @@ async def test_download_embed_tags_can_be_disabled(tmp_path, http_server):
     await controller.download_song_async(_song_map())
     await controller.wait_idle()
 
-    audio = tmp_path / "music" / "周杰伦 - 晴天.mp3"
+    audio = tmp_path / "music" / "周杰伦 - 晴天 [320K].mp3"
     assert audio.read_bytes() == _AUDIO  # 原始字节未被改写
     try:
         ID3(audio)
@@ -422,7 +422,7 @@ async def test_download_persists_record(tmp_path, http_server):
     rec = store.find("m1")
     assert rec is not None
     assert rec.song.name == "晴天"
-    assert rec.path.endswith("周杰伦 - 晴天.mp3")
+    assert rec.path.endswith("周杰伦 - 晴天 [320K].mp3")
     assert rec.quality_label == "MP3_320"
     assert rec.size > 0
 
@@ -439,7 +439,7 @@ async def test_history_loaded_on_startup(tmp_path, http_server):
     task = model.task_at(0)
     assert task.status == "done"
     assert task.song.name == "晴天"
-    assert task.dest_path.endswith("周杰伦 - 晴天.mp3")
+    assert task.dest_path.endswith("周杰伦 - 晴天 [320K].mp3")
 
 
 async def test_local_path_for_returns_existing_file(tmp_path, http_server):
@@ -448,7 +448,7 @@ async def test_local_path_for_returns_existing_file(tmp_path, http_server):
     await controller.wait_idle()
 
     path = controller.local_path_for("m1")
-    assert path.endswith("周杰伦 - 晴天.mp3")
+    assert path.endswith("周杰伦 - 晴天 [320K].mp3")
     assert Path(path).is_file()
 
 
@@ -584,3 +584,109 @@ async def test_cancel_uses_mid_not_row(tmp_path, http_server):
 
     assert cancel_seen == ["canceled"]
     assert controller.downloadModel.task_at(0).status == "canceled"
+
+
+# ============================================================== UX: 即时反馈 / 聚合 / 防冲突
+
+
+async def test_single_download_emits_enqueue_notice(tmp_path, http_server):
+    # 点下载即时反馈: 入队就发 notice, 不必等完成 (大文件等待期不至于"点了没反应")
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+
+    await controller.download_song_async(_song_map())
+
+    assert any("已加入下载" in n and "晴天" in n for n in notices)
+
+
+async def test_batch_completion_aggregates_to_single_message(tmp_path, http_server):
+    # 批量完成只发一次聚合提示, 不每首刷屏
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    finished: list[str] = []
+    controller.downloadFinished.connect(finished.append)
+
+    await controller.download_songs_async(
+        [
+            song_from_map(_song_map("m1", "晴天")),
+            song_from_map(_song_map("m2", "稻香")),
+            song_from_map(_song_map("m3", "七里香")),
+        ]
+    )
+    await controller.wait_idle()
+
+    assert finished == ["已下载 3 首"]
+
+
+async def test_different_quality_no_filename_collision(tmp_path, http_server):
+    # 同一首下两种音质 (都 mp3): 文件名带音质后缀, 不互相误判"已存在"跳过
+    controller, service, _ = _make_controller(tmp_path, http_server, song_url_quality="MP3_128")
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+
+    service.song_url_quality = "MP3_320"
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+
+    music = tmp_path / "music"
+    assert (music / "周杰伦 - 晴天 [128K].mp3").exists()
+    assert (music / "周杰伦 - 晴天 [320K].mp3").exists()
+    # 两次都真下载了 (没有第二次被跳过)
+    assert {controller.downloadModel.task_at(i).status for i in range(2)} == {"done"}
+
+
+# ============================================================== 删除已下载音乐
+
+
+async def test_delete_task_removes_files_record_and_row(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    await controller.download_song_async(_song_map())
+    await controller.wait_idle()
+
+    music = tmp_path / "music"
+    audio = music / "周杰伦 - 晴天 [320K].mp3"
+    lrc = music / "周杰伦 - 晴天 [320K].lrc"
+    jpg = music / "周杰伦 - 晴天 [320K].jpg"
+    assert audio.exists() and lrc.exists() and jpg.exists()
+
+    controller.deleteTask(0)
+
+    # 音频 + 旁置歌词/封面全删, 记录与列表行清除
+    assert not audio.exists()
+    assert not lrc.exists()
+    assert not jpg.exists()
+    assert controller.downloadModel.rowCount() == 0
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.load()
+    assert store.find("m1") is None
+
+
+async def test_delete_task_ignores_running(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    task = DownloadTask(
+        song=song_from_map(_song_map()), quality_preference="balanced", status="running"
+    )
+    row = controller.downloadModel.append_task(task)
+    controller.deleteTask(row)
+    assert controller.downloadModel.rowCount() == 1  # 进行中不删
+
+
+async def test_delete_task_tolerates_already_gone_files(tmp_path, http_server):
+    # 文件已被外部删除 (missing) 时, deleteTask 仍清记录 + 行, 不抛
+    store = DownloadStore(tmp_path / "downloads.json")
+    store.add(
+        DownloadRecord(
+            song=song_from_map(_song_map()),
+            path=str(tmp_path / "music" / "gone.mp3"),
+            quality_label="FLAC",
+        )
+    )
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    assert controller.downloadModel.task_at(0).status == "missing"
+
+    controller.deleteTask(0)
+
+    assert controller.downloadModel.rowCount() == 0
+    store2 = DownloadStore(tmp_path / "downloads.json")
+    store2.load()
+    assert store2.find("m1") is None

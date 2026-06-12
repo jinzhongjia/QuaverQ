@@ -664,6 +664,7 @@ ApplicationWindow {
             appController: root.appController
             libraryController: root.libraryController
             coverController: root.coverController
+            downloadActiveCount: root.downloadController ? root.downloadController.activeCount : 0
             compact: root.width < 920
             selectedRoute: root.currentTopRoute
             onLoginRequested: loginDialog.open()
@@ -1064,11 +1065,7 @@ ApplicationWindow {
         target: root.downloadController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
         function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
-        function onDownloadFinished(name, qualityText) {
-            globalSnackbar.show(qualityText
-                ? qsTr("已下载:%1（%2）").arg(name).arg(qualityText)
-                : qsTr("已下载:%1").arg(name), "success")
-        }
+        function onDownloadFinished(message) { globalSnackbar.show(message, "success") }
     }
 
     Item {

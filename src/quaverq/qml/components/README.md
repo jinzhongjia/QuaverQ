@@ -7,7 +7,7 @@
 | 组件 | 作用 |
 | --- | --- |
 | `Sidebar.qml` | **侧栏**。Logo、登录入口、主导航（发现 / 资料库 / 设置）、「我的歌单」列表。`compact` 折叠态收为图标。 |
-| `NavItem.qml` | 侧栏的单项导航：图标 + 标签 + 选中态背景；点击发 `activated()`。 |
+| `NavItem.qml` | 侧栏的单项导航：图标 + 标签 + 选中态背景；点击发 `activated()`。`badgeCount > 0` 时右上角显示数字角标（compact 浮图标右上、展开放行右端居中），下载导航项绑 `downloadController.activeCount` 显示进行中任务数。 |
 | `PlayerBar.qml` | **底部播放栏**（最大组件）。封面缩略 + 标题/歌手 + 喜欢、进度条 + 时长、播放模式/上一首/播放暂停/下一首 + 对称第 5 槽（让播放键正压进度条中轴）、音量、下载当前歌曲（`downloadRequested()` 信号，Main 接 `downloadController.downloadSong(currentSong)`，无歌时禁用）、队列开关、跳「正在播放」页。**音量图标可点**：切静音/恢复（`muted` 属性 + `muteToggleRequested()` 信号，图标 volume ↔ volume-mute 切换，静音时滑条填充/手柄降权 35%；拖滑条即解除静音）。窗口 <920px 时右区（词/队列/音量）收纳进第 5 槽的 "⋯" 溢出菜单（`OverflowRow` + 音量滑条；队列非空时按钮带绿点），不再整组消失。 |
 
 ## 列表与卡片
