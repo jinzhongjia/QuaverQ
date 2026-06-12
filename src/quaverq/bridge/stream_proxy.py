@@ -179,8 +179,14 @@ class StreamProxy:
             return
         try:
             resp = session.get(target, headers=fwd, stream=True)
-        except Exception as exc:  # 上游不可达
-            logger.warning("StreamProxy 上游请求失败: %s", exc)
+        except Exception as exc:  # 上游不可达 / stop() 竞态: session 已 close
+            # stop() 先 close() 再置 None, 在途线程读到尚未置 None 的 session 再 .get()
+            # 会抛 SessionClosed —— 这是退出时的正常竞态 (server 已关), 降级 debug;
+            # 否则才是真上游错误, 保留 warning (review 发现误导性 WARNING).
+            if self._server is None:
+                logger.debug("StreamProxy 上游请求在停止竞态中失败 (忽略): %s", exc)
+            else:
+                logger.warning("StreamProxy 上游请求失败: %s", exc)
             handler.send_response(502)
             handler.send_header("Content-Length", "0")
             handler.end_headers()
@@ -195,7 +201,9 @@ class StreamProxy:
             handler.end_headers()
             if head:
                 return
-            for chunk in resp.iter_content(_STREAM_CHUNK):
+            # 不传 chunk_size: curl_cffi 的 iter_content 忽略它并 warn (chunk 由 libcurl
+            # 自己定), 传了只会刷 CurlCffiWarning. 本地文件读才用 _STREAM_CHUNK.
+            for chunk in resp.iter_content():
                 if not chunk:
                     continue
                 handler.wfile.write(chunk)

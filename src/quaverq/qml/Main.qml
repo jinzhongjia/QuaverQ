@@ -98,7 +98,9 @@ ApplicationWindow {
         if (remaining <= ms) {
             if (!fadeOutAnim.running && root.fadeFactor > 0)
                 root.startFadeOut(Math.max(50, Math.min(ms, remaining)))
-        } else if (root.fadeFactor < 1 && !fadeInAnim.running && !fadeOutAnim.running && !root.pauseFadePending) {
+        } else if (root.fadeFactor < 1 && !fadeInAnim.running && !root.pauseFadePending) {
+            // 不要求 !fadeOutAnim.running: 尾部淡出途中用户向前 seek 离开末尾窗口时,
+            // startFadeIn 会停掉正在跑的淡出并立即淡回, 避免"先继续静音再恢复" (review 发现)
             root.startFadeIn(ms)
         }
     }
@@ -438,6 +440,12 @@ ApplicationWindow {
 
         function onStopRequested() {
             root.pauseFadePending = false
+            // 清切歌淡出标志, 否则停止/全跳过后 applyTailFade 永久被抑制 (review 发现)
+            root.fadeSwitchActive = false
+            // 暂停渐变/淡出途中停止: 停掉动画并复位音量包络, 别让 fadeFactor 残留 0
+            fadeOutAnim.stop()
+            fadeInAnim.stop()
+            root.fadeFactor = 1
             root.clearPendingSeek()
             mediaPlayer.stop()
         }

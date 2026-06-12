@@ -1140,3 +1140,87 @@ async def test_fade_error_path_clears_source_and_unfreezes_position():
     assert controller.sourceUrl == ""  # 旧源已卸 (不能让它静音空转)
     controller.updatePosition(555)
     assert controller.positionMs == 555  # 冻结解除
+
+
+# ------------------------------------------------------------------ review 修复回归 (issue #11)
+
+
+async def test_format_error_short_track_not_exempted():
+    """短歌 (duration < 容差) 开头的 FormatError 不能被末尾豁免吞掉.
+
+    旧实现 `duration > 0` 守卫挡不住 `duration - 5000` 为负 → 短歌任何位置的
+    FormatError 都被静默忽略, 用户看到播放器静默卡死 (review 发现).
+    """
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "短曲", "duration": 4})  # 4s
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(0)  # 开头
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "bad")
+
+    assert errors and "短曲" in errors[0]  # 报错, 不被豁免
+    assert controller.playbackState == "stopped"
+
+
+async def test_format_error_short_track_near_end_still_exempted():
+    """短歌真播到后半段末尾的 FormatError 仍豁免 (CDN 坏帧)."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "短曲", "duration": 4})  # 4s
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(3500)  # 4s 歌的 3.5s, 后半段末尾
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "bad")
+
+    assert errors == []  # 豁免
+    assert controller.playbackState == "playing"
+
+
+async def test_pause_during_fade_out_not_overridden_by_play():
+    """fade 淡出 sleep 期间用户暂停, 不被切歌的 playRequested 覆盖 (review 发现).
+
+    旧实现 pause() 不参与 generation, sleep 醒来照常 playRequested → 暂停意图丢失.
+    """
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    plays: list[bool] = []
+    controller.playRequested.connect(lambda: plays.append(True))
+
+    task = controller.next()  # 切歌, 进入 fade 淡出 sleep (60ms)
+    await asyncio.sleep(0.01)  # 仍在 sleep 中
+    controller.pause()  # 用户暂停
+    await asyncio.wait_for(task, timeout=2)
+
+    assert plays == []  # 不应 playRequested, 尊重用户暂停
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"  # 源已挂好但不播
+
+
+async def test_play_after_pause_during_fade_resumes():
+    """fade sleep 期间先 pause 又 play (改主意), 最终应播放 (pause_pending 被 play 清除)."""
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    plays: list[bool] = []
+    controller.playRequested.connect(lambda: plays.append(True))
+
+    task = controller.next()
+    await asyncio.sleep(0.01)
+    controller.pause()
+    controller.play()  # 改主意, 又要播
+    await asyncio.wait_for(task, timeout=2)
+
+    assert plays  # 最终应 playRequested

@@ -510,6 +510,25 @@ async def test_try_bypass_urls_uses_media_mid_for_filename():
     assert captured["filename"] == ["M500mediamidmediamid.mp3"]
 
 
+async def test_try_bypass_urls_index_fallback_requires_matching_count():
+    """缺 filename 回显且响应条数与请求档数不符时, 保守判全部不可用 (不按下标错配).
+
+    旧实现会把唯一一条的 purl 错安给第一个请求档 → 静默音质错标 (review 发现).
+    """
+    svc = QuaverService()
+
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"midurlinfo": [{"purl": "M800m.mp3?vkey=k"}]}  # 1 条且无 filename 回显
+
+    svc._bypass_post = fake_post
+    result = await svc._try_bypass_urls("m", ("MP3_320", "OGG_192", "MP3_128"))
+    assert result == {
+        "MP3_320": (None, None),
+        "OGG_192": (None, None),
+        "MP3_128": (None, None),
+    }
+
+
 async def test_try_bypass_urls_uses_persistent_device_guid():
     """反风控 G1：guid 用持久设备 id，而非每次随机（同账号多设备 = 盗刷特征）。"""
     svc = QuaverService()

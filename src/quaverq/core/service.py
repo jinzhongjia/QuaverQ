@@ -967,18 +967,36 @@ class QuaverService:
             )
             return results
 
-        # 对位优先用响应回显的 filename (容乱序/缺条; 实测正常响应逐条保序回显,
-        # 见 scripts/debug_vkey_batch.py), 缺回显时按下标兜底.
-        entry_by_filename: dict[str, dict[str, Any]] = {}
-        for idx, entry in enumerate(midurlinfo):
-            if not isinstance(entry, dict):
-                continue
-            key = entry.get("filename") or (filenames[idx] if idx < len(filenames) else "")
-            if key:
-                entry_by_filename.setdefault(key, entry)
+        # 对位策略 (review 加固): 正常响应每条都回显请求的 filename, 按 filename 精确
+        # 对位 (最可靠, 见 scripts/debug_vkey_batch.py). 若有条目缺 filename 回显, 退化
+        # 为按下标对位 (假设保序), 但要求条数与请求档数**完全一致** —— 否则无法可靠
+        # 对位, 该批保持全部不可用. 避免旧实现"混合回显时 setdefault 撞键 / 无回显时
+        # 把 A 档 purl 错安给 B 档"导致的静默音质错标.
+        dict_entries = [e for e in midurlinfo if isinstance(e, dict)]
+        all_echoed = bool(dict_entries) and all(e.get("filename") for e in dict_entries)
+        if all_echoed:
+            by_filename: dict[str, dict[str, Any]] = {}
+            for entry in dict_entries:
+                by_filename.setdefault(str(entry["filename"]), entry)
+            pairs: list[tuple[str, str, dict[str, Any] | None]] = [
+                (label, filename, by_filename.get(filename))
+                for (label, _), filename in zip(known, filenames, strict=True)
+            ]
+        elif len(dict_entries) == len(filenames):
+            pairs = [
+                (label, filename, entry)
+                for (label, _), filename, entry in zip(known, filenames, dict_entries, strict=True)
+            ]
+        else:
+            logger.debug(
+                "vkey 响应无法对位 (缺 filename 回显且条数不符): mid=%s 请求=%d 响应=%d",
+                mid,
+                len(filenames),
+                len(dict_entries),
+            )
+            return results
 
-        for (label, _), filename in zip(known, filenames, strict=True):
-            entry = entry_by_filename.get(filename)
+        for label, filename, entry in pairs:
             if entry is None:
                 continue
             purl = entry.get("purl", "") or ""
