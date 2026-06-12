@@ -137,6 +137,12 @@ Item {
         if (root.imageSize !== nextSize) {
             root.imageSize = nextSize
             root.refreshBakeScale()
+            bakeScaleSettleTimer.stop()
+        } else {
+            // 桶内 resize 不立即刷新 bakeScale (圆角变 → provider id 变 → 整图重烘焙,
+            // 等于把拖动重载问题原样搬回来); 但快照过期不能永久保留 —— 防抖到拖动
+            // 停止后刷一次, promoteBack 判定同图瞬切, 静止后圆角收敛回精确值
+            bakeScaleSettleTimer.restart()
         }
     }
 
@@ -160,6 +166,16 @@ Item {
         root.refreshBakeScale()
         root.imageRevision += 1
         root.requestCover()
+    }
+
+    // 桶内 resize 的 bakeScale 防抖: 这是"拖动是否结束"的判定窗口, 不是动效时长,
+    // 故意不绑 Motion token (reduceMotion 会把动效时长归零, 防抖归零 = 拖动中
+    // 每像素重烘焙, 闪烁回归)
+    Timer {
+        id: bakeScaleSettleTimer
+
+        interval: 150
+        onTriggered: root.refreshBakeScale()
     }
 
     Connections {

@@ -6,7 +6,9 @@
 2. 圆角按 ``bakeScale`` (纹理/显示拉伸比) 放大烘焙 —— 固定小封面 (列表行 36px)
    不因纹理量化放大而视觉圆角变小;
 3. 同一封面仅切换分辨率桶时换层瞬切 (``animateSwap`` False, 消除交叉淡入的
-   合成透明度凹陷闪烁), 真换封面仍保留交叉淡入 (True).
+   合成透明度凹陷闪烁), 真换封面仍保留交叉淡入 (True);
+4. 桶内 resize 停止后防抖刷新 ``bakeScale`` —— 拖动中圆角快照过期可接受,
+   但静止后必须收敛到当前显示边长对应的精确圆角, 不能永久停在拖动前的值.
 """
 
 from __future__ import annotations
@@ -141,6 +143,33 @@ def test_same_cover_resolution_swap_is_instant(album_art):
     item.setWidth(200)
     item.setHeight(200)
     assert item.property("imageSize") == 256
+    assert _wait_until(album_art.app, lambda: _settled(item))
+    assert item.property("animateSwap") is False
+
+
+def test_bake_scale_refreshes_after_within_bucket_resize_settles(album_art):
+    """桶内拖动 settle 后防抖刷新 bakeScale: 圆角不永久停留在拖动前的过期快照."""
+    url = "https://example.test/cover-a.jpg"
+    _write_cached_cover(album_art.cache, url)
+    item = album_art.item
+    item.setWidth(130)
+    item.setHeight(130)
+    item.setProperty("coverUrl", url)
+    assert _wait_until(album_art.app, lambda: _settled(item))
+    assert item.property("imageSize") == 192
+    # 快照在 130px 打: coverRadius 6 烘成 round(6 * 192/130) = 9
+    assert item.property("bakedRadius") == 9
+
+    # 桶内拖大到 190: imageSize 不变 (拖动中零重载), 圆角暂时仍是过期快照
+    for edge in (140, 155, 170, 190):
+        item.setWidth(edge)
+        item.setHeight(edge)
+    assert item.property("imageSize") == 192
+    assert item.property("bakedRadius") == 9
+
+    # 停止拖动后防抖刷新: bakeScale 收敛到 192/190, 烘焙圆角回到 round(6*1.01) = 6;
+    # 同图换层瞬切 (不交叉淡入), 静止后视觉圆角重新精确
+    assert _wait_until(album_art.app, lambda: item.property("bakedRadius") == 6)
     assert _wait_until(album_art.app, lambda: _settled(item))
     assert item.property("animateSwap") is False
 
