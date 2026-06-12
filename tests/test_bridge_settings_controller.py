@@ -569,6 +569,96 @@ def test_reduce_motion_persists(tmp_path):
     assert reloaded.reduceMotion is True
 
 
+# ============================================================== download settings
+
+
+def test_download_settings_defaults(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    assert controller.downloadQuality == "balanced"
+    assert controller.downloadWithLyric is True
+    assert controller.downloadWithCover is True
+    # 默认目录: <系统音乐目录>/QuaverQ (QStandardPaths 解析, 非空)
+    assert controller.downloadDirectory
+    assert Path(controller.downloadDirectory).name == "QuaverQ"
+
+
+def test_download_settings_persist(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+
+    controller.setDownloadQuality("high")
+    controller.setDownloadDirectory(str(tmp_path / "music"))
+    controller.setDownloadWithLyric(False)
+    controller.setDownloadWithCover(False)
+
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.downloadQuality == "high"
+    assert reloaded.downloadDirectory == str(tmp_path / "music")
+    assert reloaded.downloadWithLyric is False
+    assert reloaded.downloadWithCover is False
+
+
+def test_download_quality_rejects_invalid(tmp_path):
+    settings = _settings(tmp_path / "settings.ini")
+    settings.setValue("download/quality", "master-plus")
+    settings.sync()
+
+    controller = SettingsController(settings=settings)
+    assert controller.downloadQuality == "balanced"
+
+    controller.setDownloadQuality("nonsense")
+    assert controller.downloadQuality == "balanced"
+
+
+def test_download_embed_tags_defaults_on_and_persists(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    assert controller.downloadEmbedTags is True
+
+    controller.setDownloadEmbedTags(False)
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.downloadEmbedTags is False
+
+
+def test_download_quality_accepts_master_tier(tmp_path):
+    # 下载比播放多一档 "master" (臻品母带); 播放音质仍只有三档
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    controller.setDownloadQuality("master")
+    assert controller.downloadQuality == "master"
+
+    controller.setQualityPreference("master")  # 播放侧不认, 回退默认
+    assert controller.qualityPreference == "balanced"
+
+
+def test_download_directory_ignores_blank(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    before = controller.downloadDirectory
+
+    controller.setDownloadDirectory("   ")
+    assert controller.downloadDirectory == before
+
+
+def test_download_directory_strips_file_url_prefix(tmp_path):
+    # QML FolderDialog 返回 file:// URL, setter 需归一为本地路径
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    controller.setDownloadDirectory(f"file://{tmp_path}/music")
+    assert controller.downloadDirectory == str(tmp_path / "music")
+
+
+def test_download_settings_emit_signal_once(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    emitted: list[int] = []
+    controller.settingsChanged.connect(lambda: emitted.append(1))
+
+    controller.setDownloadQuality("high")
+    assert len(emitted) == 1
+    controller.setDownloadQuality("high")  # 同值幂等
+    assert len(emitted) == 1
+
+
 # ------------------------------------------------------------------ 淡入淡出 (issue #11 Stage C1)
 
 

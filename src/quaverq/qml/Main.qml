@@ -40,6 +40,7 @@ ApplicationWindow {
     readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
     readonly property var settingsController: SettingsController
+    readonly property var downloadController: DownloadController
     readonly property var audioDeviceController: AudioDeviceController
     readonly property var systemTheme: SystemTheme
     // qmllint enable unqualified
@@ -139,6 +140,8 @@ ApplicationWindow {
             return qsTr("资料库")
         case "settings":
             return qsTr("设置")
+        case "downloads":
+            return qsTr("下载")
         case "detail":
             return root.currentDetailTitle.length > 0 ? root.currentDetailTitle : qsTr("详情")
         default:
@@ -168,6 +171,8 @@ ApplicationWindow {
             root.resetContent(libraryPageComponent, "library")
         } else if (route === "settings") {
             root.resetContent(settingsPageComponent, "settings")
+        } else if (route === "downloads") {
+            root.resetContent(downloadsPageComponent, "downloads")
         } else {
             root.resetContent(searchPageComponent, "search")
         }
@@ -786,6 +791,7 @@ ApplicationWindow {
             appController: root.appController
             libraryController: root.libraryController
             coverController: root.coverController
+            downloadActiveCount: root.downloadController ? root.downloadController.activeCount : 0
             compact: root.width < 920
             selectedRoute: root.currentTopRoute
             onLoginRequested: loginDialog.open()
@@ -884,6 +890,10 @@ ApplicationWindow {
         }
         onQueueRequested: root.queuePanelOpen = !root.queuePanelOpen
         onNowPlayingRequested: root.openNowPlaying()
+        onDownloadRequested: {
+            if (root.downloadController && root.playerController)
+                root.downloadController.downloadSong(root.playerController.currentSong)
+        }
     }
 
     Component {
@@ -891,6 +901,7 @@ ApplicationWindow {
 
         Views.HomeView {
             appController: root.appController
+            downloadController: root.downloadController
             coverController: root.coverController
             homeController: root.homeController
             libraryController: root.libraryController
@@ -912,6 +923,7 @@ ApplicationWindow {
 
         Views.SearchView {
             serviceController: root.serviceController
+            downloadController: root.downloadController
             playerController: root.playerController
             libraryController: root.libraryController
             coverController: root.coverController
@@ -927,6 +939,7 @@ ApplicationWindow {
 
         Views.LibraryView {
             appController: root.appController
+            downloadController: root.downloadController
             coverController: root.coverController
             libraryController: root.libraryController
             playerController: root.playerController
@@ -944,6 +957,7 @@ ApplicationWindow {
 
         Views.DetailView {
             coverController: root.coverController
+            downloadController: root.downloadController
             detailControllerFactory: root.detailControllerFactory
             playerController: root.playerController
             libraryController: root.libraryController
@@ -967,9 +981,20 @@ ApplicationWindow {
         Views.SettingsView {
             appController: root.appController
             settingsController: root.settingsController
+            downloadController: root.downloadController
             audioDeviceController: root.audioDeviceController
             onLoginRequested: loginDialog.open()
             onLogoutRequested: logoutConfirmDialog.open()
+        }
+    }
+
+    Component {
+        id: downloadsPageComponent
+
+        Views.DownloadsView {
+            downloadController: root.downloadController
+            coverController: root.coverController
+            playerController: root.playerController
         }
     }
 
@@ -1021,6 +1046,10 @@ ApplicationWindow {
                 settingsController: root.settingsController
                 onQueueRequested: root.queuePanelOpen = true
                 onBackRequested: root.closeNowPlaying()
+                onDownloadRequested: {
+                    if (root.downloadController && root.playerController)
+                        root.downloadController.downloadSong(root.playerController.currentSong)
+                }
             }
         }
     }
@@ -1082,6 +1111,7 @@ ApplicationWindow {
             }
         }
     }
+
 
     Dialogs.LoginDialog {
         id: loginDialog
@@ -1158,6 +1188,12 @@ ApplicationWindow {
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
         // 轻提示 (自动跳过无版权曲目等): info 级, 不用错误红
         function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
+    }
+    Connections {
+        target: root.downloadController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+        function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
+        function onDownloadFinished(message) { globalSnackbar.show(message, "success") }
     }
 
     Item {

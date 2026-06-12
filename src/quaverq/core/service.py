@@ -126,6 +126,11 @@ def _cover_url(album_mid: str, size: int = 300) -> str:
     return f"https://y.qq.com/music/photo_new/T002R{size}x{size}M000{album_mid}.jpg"
 
 
+def cover_url_for(album_mid: str, size: int = 300) -> str:
+    """公开别名: 供 bridge 层 (下载封面落盘) 按 album_mid 构造封面 URL."""
+    return _cover_url(album_mid, size)
+
+
 def _singer_avatar_url(singer_mid: str, size: int = 300) -> str:
     """歌手头像 CDN 模板 (T001); 接口偶尔不回 SingerPic, 用 mid 兜底."""
     if not singer_mid:
@@ -267,8 +272,12 @@ class QuaverService:
 
     # vkey 接口 filename 前缀 + 扩展名 (mid 双拼)
     # 见 findings 第五节: filename=`{prefix}{mid}{mid}.{ext}`
+    # MASTER (臻品母带 24Bit/192kHz) / ATMOS_2 (臻品全景声) 仅下载档位使用,
+    # 播放 profile 不含它们 (161MB 级文件拉流浪费带宽; 见 findings 第 4.2 节)
     _QUALITY_FILE: dict[str, tuple[str, str]] = field(
         default_factory=lambda: {
+            "MASTER": ("AI00", "flac"),
+            "ATMOS_2": ("Q000", "flac"),
             "FLAC": ("F000", "flac"),
             "MP3_320": ("M800", "mp3"),
             "OGG_192": ("O600", "ogg"),
@@ -279,7 +288,9 @@ class QuaverService:
     )
 
     # 各档音质偏好的降级顺序 (字符串 label, 不依赖 qqmusic SongFileType)
+    # "master" 档仅供下载侧选择 (SettingsController._DOWNLOAD_QUALITIES)
     _QUALITY_PROFILES = {
+        "master": ("MASTER", "ATMOS_2", "FLAC", "MP3_320", "OGG_192", "MP3_128"),
         "high": ("FLAC", "MP3_320", "OGG_192", "MP3_128"),
         "balanced": ("MP3_320", "OGG_192", "MP3_128"),
         "standard": ("MP3_128", "OGG_192"),

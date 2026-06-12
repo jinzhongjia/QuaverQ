@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from PySide6.QtCore import QUrl
 from PySide6.QtMultimedia import QMediaPlayer
 
 from quaverq.bridge.models import SongListModel, song_to_map
@@ -840,6 +841,85 @@ async def test_network_exception_stops_without_skipping():
     assert controller.errorMessage != ""
     assert notices == []
     assert controller.currentIndex == 0
+
+
+# ============================================================== 本地优先播放 (阶段 9)
+
+
+async def test_plays_local_file_when_resolver_hits(tmp_path):
+    local = tmp_path / "song.mp3"
+    local.write_bytes(b"x")
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller.set_local_resolver(lambda mid: str(local) if mid == "m1" else "")
+    plays: list[bool] = []
+    controller.playRequested.connect(lambda: plays.append(True))
+
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 180})
+
+    # 本地命中: sourceUrl 是 file:// 且完全跳过在线取链
+    assert service.calls == []
+    assert controller.sourceUrl == QUrl.fromLocalFile(str(local)).toString()
+    assert controller.sourceUrl.startswith("file://")
+    assert controller.loading is False
+    assert controller.errorMessage == ""
+    assert plays == [True]
+
+
+async def test_falls_back_online_when_resolver_empty(tmp_path):
+    # resolver 返 "" (没下载 / 文件已失效) → 走在线
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller.set_local_resolver(lambda mid: "")
+
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 180})
+
+    assert [s.mid for s, _ in service.calls] == ["m1"]
+    assert controller.sourceUrl == "https://audio.example.test/m1.mp3"
+
+
+async def test_no_resolver_uses_online():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 180})
+
+    assert [s.mid for s, _ in service.calls] == ["m1"]
+
+
+async def test_local_play_skips_stream_proxy(tmp_path):
+    local = tmp_path / "song.mp3"
+    local.write_bytes(b"x")
+
+    class _FakeProxy:
+        def local_url(self, real: str) -> str:
+            return f"PROXIED:{real}"
+
+    service = _FakeServiceController()
+    controller = PlayerController(service, stream_proxy=_FakeProxy())  # type: ignore[arg-type]
+    controller.set_local_resolver(lambda mid: str(local))
+
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 180})
+
+    # 本地文件不经代理 (代理是给在线 CDN 反风控的)
+    assert controller.sourceUrl.startswith("file://")
+    assert "PROXIED" not in controller.sourceUrl
+    assert service.calls == []
+
+
+async def test_resolver_exception_falls_back_online(tmp_path):
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+
+    def _boom(mid: str) -> str:
+        raise RuntimeError("resolver broke")
+
+    controller.set_local_resolver(_boom)
+
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 180})
+
+    # 解析器异常不应让播放崩, 回退在线
+    assert [s.mid for s, _ in service.calls] == ["m1"]
 
 
 # ------------------------------------------------------------------ 预取下一首 (issue #11 Stage A2)

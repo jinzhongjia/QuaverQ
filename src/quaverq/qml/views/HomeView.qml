@@ -16,6 +16,7 @@ ScrollView {
     property var libraryController
     property var playerController
     property var songDetailController
+    property var downloadController
 
     readonly property bool hasSong: root.playerController
         && root.playerController.currentSong
@@ -489,6 +490,7 @@ ScrollView {
                     coverController: section.coverController
                     songDetailController: section.songDetailController
                     playerController: root.playerController
+                    downloadController: root.downloadController
                     selected: root.playerController
                         && root.playerController.currentSong
                         && root.playerController.currentSong.mid === song.mid

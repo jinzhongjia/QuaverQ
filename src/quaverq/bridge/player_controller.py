@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtMultimedia import QMediaPlayer
 from qasync import asyncSlot
 
@@ -97,6 +97,9 @@ class PlayerController(QObject):
         self._settings_controller = settings_controller
         self._session_state = session_state
         self._stream_proxy = stream_proxy
+        # 本地优先播放: mid -> 已下载且文件仍在的本地路径 (or "")。由 DownloadController
+        # 提供, 延迟注入 (set_local_resolver) 避免与其创建顺序耦合。
+        self._local_resolver: Callable[[str], str] | None = None
         self._queue = PlayQueue()
         self._queue_model = SongListModel(self)
         self._source_url = ""
@@ -131,6 +134,20 @@ class PlayerController(QObject):
         # playRequested 不能覆盖它 (review 发现). play() 清, 新 load 重置.
         self._pause_pending = False
         self._restore_session_snapshot()
+
+    def set_local_resolver(self, resolver: Callable[[str], str] | None) -> None:
+        """注入本地文件解析器 (mid -> 本地路径 or "")，供本地优先播放; 延迟注入。"""
+        self._local_resolver = resolver
+
+    def _resolve_local(self, mid: str) -> str:
+        """查已下载的本地文件路径; 无解析器 / 未命中 / 异常都返 "" (回退在线)。"""
+        if self._local_resolver is None or not mid:
+            return ""
+        try:
+            return self._local_resolver(mid) or ""
+        except Exception:
+            logger.warning("本地文件解析失败 mid=%s", mid)
+            return ""
 
     @Property("QVariant", notify=currentSongChanged)
     def currentSong(self) -> dict[str, Any]:
@@ -618,11 +635,19 @@ class PlayerController(QObject):
         self._set_position_ms(resume_position_ms)
         self.updateDuration(song.duration * 1000)
         self._set_error_message("")
-        song_url = self._take_prefetched(song.mid, self._quality_preference())
+        # 本地优先: 已下载且文件仍在 → 直接播本地文件, 跳过预取消费 / vkey 取链 /
+        # stream_proxy (离线 / 未登录也能播下载好的歌). 文件失效时 resolver 返 ""
+        # → 回落在线流程。淡出等待与挂源走下方公共尾部, 与在线路径行为一致。
+        local_path = self._resolve_local(song.mid)
+        song_url = None
+        if local_path:
+            logger.info("本地播放: %s (mid=%s)", song.name, song.mid)
+        else:
+            song_url = self._take_prefetched(song.mid, self._quality_preference())
         if song_url is not None:
             # 预取命中: 免 vkey 往返, 直接挂源 (issue #11)
             logger.debug("命中预取链接: %s (mid=%s)", song.name, song.mid)
-        else:
+        elif not local_path:
             self._set_loading(True)
             self._set_playback_state("loading")
             try:
@@ -667,7 +692,7 @@ class PlayerController(QObject):
             self._suppress_position_updates = False
             self._set_position_ms(resume_position_ms)
 
-        if song_url is None or not song_url.url:
+        if not local_path and (song_url is None or not song_url.url):
             # None = 服务端明确拒发 (vkey 104003 无版权等), 是单曲属性 → 自动跳下一首,
             # 与官方客户端对灰色歌曲的行为一致. 传输层异常走上面的 except 分支停住报错
             # (断网时绝不能把整个队列"跳"光). 连跳上限防 REPEAT_ALL 全队列不可播时绕圈空转.
@@ -692,10 +717,13 @@ class PlayerController(QObject):
 
         self._url_failure_streak = 0
 
-        playback_url = song_url.url
-        if self._stream_proxy is not None:
-            # 反风控 U2: 经本机回环代理拉流（出网走 curl_cffi 官方指纹 https）
-            playback_url = self._stream_proxy.local_url(playback_url)
+        if local_path:
+            playback_url = QUrl.fromLocalFile(local_path).toString()
+        else:
+            playback_url = song_url.url
+            if self._stream_proxy is not None:
+                # 反风控 U2: 经本机回环代理拉流（出网走 curl_cffi 官方指纹 https）
+                playback_url = self._stream_proxy.local_url(playback_url)
         self._loaded_mid = song.mid
         self._set_source_url(playback_url)
         if resume_position_ms > 0:

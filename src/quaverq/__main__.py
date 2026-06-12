@@ -21,6 +21,7 @@ from .bridge import (
     CoverController,
     CoverImageProvider,
     DetailControllerFactory,
+    DownloadController,
     HomeController,
     LibraryController,
     LyricController,
@@ -32,6 +33,7 @@ from .bridge import (
 from .bridge.stream_proxy import StreamProxy
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
 from .core.cover_cache import CoverCache
+from .core.download_store import DownloadStore
 from .core.home_cache import HomeCache
 from .core.state import SessionState
 from .platform import get_platform
@@ -113,7 +115,9 @@ def _silence_ffmpeg_logs() -> None:
     """把 PySide6 自带 ffmpeg 的全局日志级别置 ``AV_LOG_QUIET`` (-8),
     防止 ``av_dump_format`` 在每次切歌时把 ``Input #0, mp3, ...`` 元数据 + FLAC
     解码器的 ``invalid sync code`` (CDN 音频文件尾部坏帧, 见 player_controller 的
-    流末尾豁免) 直接 printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到).
+    流末尾豁免) 直接 printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到),
+    也压掉解析本地 FLAC 内嵌封面 (mutagen 嵌的 mjpeg) 时的
+    ``unable to decode APP fields`` 警告.
 
     必须在任何 ``QMediaPlayer`` 实例化前调; 否则 ffmpeg 后端首帧 dump 已发生.
     best-effort: 找不到对应平台的 libavutil 时静默跳过, 不影响功能.
@@ -411,10 +415,20 @@ def main() -> None:
         player_controller=player_controller,
     )
     lyric_controller = LyricController(service_controller, player_controller)
+    download_controller = DownloadController(
+        service_controller,
+        settings_controller,
+        store=DownloadStore(CONFIG_DIR / "downloads.json"),
+    )
+    # 本地优先播放: 已下载的歌直接放本地文件 (离线可听), 失效自动回落在线
+    player_controller.set_local_resolver(download_controller.local_path_for)
     # 输出设备路由 (issue #7): QML 侧 audioOutput 在 Component.onCompleted attach 进来
     audio_device_controller = AudioDeviceController(settings_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
     app.aboutToQuit.connect(stream_proxy.stop)
+    # 置位取消事件让在途下载线程尽快退出并清掉 .part (aboutToQuit 可能被 qasync 的
+    # run_until_complete 提前触发, 但 shutdown 幂等且只影响下载任务, 无副作用)
+    app.aboutToQuit.connect(download_controller.shutdown)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
@@ -429,6 +443,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("LyricController", lyric_controller)
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     engine.rootContext().setContextProperty("SettingsController", settings_controller)
+    engine.rootContext().setContextProperty("DownloadController", download_controller)
     engine.rootContext().setContextProperty("AudioDeviceController", audio_device_controller)
     engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
     # 启动同步读盘加载凭据 -> 首帧即登录态 (本地, 不联网, 不需事件循环);

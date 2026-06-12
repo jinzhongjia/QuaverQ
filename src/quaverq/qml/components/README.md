@@ -7,8 +7,8 @@
 | 组件 | 作用 |
 | --- | --- |
 | `Sidebar.qml` | **侧栏**。Logo、登录入口、主导航（发现 / 资料库 / 设置）、「我的歌单」列表。`compact` 折叠态收为图标。 |
-| `NavItem.qml` | 侧栏的单项导航：图标 + 标签 + 选中态背景；点击发 `activated()`。 |
-| `PlayerBar.qml` | **底部播放栏**（最大组件）。封面缩略 + 标题/歌手 + 喜欢、进度条 + 时长、播放模式/上一首/播放暂停/下一首 + 对称第 5 槽（让播放键正压进度条中轴）、音量、队列开关、跳「正在播放」页。**音量图标可点**：切静音/恢复（`muted` 属性 + `muteToggleRequested()` 信号，图标 volume ↔ volume-mute 切换，静音时滑条填充/手柄降权 35%；拖滑条即解除静音）。窗口 <920px 时右区（词/队列/音量）收纳进第 5 槽的 "⋯" 溢出菜单（`OverflowRow` + 音量滑条；队列非空时按钮带绿点），不再整组消失。 |
+| `NavItem.qml` | 侧栏的单项导航：图标 + 标签 + 选中态背景；点击发 `activated()`。`badgeCount > 0` 时右上角显示数字角标（compact 浮图标右上、展开放行右端居中），下载导航项绑 `downloadController.activeCount` 显示进行中任务数。 |
+| `PlayerBar.qml` | **底部播放栏**（最大组件）。封面缩略 + 标题/歌手 + 喜欢、进度条 + 时长、播放模式/上一首/播放暂停/下一首 + 对称第 5 槽（让播放键正压进度条中轴）、音量、下载当前歌曲（`downloadRequested()` 信号，Main 接 `downloadController.downloadSong(currentSong)`，无歌时禁用）、队列开关、跳「正在播放」页。**音量图标可点**：切静音/恢复（`muted` 属性 + `muteToggleRequested()` 信号，图标 volume ↔ volume-mute 切换，静音时滑条填充/手柄降权 35%；拖滑条即解除静音）。窗口 <920px 时右区（词/队列/音量）收纳进第 5 槽的 "⋯" 溢出菜单（`OverflowRow` + 音量滑条；队列非空时按钮带绿点），不再整组消失。 |
 
 ## 列表与卡片
 
@@ -18,7 +18,7 @@
 | `SongRow.qml` | 曲目列表行：序号、封面、歌名 + 歌手、专辑、时长、喜欢按钮、单曲操作。 |
 | `QueueRow.qml` | 播放队列行：高亮当前播放项，提供「定位到这首」和「从队列移除」。 |
 | `AlbumArt.qml` | 通用专辑封面：`active` 时附 hover 播放浮层，`compact` 切小尺寸，`circular` 切圆形（艺人用），失败 / 未加载时显示占位符。封面 URL 通过 `coverController` 间接走 `image://covers/...`。`retainOnSwitch: true` 时换 URL 期间保留旧图直到新图就绪（详情头图"卡片图 → 接口高清图"无缝升级用）；列表行 delegate 复用场景保持默认 false，立即回占位避免串图。双缓冲换层记账用自维护的 `frontSource/backSource` 字符串——**不要**反读 `Image.source` 比较（`image://` URL 会被 QUrl 规范化导致比对失效）。**防 resize 闪烁**：`imageSize` 量化到 64px 桶（桶内拖窗口只拉伸纹理零重载，跨桶才换 provider id），圆角按 `bakeScale`（纹理/显示拉伸比快照）放大烘焙保持视觉半径——桶内拖动时快照故意不跟手（跟手 = 每像素重烘焙重载），停止 150ms 后防抖刷新一次（`bakeScaleSettleTimer`）同图瞬切收敛回精确圆角，不会永久停在拖动前的过期值；同一封面仅切分辨率桶时换层瞬切（`animateSwap` false），真换封面才 120ms 交叉淡入——两层半透明交叉的中间帧合成不透明度 < 1 会透底色闪一下，内容相同时必须瞬切。契约测试见 `tests/test_qml_album_art.py`。 |
-| `SongRow.qml` | 歌曲行（64px）：点击播放、右键 / ⋯ 弹同一个操作菜单（播放 / 下一首播放 / 添加到待播列表 / 收藏 / 查看歌手 / 查看专辑 / 歌曲详情），需注入 `playerController`（插队/追加走 `playSongNext`/`appendToQueue`）。 |
+| `SongRow.qml` | 歌曲行（64px）：点击播放、右键 / ⋯ 弹同一个操作菜单（播放 / 下一首播放 / 添加到待播列表 / **下载**（嵌套子菜单：默认音质 + 标准 128K / 高品质 320K / 无损 FLAC，走注入的 `downloadController`）/ 收藏 / 查看歌手 / 查看专辑 / 歌曲详情），需注入 `playerController`（插队/追加走 `playSongNext`/`appendToQueue`）。 |
 | `QueueRow.qml` | 待播列表行（56px）：hover 时时长让位给 × 移除按钮（`removeRequested(row)`）；当前曲带 3px 绿条 + ♪ 标记 + "播放中"徽章。 |
 
 ## 输入与反馈

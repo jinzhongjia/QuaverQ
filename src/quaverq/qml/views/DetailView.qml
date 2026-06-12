@@ -23,6 +23,7 @@ ColumnLayout {
     property var playerController
     property var libraryController
     property var songDetailController
+    property var downloadController
     // 2.2: 歌手 tab 索引. 非 artist 时永远 0. 每个 DetailView 实例独立 (pop 回栈时保留).
     property int currentTab: 0
 
@@ -291,6 +292,39 @@ ColumnLayout {
                     }
 
                     Button {
+                        id: downloadAllButton
+
+                        Layout.preferredWidth: 112
+                        Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+                        enabled: root.hasSongs && !root.loading
+                        text: qsTr("下载全部")
+                        Accessible.name: text
+                        onClicked: {
+                            if (root.downloadController && root.detailController)
+                                root.downloadController.downloadFromModel(root.detailController.songModel)
+                        }
+
+                        contentItem: Label {
+                            text: downloadAllButton.text
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            color: downloadAllButton.enabled
+                                ? ThemeTokens.Palette.surfaceText
+                                : ThemeTokens.Palette.stateDisabled
+                            font.pixelSize: ThemeTokens.TypeScale.bodySm
+                            font.weight: ThemeTokens.TypeScale.medium
+                        }
+
+                        background: Rectangle {
+                            radius: ThemeTokens.Spacing.radiusPill
+                            color: downloadAllButton.down
+                                ? ThemeTokens.Palette.statePressed
+                                : downloadAllButton.hovered && downloadAllButton.enabled ? ThemeTokens.Palette.stateHover : "transparent"
+                            border.color: ThemeTokens.Palette.outline
+                        }
+                    }
+
+                    Button {
                         id: searchButton
 
                         Layout.preferredWidth: 112
@@ -452,6 +486,7 @@ ColumnLayout {
                 coverController: root.coverController
                 songDetailController: root.songDetailController
                 playerController: root.playerController
+                downloadController: root.downloadController
                 selected: root.playerController
                     && root.playerController.currentSong
                     && root.playerController.currentSong.mid === song.mid

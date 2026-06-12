@@ -39,6 +39,8 @@ _NUITKA_DIST_DIRNAME = "quaverq_entry.dist"
 _FORCE_INCLUDE_PACKAGES = (
     "quaverq",
     "curl_cffi",
+    # mutagen 在 downloader.embed_tags 内按扩展名惰性 import 子模块, 整包显式包含
+    "mutagen",
     "niquests",
     "urllib3",
     "urllib3_future",

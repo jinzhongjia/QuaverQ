@@ -14,6 +14,7 @@ ColumnLayout {
     property var libraryController
     property var coverController
     property var songDetailController
+    property var downloadController
     property string routeName: "search"
 
     signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
@@ -143,6 +144,7 @@ ColumnLayout {
                     coverController: root.coverController
                     songDetailController: root.songDetailController
                     playerController: root.playerController
+                    downloadController: root.downloadController
                     onActivated: function(songData, row) {
                         if (root.playerController)
                             root.playerController.playFromModel(root.serviceController.songResults, row)

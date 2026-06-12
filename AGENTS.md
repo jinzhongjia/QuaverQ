@@ -200,6 +200,7 @@ LLM 约定：
 - **`dbus-next>=0.2.3`** (**仅 Linux**, `sys_platform == "linux"` marker) — 纯 Python 异步 D-Bus 实现, 用于 MPRIS2 (媒体键 / GNOME 媒体控件 / KDE 通知面板). 服务端通过 `__annotations__` 读取 D-Bus 签名字符串 (`"b"` / `"s"` / `"a{sv}"` 等), 不是 Python 类型注解, 不要"修正" (见 `src/quaverq/core/mpris.py` 与"禁止动 MPRIS D-Bus 注解形式"). Windows / macOS 走各自原生 API, 不依赖此包.
 - **`platformdirs>=4.0`** — 跨平台 config / cache 目录解析. Linux 走 XDG (`~/.config/quaverq`, `~/.cache/quaverq`), Windows 走 `%APPDATA%\quaverq` + `%LOCALAPPDATA%\quaverq\Cache`, macOS 走 `~/Library/Application Support/quaverq` + `~/Library/Caches/quaverq`. **业务代码只用 `from quaverq.config import CONFIG_DIR, CACHE_DIR`**, 不直接 `os.path.expanduser("~/.config/...")`.
 - **`keyring>=24.0`** — 跨平台凭据存储. 自动选平台后端: Linux Secret Service (gnome-keyring / kwallet) / Windows Credential Manager / macOS Keychain. 服务名 `QuaverQ`, 用户名 `credential`, 内容为 JSON blob. 不再有文件兜底——keyring 不可用 (headless / 无 D-Bus) 时凭据不持久化, 用户重启需重新扫码.
+- **`mutagen>=1.47`** — 音频标签读写 (纯 Python). 下载功能用它把 标题/歌手/专辑/封面 嵌进产物 (mp3 走 ID3v2, flac 走 Vorbis comment + Picture, ogg 仅文字 tag); GPL-2+ 与本项目 GPL-3+ 兼容. 见 `core/downloader.py` 的 `embed_tags`.
 - **`tomli-w>=1.0`** — TOML 写入. 读侧用 Python 3.11+ 内置 `tomllib` (3.10 fallback 到 `tomli`), 写 `config.toml` 用 `tomli_w.dump` (路径走 `CONFIG_DIR`).
 
 ### 开发依赖 (`[dependency-groups] dev`)
@@ -295,7 +296,7 @@ LLM 约定：
 ### 整体布局 (三段式)
 
 - **顶栏 (`headerBar`, height = `Spacing.headerHeight = 56`)**: 自绘无边框标题栏. 从左到右: 返回键 → 品牌 logo (28x28 圆角矩形 + ♪) + 标题 (≥920px 才显示文字) → `SearchField` (`maxWidth=500`, `fillWidth`) → 最小化 / 最大化 / 关闭按钮. 拖动靠 `DragHandler` + `startSystemMove()`, 不接系统装饰. 见 `qml/Main.qml`.
-- **主体 (RowLayout, `spacing=0`)**: 左 `Sidebar` (展开 240px / 紧凑 64px) + 右 `StackView contentStack` (路由切换走 push / clear, 不用 Loader); `StackView` 装 `views/HomeView`, `SearchView`, `LibraryView`, `DetailView`, `NowPlayingView`, `SettingsView`.
+- **主体 (RowLayout, `spacing=0`)**: 左 `Sidebar` (展开 240px / 紧凑 64px) + 右 `StackView contentStack` (路由切换走 push / clear, 不用 Loader); `StackView` 装 `views/HomeView`, `SearchView`, `LibraryView`, `DetailView`, `NowPlayingView`, `SettingsView`, `DownloadsView`.
 - **底栏 (`PlayerBar`, height = `Spacing.playerBarHeight = 104`)**: 全宽常驻播放器, 封面 + 元信息 + 控件 + 进度 + 音量 + 队列 / 正在播放入口. 底部圆角与窗口圆角联动 (`bottomCornerRadius`).
 - **浮层**: `QueuePanel` (`Loader` 首开常驻, 右抽屉 220ms 自右滑入, z=10, 宽 `min(360, root.width - 96)`), `LoginDialog` (二维码登录, z 默认), `Banner` (顶栏下警告条, z=970), `Snackbar` (居中提示, z=980), 窗口边框 / resize handle 分别 z=990 / z=1000.
 

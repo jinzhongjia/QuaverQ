@@ -13,6 +13,7 @@ Rectangle {
     property var appController
     property var libraryController
     property var coverController
+    property int downloadActiveCount: 0
 
     signal loginRequested()
     signal routeRequested(string route)
@@ -70,7 +71,8 @@ Rectangle {
                 model: [
                     { route: "home", label: qsTr("发现"), icon: "../icons/home.svg" },
                     { route: "search", label: qsTr("搜索"), icon: "../icons/search.svg" },
-                    { route: "library", label: qsTr("资料库"), icon: "../icons/library.svg" }
+                    { route: "library", label: qsTr("资料库"), icon: "../icons/library.svg" },
+                    { route: "downloads", label: qsTr("下载"), icon: "../icons/download.svg" }
                 ]
 
                 delegate: NavItem {
@@ -81,6 +83,7 @@ Rectangle {
                     iconSource: modelData.icon
                     compact: root.compact
                     selected: modelData.route === root.selectedRoute
+                    badgeCount: modelData.route === "downloads" ? root.downloadActiveCount : 0
                     onActivated: root.routeRequested(modelData.route)
                 }
             }

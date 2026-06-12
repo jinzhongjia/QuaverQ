@@ -38,6 +38,7 @@ Rectangle {
     signal modeRequested(string mode)
     signal queueRequested()
     signal nowPlayingRequested()
+    signal downloadRequested()
 
     height: ThemeTokens.Spacing.playerBarHeight
     radius: root.bottomCornerRadius
@@ -371,6 +372,16 @@ Rectangle {
 
                                 OverflowRow {
                                     Layout.fillWidth: true
+                                    label: qsTr("下载当前歌曲")
+                                    enabled: root.hasSong
+                                    onActivated: {
+                                        overflowPopup.close()
+                                        root.downloadRequested()
+                                    }
+                                }
+
+                                OverflowRow {
+                                    Layout.fillWidth: true
                                     label: qsTr("歌词")
                                     enabled: root.hasSong
                                     onActivated: {
@@ -524,11 +535,20 @@ Rectangle {
 
         // ---------------------------------------------------------- RIGHT zone
         RowLayout {
-            Layout.preferredWidth: root.width >= 920 ? 232 : 0
-            Layout.maximumWidth: root.width >= 920 ? 232 : 0
+            Layout.preferredWidth: root.width >= 920 ? 276 : 0
+            Layout.maximumWidth: root.width >= 920 ? 276 : 0
             Layout.fillHeight: true
             visible: root.width >= 920
             spacing: ThemeTokens.Spacing.s2
+
+            IconButton {
+                text: qsTr("下载当前歌曲")
+                iconSource: "../icons/download.svg"
+                iconSize: 18
+                iconColor: ThemeTokens.Palette.surfaceVariantText
+                enabled: root.hasSong
+                onClicked: root.downloadRequested()
+            }
 
             IconButton {
                 text: qsTr("歌词")

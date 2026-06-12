@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Property, QObject, QSettings, Signal, Slot
+from PySide6.QtCore import Property, QObject, QSettings, QStandardPaths, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication
 
 from quaverq.core.cover_cache import CoverCache
@@ -34,11 +34,28 @@ _LYRIC_FONT_SIZE_MIN = 12
 _LYRIC_FONT_SIZE_MAX = 48
 _LYRIC_FONT_SIZE_DEFAULT = 22
 
+# 下载音质 = 播放三档 + "master" (臻品母带优先, MASTER→ATMOS_2→FLAC→... 降级);
+# master 不开放给播放 (161MB 级文件拉流浪费带宽)
+_DOWNLOAD_QUALITIES = {"standard", "balanced", "high", "master"}
+
 # 切歌淡入淡出 (issue #11): 200ms 以下听感同硬切, 2s 以上拖沓; 默认 500ms 对齐
 # QQ 官方桌面端的衔接节奏. 这是音频包络时长, 与 reduceMotion (视觉动效) 无关.
 _FADE_DURATION_MIN_MS = 200
 _FADE_DURATION_MAX_MS = 2000
 _FADE_DURATION_DEFAULT_MS = 500
+
+
+def _default_download_dir() -> str:
+    """默认下载目录: <系统音乐目录>/QuaverQ.
+
+    下载产物是用户文档, 不能放会被 LRU 清理的 CACHE_DIR; platformdirs 没有
+    "音乐目录"概念, 用 Qt 的 QStandardPaths (Linux ~/Music, Windows 用户音乐库).
+    极端环境 (headless) 解析为空时回退 ~/Music.
+    """
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MusicLocation)
+    if not base:
+        base = str(Path.home() / "Music")
+    return str(Path(base) / "QuaverQ")
 
 
 def _normalize_hex_color(raw: str | None) -> str | None:
@@ -92,6 +109,18 @@ class SettingsController(QObject):
             "balanced",
             _QUALITY_PREFERENCES,
         )
+        self._download_quality = self._read_str(
+            "download/quality",
+            "balanced",
+            _DOWNLOAD_QUALITIES,
+        )
+        self._download_directory = (
+            str(self._settings.value("download/directory", "") or "").strip()
+            or _default_download_dir()
+        )
+        self._download_with_lyric = self._read_bool("download/withLyric", True)
+        self._download_with_cover = self._read_bool("download/withCover", True)
+        self._download_embed_tags = self._read_bool("download/embedTags", True)
         self._fade_enabled = self._read_bool("playback/fadeEnabled", True)
         self._fade_duration_ms = self._read_int_clamped(
             "playback/fadeDurationMs",
@@ -175,6 +204,26 @@ class SettingsController(QObject):
     @Property(str, notify=settingsChanged)
     def qualityPreference(self) -> str:
         return self._quality_preference
+
+    @Property(str, notify=settingsChanged)
+    def downloadQuality(self) -> str:
+        return self._download_quality
+
+    @Property(str, notify=settingsChanged)
+    def downloadDirectory(self) -> str:
+        return self._download_directory
+
+    @Property(bool, notify=settingsChanged)
+    def downloadWithLyric(self) -> bool:
+        return self._download_with_lyric
+
+    @Property(bool, notify=settingsChanged)
+    def downloadWithCover(self) -> bool:
+        return self._download_with_cover
+
+    @Property(bool, notify=settingsChanged)
+    def downloadEmbedTags(self) -> bool:
+        return self._download_embed_tags
 
     @Property(bool, notify=settingsChanged)
     def fadeEnabled(self) -> bool:
@@ -295,6 +344,61 @@ class SettingsController(QObject):
             return
         self._quality_preference = value
         self._settings.setValue("playback/qualityPreference", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str)
+    def setDownloadQuality(self, quality: str) -> None:
+        value = quality if quality in _DOWNLOAD_QUALITIES else "balanced"
+        if self._download_quality == value:
+            return
+        self._download_quality = value
+        self._settings.setValue("download/quality", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str)
+    def setDownloadDirectory(self, directory: str) -> None:
+        value = str(directory or "").strip()
+        if value.startswith("file:"):
+            # QML FolderDialog 给的是 file:// URL, 归一为本地路径
+            value = QUrl(value).toLocalFile()
+        if not value:
+            return
+        if self._download_directory == value:
+            return
+        self._download_directory = value
+        self._settings.setValue("download/directory", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setDownloadWithLyric(self, enabled: bool) -> None:
+        value = bool(enabled)
+        if self._download_with_lyric == value:
+            return
+        self._download_with_lyric = value
+        self._settings.setValue("download/withLyric", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setDownloadWithCover(self, enabled: bool) -> None:
+        value = bool(enabled)
+        if self._download_with_cover == value:
+            return
+        self._download_with_cover = value
+        self._settings.setValue("download/withCover", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setDownloadEmbedTags(self, enabled: bool) -> None:
+        value = bool(enabled)
+        if self._download_embed_tags == value:
+            return
+        self._download_embed_tags = value
+        self._settings.setValue("download/embedTags", value)
         self._settings.sync()
         self.settingsChanged.emit()
 

@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../dialogs" as Dialogs
 import "../Theme" as ThemeTokens
@@ -12,6 +13,7 @@ ScrollView {
     property string routeName: "settings"
     property var appController
     property var settingsController
+    property var downloadController
     property var audioDeviceController
 
     signal loginRequested()
@@ -134,6 +136,76 @@ ScrollView {
                 onValueRequested: function(value) {
                     if (root.audioDeviceController)
                         root.audioDeviceController.selectDevice(value)
+                }
+            }
+        }
+
+        SettingsSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            title: qsTr("下载")
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("下载音质")
+                model: [qsTr("标准（128K）"), qsTr("高品质（320K）"), qsTr("无损（FLAC 优先）"), qsTr("臻品母带（优先）")]
+                values: ["standard", "balanced", "high", "master"]
+                currentValue: root.settingsController ? root.settingsController.downloadQuality : "balanced"
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setDownloadQuality(value)
+                }
+            }
+
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("下载目录")
+                value: root.settingsController ? root.settingsController.downloadDirectory : ""
+                actionText: qsTr("更改")
+                onActionRequested: downloadDirDialog.open()
+            }
+
+            SwitchRow {
+                Layout.fillWidth: true
+                title: qsTr("同时下载歌词（.lrc）")
+                checked: root.settingsController ? root.settingsController.downloadWithLyric : true
+                onToggleRequested: function(newValue) {
+                    if (root.settingsController)
+                        root.settingsController.setDownloadWithLyric(newValue)
+                }
+            }
+
+            SwitchRow {
+                Layout.fillWidth: true
+                title: qsTr("同时下载封面（.jpg）")
+                checked: root.settingsController ? root.settingsController.downloadWithCover : true
+                onToggleRequested: function(newValue) {
+                    if (root.settingsController)
+                        root.settingsController.setDownloadWithCover(newValue)
+                }
+            }
+
+            SwitchRow {
+                Layout.fillWidth: true
+                title: qsTr("嵌入歌曲标签")
+                value: qsTr("把标题、歌手、专辑与封面写进音频文件")
+                checked: root.settingsController ? root.settingsController.downloadEmbedTags : true
+                onToggleRequested: function(newValue) {
+                    if (root.settingsController)
+                        root.settingsController.setDownloadEmbedTags(newValue)
+                }
+            }
+
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("已下载文件")
+                value: qsTr("在文件管理器中查看下载目录")
+                actionText: qsTr("打开")
+                showSeparator: false
+                onActionRequested: {
+                    if (root.downloadController)
+                        root.downloadController.openDownloadDirectory()
                 }
             }
         }
@@ -401,6 +473,17 @@ ScrollView {
                 showSeparator: false
                 onActionRequested: Qt.openUrlExternally("https://github.com/jinzhongjia/QuaverQ")
             }
+        }
+    }
+
+    // 系统目录选择器: 返回 file:// URL, SettingsController.setDownloadDirectory 内归一为本地路径
+    FolderDialog {
+        id: downloadDirDialog
+
+        title: qsTr("选择下载目录")
+        onAccepted: {
+            if (root.settingsController)
+                root.settingsController.setDownloadDirectory(selectedFolder.toString())
         }
     }
 

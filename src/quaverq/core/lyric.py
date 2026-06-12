@@ -105,6 +105,46 @@ def parse_lrc(raw: str) -> list[LyricLine]:
     return result
 
 
+def _format_lrc_timestamp(ms: int) -> str:
+    """毫秒 -> ``[mm:ss.xx]`` (厘秒向下取整, 分钟不进位到小时, 长曲自然超两位)."""
+    ms = max(0, ms)
+    minutes, rem = divmod(ms, 60_000)
+    seconds, milli = divmod(rem, 1000)
+    return f"[{minutes:02d}:{seconds:02d}.{milli // 10:02d}]"
+
+
+def to_lrc(
+    lyric: Lyric | None,
+    *,
+    title: str = "",
+    artist: str = "",
+    album: str = "",
+    with_translation: bool = True,
+) -> str:
+    """把解析后的 Lyric 序列化为标准 LRC 文本 (用于下载落盘).
+
+    QRC 逐字行只取行级时间戳 (外部播放器普遍只认逐行 LRC); 翻译按 QQ 双行风格
+    以同时间戳紧随原文行. 空歌词返回空串 (调用方据此跳过写盘).
+    """
+    if lyric is None or not lyric.lines:
+        return ""
+
+    out: list[str] = []
+    if title:
+        out.append(f"[ti:{title}]")
+    if artist:
+        out.append(f"[ar:{artist}]")
+    if album:
+        out.append(f"[al:{album}]")
+
+    for line in lyric.lines:
+        ts = _format_lrc_timestamp(line.timestamp_ms)
+        out.append(f"{ts}{line.text}")
+        if with_translation and line.translation:
+            out.append(f"{ts}{line.translation}")
+    return "\n".join(out) + "\n"
+
+
 @dataclass
 class LyricSync:
     """根据播放位置定位当前行 + 提供窗口视图.
