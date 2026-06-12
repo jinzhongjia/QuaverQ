@@ -70,6 +70,76 @@ def test_settings_controller_reports_and_clears_cover_cache(tmp_path):
     assert cache.size_bytes() == 0
 
 
+# ============================================================== audio output device
+
+
+def test_audio_output_device_defaults_to_follow_system(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    assert controller.audioOutputDeviceId == ""
+    assert controller.audioOutputDeviceLabel == ""
+
+
+def test_set_audio_output_device_persists(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+
+    controller.setAudioOutputDevice("c2luay1hbHNh", "USB 耳机")
+
+    assert controller.audioOutputDeviceId == "c2luay1hbHNh"
+    assert controller.audioOutputDeviceLabel == "USB 耳机"
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.audioOutputDeviceId == "c2luay1hbHNh"
+    assert reloaded.audioOutputDeviceLabel == "USB 耳机"
+
+
+def test_set_audio_output_device_emits_once_and_skips_same_value(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    seen = []
+    controller.settingsChanged.connect(lambda: seen.append(1))
+
+    controller.setAudioOutputDevice("abc", "Speaker")
+    controller.setAudioOutputDevice("abc", "Speaker")
+
+    assert len(seen) == 1
+
+
+def test_set_audio_output_device_label_only_change_emits(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    controller.setAudioOutputDevice("abc", "Speaker")
+    seen = []
+    controller.settingsChanged.connect(lambda: seen.append(1))
+
+    controller.setAudioOutputDevice("abc", "Speaker (HDMI)")
+
+    assert len(seen) == 1
+    assert controller.audioOutputDeviceLabel == "Speaker (HDMI)"
+
+
+def test_set_audio_output_device_back_to_default_clears_label(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    controller.setAudioOutputDevice("abc", "Speaker")
+
+    controller.setAudioOutputDevice("", "残留名字不应保存")
+
+    assert controller.audioOutputDeviceId == ""
+    assert controller.audioOutputDeviceLabel == ""
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.audioOutputDeviceId == ""
+    assert reloaded.audioOutputDeviceLabel == ""
+
+
+def test_set_audio_output_device_normalizes_none(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    controller.setAudioOutputDevice("abc", "Speaker")
+
+    controller.setAudioOutputDevice(None, None)
+
+    assert controller.audioOutputDeviceId == ""
+    assert controller.audioOutputDeviceLabel == ""
+
+
 # ============================================================== cover cache cap
 
 
