@@ -12,6 +12,7 @@ ScrollView {
     property string routeName: "settings"
     property var appController
     property var settingsController
+    property var audioDeviceController
 
     signal loginRequested()
     signal logoutRequested()
@@ -92,10 +93,22 @@ ScrollView {
                 model: [qsTr("标准"), qsTr("均衡"), qsTr("高品质")]
                 values: ["standard", "balanced", "high"]
                 currentValue: root.settingsController ? root.settingsController.qualityPreference : "balanced"
-                showSeparator: false
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setQualityPreference(value)
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("输出设备")
+                model: root.audioDeviceController ? root.audioDeviceController.deviceLabels : [qsTr("跟随系统默认")]
+                values: root.audioDeviceController ? root.audioDeviceController.deviceValues : [""]
+                currentValue: root.settingsController ? root.settingsController.audioOutputDeviceId : ""
+                showSeparator: false
+                onValueRequested: function(value) {
+                    if (root.audioDeviceController)
+                        root.audioDeviceController.selectDevice(value)
                 }
             }
         }

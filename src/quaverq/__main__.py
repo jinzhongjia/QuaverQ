@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from . import diagnostics, diagnostics_crash, resources
 from .bridge import (
     AppController,
+    AudioDeviceController,
     CoverController,
     CoverImageProvider,
     DetailControllerFactory,
@@ -379,6 +380,8 @@ def main() -> None:
         player_controller=player_controller,
     )
     lyric_controller = LyricController(service_controller, player_controller)
+    # 输出设备路由 (issue #7): QML 侧 audioOutput 在 Component.onCompleted attach 进来
+    audio_device_controller = AudioDeviceController(settings_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
     app.aboutToQuit.connect(stream_proxy.stop)
 
@@ -395,6 +398,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("LyricController", lyric_controller)
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     engine.rootContext().setContextProperty("SettingsController", settings_controller)
+    engine.rootContext().setContextProperty("AudioDeviceController", audio_device_controller)
     engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
     # 启动同步读盘加载凭据 -> 首帧即登录态 (本地, 不联网, 不需事件循环);
     # connect + 网络有效性校验由后台 start() 完成. 让私有区块也能在 QML 绑定前用缓存填好.
