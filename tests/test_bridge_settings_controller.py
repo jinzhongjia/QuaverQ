@@ -9,6 +9,9 @@ from PySide6.QtCore import QSettings
 
 from quaverq.bridge.settings_controller import (
     _DEFAULT_COVER_MAX_BYTES,
+    _FADE_DURATION_DEFAULT_MS,
+    _FADE_DURATION_MAX_MS,
+    _FADE_DURATION_MIN_MS,
     _LYRIC_FONT_SIZE_DEFAULT,
     _LYRIC_FONT_SIZE_MAX,
     _LYRIC_FONT_SIZE_MIN,
@@ -494,3 +497,57 @@ def test_reduce_motion_persists(tmp_path):
 
     reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
     assert reloaded.reduceMotion is True
+
+
+# ------------------------------------------------------------------ 淡入淡出 (issue #11 Stage C1)
+
+
+def test_fade_defaults(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    assert controller.fadeEnabled is True
+    assert controller.fadeDurationMs == _FADE_DURATION_DEFAULT_MS
+
+
+def test_fade_settings_persist(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+
+    controller.setFadeEnabled(False)
+    controller.setFadeDurationMs(1200)
+
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.fadeEnabled is False
+    assert reloaded.fadeDurationMs == 1200
+
+
+def test_fade_duration_clamped_to_range(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    controller.setFadeDurationMs(50)
+    assert controller.fadeDurationMs == _FADE_DURATION_MIN_MS
+    controller.setFadeDurationMs(99999)
+    assert controller.fadeDurationMs == _FADE_DURATION_MAX_MS
+
+
+def test_fade_duration_garbage_persisted_value_falls_back(tmp_path):
+    settings = _settings(tmp_path / "settings.ini")
+    settings.setValue("playback/fadeDurationMs", "not-a-number")
+    settings.sync()
+
+    controller = SettingsController(settings=settings)
+    assert controller.fadeDurationMs == _FADE_DURATION_DEFAULT_MS
+
+
+def test_fade_setters_skip_signal_on_same_value(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    events: list[bool] = []
+    controller.settingsChanged.connect(lambda: events.append(True))
+
+    controller.setFadeEnabled(True)  # 与默认同值 -> 不发信号
+    controller.setFadeDurationMs(_FADE_DURATION_DEFAULT_MS)
+    assert events == []
+
+    controller.setFadeEnabled(False)
+    controller.setFadeDurationMs(800)
+    assert len(events) == 2

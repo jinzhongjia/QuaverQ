@@ -30,7 +30,8 @@ def _stub(svc: QuaverService, payload):
 
 
 # ------------------------------------------------------------------ vkey 播放链
-# _try_bypass_url 返回 (url, vkey_result 码): 失败时码随日志透出 (104003=无版权/不可下发),
+# _try_bypass_urls 批量取链 (issue #11 Stage A1): 全部档位单请求, 按档返回
+# (url, vkey_result 码); 失败时码随日志透出 (104003=无版权/不可下发),
 # 排查不可播曲目不用再写探针.
 
 
@@ -38,37 +39,50 @@ async def test_vkey_happy_path_builds_cdn_url():
     svc = _svc()
     _stub(svc, {"midurlinfo": [{"purl": "M500abcabc.mp3?vkey=XYZ"}]})
 
-    url, code = await svc._try_bypass_url("abc", "MP3_128")
-    assert url == "https://isure.stream.qqmusic.qq.com/M500abcabc.mp3?vkey=XYZ"
-    assert code is None
+    result = await svc._try_bypass_urls("abc", ("MP3_128",))
+    assert result["MP3_128"] == (
+        "https://isure.stream.qqmusic.qq.com/M500abcabc.mp3?vkey=XYZ",
+        None,
+    )
 
 
 async def test_vkey_unknown_quality_label_short_circuits():
     svc = _svc()
     calls = _stub(svc, {"midurlinfo": [{"purl": "x"}]})
 
-    assert await svc._try_bypass_url("abc", "APE_LOSSLESS") == (None, None)
-    # 未知档位不应发请求
+    assert await svc._try_bypass_urls("abc", ("APE_LOSSLESS",)) == {}
+    # 全部档位未知时不应发请求
     assert calls == []
 
 
-async def test_vkey_none_response_returns_none():
+async def test_vkey_unknown_label_filtered_from_batch():
+    # 混入未知档位: 只为已知档拼 filename, 未知档不出现在结果里
+    svc = _svc()
+    calls = _stub(svc, {"midurlinfo": [{"purl": "M500abcabc.mp3?vkey=XYZ"}]})
+
+    result = await svc._try_bypass_urls("abc", ("APE_LOSSLESS", "MP3_128"))
+    assert calls[0][2]["filename"] == ["M500abcabc.mp3"]
+    assert "APE_LOSSLESS" not in result
+    assert result["MP3_128"][0] is not None
+
+
+async def test_vkey_none_response_returns_none_per_label():
     svc = _svc()
     _stub(svc, None)
-    assert await svc._try_bypass_url("abc", "MP3_128") == (None, None)
+    assert await svc._try_bypass_urls("abc", ("MP3_128",)) == {"MP3_128": (None, None)}
 
 
-async def test_vkey_missing_midurlinfo_returns_none():
+async def test_vkey_missing_midurlinfo_returns_none_per_label():
     svc = _svc()
     _stub(svc, {"servercheck": 1})
-    assert await svc._try_bypass_url("abc", "MP3_128") == (None, None)
+    assert await svc._try_bypass_urls("abc", ("MP3_128",)) == {"MP3_128": (None, None)}
 
 
 async def test_vkey_non_dict_entry_returns_none():
     # 服务端字段漂移: midurlinfo 元素不是 dict 时不能 TypeError
     svc = _svc()
     _stub(svc, {"midurlinfo": ["oops"]})
-    assert await svc._try_bypass_url("abc", "MP3_128") == (None, None)
+    assert await svc._try_bypass_urls("abc", ("MP3_128",)) == {"MP3_128": (None, None)}
 
 
 async def test_vkey_empty_purl_returns_result_code():
@@ -76,16 +90,22 @@ async def test_vkey_empty_purl_returns_result_code():
     svc = _svc()
     _stub(svc, {"midurlinfo": [{"purl": "", "result": 104003}]})
 
-    url, code = await svc._try_bypass_url("abc", "FLAC")
-    assert url is None
-    assert code == 104003
+    assert await svc._try_bypass_urls("abc", ("FLAC",)) == {"FLAC": (None, 104003)}
+
+
+async def test_vkey_non_numeric_result_code_degrades_to_none():
+    # result 码漂移成非数字时不能 ValueError
+    svc = _svc()
+    _stub(svc, {"midurlinfo": [{"purl": "", "result": "denied"}]})
+
+    assert await svc._try_bypass_urls("abc", ("FLAC",)) == {"FLAC": (None, None)}
 
 
 async def test_vkey_media_mid_overrides_filename():
     svc = _svc()
     calls = _stub(svc, {"midurlinfo": [{"purl": "p"}]})
 
-    await svc._try_bypass_url("abc", "MP3_128", media_mid="mmid")
+    await svc._try_bypass_urls("abc", ("MP3_128",), media_mid="mmid")
     assert calls[0][2]["filename"] == ["M500mmidmmid.mp3"]
     assert calls[0][2]["songmid"] == ["abc"]
 
@@ -97,7 +117,16 @@ async def test_get_song_url_warning_carries_vkey_result(caplog):
     from quaverq.core.models import Song
 
     svc = _svc()
-    _stub(svc, {"midurlinfo": [{"purl": "", "result": 104003}]})
+    _stub(
+        svc,
+        {
+            "midurlinfo": [
+                {"filename": "M800bad1bad1.mp3", "purl": "", "result": 104003},
+                {"filename": "O600bad1bad1.ogg", "purl": "", "result": 104003},
+                {"filename": "M500bad1bad1.mp3", "purl": "", "result": 104003},
+            ]
+        },
+    )
 
     with caplog.at_level(logging.WARNING, logger="quaverq.core.service"):
         result = await svc.get_song_url(Song(mid="bad1", name="灰歌"))

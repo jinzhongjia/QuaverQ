@@ -11,7 +11,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtMultimedia import QMediaPlayer
 from qasync import asyncSlot
 
-from quaverq.core.models import Song
+from quaverq.core.models import Song, SongUrl
 from quaverq.core.queue import PlayMode, PlayQueue
 from quaverq.core.state import SessionState
 
@@ -68,6 +68,9 @@ class PlayerController(QObject):
     pauseRequested = Signal()
     stopRequested = Signal()
     seekRequested = Signal(int)
+    # 切歌淡出 (issue #11): 参数为淡出时长 ms, QML 把 fadeFactor 动画到 0;
+    # 淡入由 QML 在转入 PlayingState 时自治, 无需 Python 信号
+    fadeOutRequested = Signal(int)
     queueSourceChanged = Signal()
     # 队列自然播完信号: 参数为 source 标识 (e.g. "daily"), 由订阅方决定是否续接
     queueExhausted = Signal(str)
@@ -106,6 +109,18 @@ class PlayerController(QObject):
         # 服务端拒发 (vkey 104003 无版权等) 的连续自动跳过计数: 防全队列不可播时
         # REPEAT_ALL 绕圈无限空转, 到上限停下报错; 任一首成功取链即清零
         self._url_failure_streak = 0
+        # issue #11 Stage A2: 起播稳定后后台预取下一首链接, 切歌时免 vkey 往返.
+        # 缓存单条 (mid, 音质偏好, SongUrl); 消费即清, 失配即弃.
+        self._prefetched: tuple[str, str, SongUrl] | None = None
+        self._prefetch_task: asyncio.Task[None] | None = None
+        self._prefetch_handle: asyncio.TimerHandle | None = None
+        # 延迟到起播稳定后再预取, 避免与当前曲起播缓冲争带宽; 测试注 0 立即执行
+        self._prefetch_delay_s: float = 5.0
+        # 当前挂在播放器上的曲 mid (sourceUrl 对应); REPEAT_ONE EOS 短路判据
+        self._loaded_mid = ""
+        # 切歌淡出窗口内冻结 QML 进度回传: UI 已显示新歌, 不让旧歌 (还在响)
+        # 的 position 把进度条拽回去 (issue #11 Stage C2)
+        self._suppress_position_updates = False
         self._restore_session_snapshot()
 
     @Property("QVariant", notify=currentSongChanged)
@@ -362,6 +377,13 @@ class PlayerController(QObject):
             self._handle_queue_exhausted()
             return
         self._emit_current_changed()
+        # 单曲循环 (含单曲 REPEAT_ALL): 链接未变, 回卷重播即可, 不重取链 (issue #11).
+        # 长时间循环后链接过期的极端情况由媒体错误重试 (重取链) 兜底.
+        if song.mid == self._loaded_mid and self._source_url:
+            self._set_position_ms(0)
+            self.seekRequested.emit(0)
+            self.playRequested.emit()
+            return
         await self._load_current(play_when_ready=True)
 
     def _handle_queue_exhausted(self) -> None:
@@ -412,6 +434,8 @@ class PlayerController(QObject):
 
     @Slot()
     def stop(self) -> None:
+        self._cancel_prefetch()
+        self._suppress_position_updates = False
         self._set_source_url("")
         self._set_position_ms(0)
         self._set_playback_state("stopped")
@@ -454,6 +478,8 @@ class PlayerController(QObject):
 
     @Slot(int)
     def updatePosition(self, position_ms: int) -> None:
+        if self._suppress_position_updates:
+            return
         self._set_position_ms(position_ms)
 
     @Slot(int)
@@ -467,6 +493,7 @@ class PlayerController(QObject):
     def updatePlaybackState(self, state: str) -> None:
         if state == "playing":
             self._media_retry_count = 0  # 成功播放 -> 清零, 允许后续 (如 vkey 过期) 再重试
+            self._schedule_prefetch_next()
         self._set_playback_state(state)
 
     @asyncSlot(int, str)
@@ -524,43 +551,75 @@ class PlayerController(QObject):
         if song is None:
             self.stop()
             return
+        self._cancel_prefetch()
         self._load_generation += 1
         generation = self._load_generation
         resume_position_ms = max(0, int(resume_position_ms))
-        self._set_source_url("")
+        # 切歌淡出 (issue #11 Stage C2): 正在出声时先发淡出, 取链与淡出并行
+        # (fade 时长掩盖网络延迟). 淡出期间不清 source (清了立即哑), 并冻结
+        # 进度回传; 淡出播完才换源. 非出声态 (停止/加载/EOS 后) 保持旧行为.
+        fade_out_ms = 0
+        if self._playback_state == "playing" and self._fade_enabled():
+            fade_out_ms = max(0, self._fade_duration_ms())
+        fade_deadline = 0.0
+        if fade_out_ms > 0:
+            self._suppress_position_updates = True
+            self.fadeOutRequested.emit(fade_out_ms)
+            fade_deadline = asyncio.get_running_loop().time() + fade_out_ms / 1000
+        else:
+            self._suppress_position_updates = False
+            self._set_source_url("")
         self._set_position_ms(resume_position_ms)
         self.updateDuration(song.duration * 1000)
         self._set_error_message("")
-        self._set_loading(True)
-        self._set_playback_state("loading")
-        try:
-            song_url = await self._service_controller.get_song_url(
-                song,
-                quality_preference=self._quality_preference(),
-            )
-        except Exception as exc:
-            raw_message = str(exc) or exc.__class__.__name__
-            if raw_message == "播放需要先登录 QQ 音乐":
-                message = raw_message
-                logger.warning("%s: %s", message, song.name)
-            else:
-                message = log_bridge_error(
-                    logger,
-                    f"load song url failed: {song.name}",
-                    exc,
+        song_url = self._take_prefetched(song.mid, self._quality_preference())
+        if song_url is not None:
+            # 预取命中: 免 vkey 往返, 直接挂源 (issue #11)
+            logger.debug("命中预取链接: %s (mid=%s)", song.name, song.mid)
+        else:
+            self._set_loading(True)
+            self._set_playback_state("loading")
+            try:
+                song_url = await self._service_controller.get_song_url(
+                    song,
+                    quality_preference=self._quality_preference(),
                 )
+            except Exception as exc:
+                raw_message = str(exc) or exc.__class__.__name__
+                if raw_message == "播放需要先登录 QQ 音乐":
+                    message = raw_message
+                    logger.warning("%s: %s", message, song.name)
+                else:
+                    message = log_bridge_error(
+                        logger,
+                        f"load song url failed: {song.name}",
+                        exc,
+                    )
+                if generation != self._load_generation:
+                    return
+                # 淡出路径上旧源还挂着 (静音空转), 报错停下时一并卸掉
+                self._suppress_position_updates = False
+                self._set_source_url("")
+                self._set_playback_state("stopped")
+                self._set_error_message(message)
+                self.errorRaised.emit(message)
+                return
+            finally:
+                if generation == self._load_generation:
+                    self._set_loading(False)
+
             if generation != self._load_generation:
                 return
-            self._set_playback_state("stopped")
-            self._set_error_message(message)
-            self.errorRaised.emit(message)
-            return
-        finally:
-            if generation == self._load_generation:
-                self._set_loading(False)
 
-        if generation != self._load_generation:
-            return
+        if fade_out_ms > 0:
+            # 取链先于淡出完成时, 等淡出播完再换源 (听感: 渐弱到无声才接新歌)
+            remaining = fade_deadline - asyncio.get_running_loop().time()
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            if generation != self._load_generation:
+                return
+            self._suppress_position_updates = False
+            self._set_position_ms(resume_position_ms)
 
         if song_url is None or not song_url.url:
             # None = 服务端明确拒发 (vkey 104003 无版权等), 是单曲属性 → 自动跳下一首,
@@ -579,6 +638,7 @@ class PlayerController(QObject):
                 await self.next()
                 return
             message = f"无法获取播放链接：{song.name}"
+            self._set_source_url("")  # 淡出路径上旧源可能还挂着, 停下时一并卸掉
             self._set_playback_state("stopped")
             self._set_error_message(message)
             self.errorRaised.emit(message)
@@ -590,11 +650,89 @@ class PlayerController(QObject):
         if self._stream_proxy is not None:
             # 反风控 U2: 经本机回环代理拉流（出网走 curl_cffi 官方指纹 https）
             playback_url = self._stream_proxy.local_url(playback_url)
+        self._loaded_mid = song.mid
         self._set_source_url(playback_url)
         if resume_position_ms > 0:
             self.seekRequested.emit(resume_position_ms)
         if play_when_ready:
             self.playRequested.emit()
+
+    # ------------------------------------------------------------------ 预取下一首 (issue #11)
+
+    def _schedule_prefetch_next(self) -> None:
+        """起播稳定后预取下一首链接 (best-effort); 重复触发时重置延迟."""
+        self._cancel_prefetch()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._prefetch_delay_s > 0:
+            self._prefetch_handle = loop.call_later(
+                self._prefetch_delay_s,
+                self._spawn_prefetch_task,
+            )
+        else:
+            self._spawn_prefetch_task()
+
+    def _spawn_prefetch_task(self) -> None:
+        self._prefetch_handle = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._prefetch_task = loop.create_task(self._prefetch_next())
+
+    def _cancel_prefetch(self) -> None:
+        """取消计划中/在途的预取; 不动已落地的 _prefetched (消费时按 mid+偏好校验)."""
+        if self._prefetch_handle is not None:
+            self._prefetch_handle.cancel()
+            self._prefetch_handle = None
+        task = self._prefetch_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._prefetch_task = None
+
+    async def _prefetch_next(self) -> None:
+        """预取"自然播完后的下一首"的播放链接 (仅 1 次 musicu.fcg POST, 不开流).
+
+        失败/拒发一律静默: 预取是 best-effort, 自动跳过通知与连跳计数等
+        用户可见逻辑留给 _load_current 正常链路.
+        """
+        song = self._queue.peek_next()
+        if song is None or not song.mid:
+            return
+        if song.mid == self._loaded_mid and self._source_url:
+            return  # REPEAT_ONE 自循环: 链接已挂在播放器上, EOS 走短路重播
+        preference = self._quality_preference()
+        cached = self._prefetched
+        if cached is not None and cached[0] == song.mid and cached[1] == preference:
+            return
+        try:
+            song_url = await self._service_controller.get_song_url(
+                song,
+                quality_preference=preference,
+            )
+        except Exception as exc:
+            logger.debug("预取下一首链接失败 (忽略): %s: %s", song.name, exc)
+            return
+        if song_url is None or not song_url.url:
+            return
+        self._prefetched = (song.mid, preference, song_url)
+        logger.debug("已预取下一首链接: %s (mid=%s, %s)", song.name, song.mid, song_url.quality)
+
+    def _take_prefetched(self, mid: str, preference: str) -> SongUrl | None:
+        """取走预取缓存: mid+音质偏好双匹配才命中; 无论命中与否消费即清.
+
+        清空保证媒体错误重试路径再进 _load_current 时必然现签新链.
+        """
+        cached = self._prefetched
+        self._prefetched = None
+        if cached is None:
+            return None
+        cached_mid, cached_pref, url = cached
+        if cached_mid == mid and cached_pref == preference:
+            return url
+        return None
 
     def _restore_session_snapshot(self) -> None:
         if self._session_state is None:
@@ -615,6 +753,15 @@ class PlayerController(QObject):
     def _quality_preference(self) -> str:
         value = getattr(self._settings_controller, "qualityPreference", "balanced")
         return value if value in {"standard", "balanced", "high"} else "balanced"
+
+    def _fade_enabled(self) -> bool:
+        return bool(getattr(self._settings_controller, "fadeEnabled", False))
+
+    def _fade_duration_ms(self) -> int:
+        try:
+            return int(getattr(self._settings_controller, "fadeDurationMs", 0))
+        except (TypeError, ValueError):
+            return 0
 
     def _songs_from_model(self, model: QObject) -> list[Song]:
         if isinstance(model, SongListModel):

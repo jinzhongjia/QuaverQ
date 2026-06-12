@@ -92,10 +92,35 @@ ScrollView {
                 model: [qsTr("标准"), qsTr("均衡"), qsTr("高品质")]
                 values: ["standard", "balanced", "high"]
                 currentValue: root.settingsController ? root.settingsController.qualityPreference : "balanced"
-                showSeparator: false
                 onValueRequested: function(value) {
                     if (root.settingsController)
                         root.settingsController.setQualityPreference(value)
+                }
+            }
+
+            SwitchRow {
+                Layout.fillWidth: true
+                title: qsTr("淡入淡出")
+                value: qsTr("切歌与暂停时音量渐弱渐起")
+                checked: root.settingsController ? root.settingsController.fadeEnabled : true
+                onToggleRequested: function(newValue) {
+                    if (root.settingsController)
+                        root.settingsController.setFadeEnabled(newValue)
+                }
+            }
+
+            ChoiceRow {
+                Layout.fillWidth: true
+                title: qsTr("淡入淡出时长")
+                enabled: root.settingsController ? root.settingsController.fadeEnabled : true
+                opacity: enabled ? 1 : 0.45
+                model: ["0.2 s", "0.3 s", "0.5 s", "0.8 s", "1.0 s", "1.5 s", "2.0 s"]
+                values: ["200", "300", "500", "800", "1000", "1500", "2000"]
+                currentValue: root.settingsController ? String(root.settingsController.fadeDurationMs) : "500"
+                showSeparator: false
+                onValueRequested: function(value) {
+                    if (root.settingsController)
+                        root.settingsController.setFadeDurationMs(parseInt(value))
                 }
             }
         }

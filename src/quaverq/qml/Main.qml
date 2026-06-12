@@ -55,6 +55,52 @@ ApplicationWindow {
     property bool muteForPendingSeek: false
     readonly property int pendingSeekToleranceMs: 1000
     readonly property int pendingSeekMaxAttempts: 60
+    // 切歌淡入淡出 (issue #11): fadeFactor 乘进 AudioOutput.volume, 0↔1 由两个
+    // NumberAnimation 驱动. 音频包络不是视觉动效, 刻意不接 Motion.reduceMotion.
+    property real fadeFactor: 1
+    // Python 协调的切歌淡出进行中 (fadeOutRequested → 新源挂载): 尾部淡出的
+    // 自愈淡入在此窗口内不得抢跑
+    property bool fadeSwitchActive: false
+    // 暂停渐变: 淡出动画播完后才真正 pause; 恢复播放时清标志防"刚恢复又被按下"
+    property bool pauseFadePending: false
+
+    function fadeMs() {
+        return root.settingsController && root.settingsController.fadeEnabled
+            ? root.settingsController.fadeDurationMs : 0
+    }
+
+    function startFadeOut(ms) {
+        fadeInAnim.stop()
+        fadeOutAnim.duration = ms
+        fadeOutAnim.restart()
+    }
+
+    function startFadeIn(ms) {
+        // 先清暂停渐变标志再 stop(): stop 会同步触发 fadeOutAnim.onStopped,
+        // 不清会把刚恢复的播放又 pause 下去
+        root.pauseFadePending = false
+        fadeOutAnim.stop()
+        root.fadeSwitchActive = false
+        fadeInAnim.duration = ms
+        fadeInAnim.restart()
+    }
+
+    // EOS 尾部淡出: 自然播完前 fadeMs 内渐弱 (切歌淡出由 Python fadeOutRequested
+    // 协调, 不在此处); seek 离开尾部窗口时自愈淡回.
+    function applyTailFade() {
+        const ms = root.fadeMs()
+        if (ms <= 0 || root.fadeSwitchActive)
+            return
+        if (mediaPlayer.playbackState !== MediaPlayer.PlayingState || mediaPlayer.duration <= 0)
+            return
+        const remaining = mediaPlayer.duration - mediaPlayer.position
+        if (remaining <= ms) {
+            if (!fadeOutAnim.running && root.fadeFactor > 0)
+                root.startFadeOut(Math.max(50, Math.min(ms, remaining)))
+        } else if (root.fadeFactor < 1 && !fadeInAnim.running && !fadeOutAnim.running && !root.pauseFadePending) {
+            root.startFadeIn(ms)
+        }
+    }
 
     onClosing: function(close) {
         if (root.closeToTray) {
@@ -253,10 +299,35 @@ ApplicationWindow {
         onTriggered: root.applyPendingSeek()
     }
 
+    NumberAnimation {
+        id: fadeOutAnim
+
+        target: root
+        property: "fadeFactor"
+        to: 0
+        easing.type: Easing.OutQuad
+        onStopped: {
+            // 暂停渐变: 渐弱播完才真 pause (startFadeIn 接管 / 切歌淡出时已清标志)
+            if (root.pauseFadePending) {
+                root.pauseFadePending = false
+                mediaPlayer.pause()
+            }
+        }
+    }
+
+    NumberAnimation {
+        id: fadeInAnim
+
+        target: root
+        property: "fadeFactor"
+        to: 1
+        easing.type: Easing.InQuad
+    }
+
     AudioOutput {
         id: audioOutput
 
-        volume: root.muteForPendingSeek ? 0 : (root.playerController ? root.playerController.volume : 0.8)
+        volume: (root.muteForPendingSeek ? 0 : (root.playerController ? root.playerController.volume : 0.8)) * root.fadeFactor
         muted: root.playerController ? root.playerController.muted : false
     }
 
@@ -266,7 +337,18 @@ ApplicationWindow {
         audioOutput: audioOutput
         source: root.playerController ? root.playerController.sourceUrl : ""
 
+        onSourceChanged: {
+            if (String(source).length <= 0)
+                return
+            // 新源挂载: fade 开启时从静音起播 (转入 PlayingState 后淡入),
+            // 顺带清掉上一首尾部淡出/暂停渐变的残留状态
+            root.pauseFadePending = false
+            fadeOutAnim.stop()
+            fadeInAnim.stop()
+            root.fadeFactor = root.fadeMs() > 0 ? 0 : 1
+        }
         onPositionChanged: {
+            root.applyTailFade()
             if (root.pendingSeekMs >= 0) {
                 if (root.pendingSeekReached()) {
                     root.clearPendingSeek()
@@ -285,6 +367,16 @@ ApplicationWindow {
         }
         onSeekableChanged: root.applyPendingSeek()
         onPlaybackStateChanged: {
+            if (playbackState === MediaPlayer.PlayingState) {
+                if (root.fadeMs() > 0 && root.fadeFactor < 1) {
+                    root.startFadeIn(root.fadeMs())
+                } else if (root.fadeMs() <= 0 && root.fadeFactor < 1) {
+                    // fade 设置中途被关掉的自愈: 音量直接回满
+                    fadeOutAnim.stop()
+                    fadeInAnim.stop()
+                    root.fadeFactor = 1
+                }
+            }
             if (root.playerController) {
                 if (playbackState === MediaPlayer.PlayingState) {
                     root.playerController.updatePlaybackState("playing")
@@ -312,6 +404,8 @@ ApplicationWindow {
         function onPlayRequested() {
             if (!root.playerController || root.playerController.sourceUrl.length <= 0)
                 return
+            const resumingFromPauseFade = root.pauseFadePending
+            root.pauseFadePending = false
             if (root.pendingSeekMs >= 0) {
                 root.muteForPendingSeek = true
                 mediaPlayer.play()
@@ -319,15 +413,34 @@ ApplicationWindow {
                 return
             }
             mediaPlayer.play()
+            // 暂停渐变中途恢复: 还没真 pause, play() 不产生状态变化, 主动淡回
+            if (resumingFromPauseFade && root.fadeMs() > 0)
+                root.startFadeIn(root.fadeMs())
         }
 
         function onPauseRequested() {
-            mediaPlayer.pause()
+            const ms = root.fadeMs()
+            if (ms > 0 && mediaPlayer.playbackState === MediaPlayer.PlayingState) {
+                // 暂停渐变: min(fade, 200ms) 渐弱后真 pause (fadeOutAnim.onStopped);
+                // 渐变期间再按播放由 onPlayRequested 清标志接管
+                root.pauseFadePending = true
+                root.startFadeOut(Math.min(ms, 200))
+            } else {
+                mediaPlayer.pause()
+            }
         }
 
         function onStopRequested() {
+            root.pauseFadePending = false
             root.clearPendingSeek()
             mediaPlayer.stop()
+        }
+
+        function onFadeOutRequested(durationMs) {
+            // Python 切歌协调: 取链与淡出并行, 淡出播完才换源 (player_controller._load_current)
+            root.pauseFadePending = false
+            root.fadeSwitchActive = true
+            root.startFadeOut(durationMs)
         }
 
         function onSeekRequested(positionMs) {
