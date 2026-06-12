@@ -2,7 +2,7 @@
 
 设计:
 - 0.6 Client 调用通过 mock 注入 svc._client (SimpleNamespace 模拟 client.search / album / ...)
-- get_song_url 走 bypass, 测试 monkey-patch svc._try_bypass_url 替代真 HTTP
+- get_song_url 走 bypass, 测试 monkey-patch svc._bypass_post 替代真 HTTP (批量 _try_bypass_urls)
 - _to_song/_to_singer/_to_album_brief/_to_playlist_brief 用 SimpleNamespace 模拟 pydantic 对象
 """
 
@@ -396,69 +396,98 @@ async def test_search_playlists_returns_playlist_list():
 
 
 # ============================================================== get_song_url (bypass)
+# issue #11 Stage A1: 全部降级档批量塞进单个 UrlGetVkey 请求 (实测保序回显 filename,
+# 见 scripts/debug_vkey_batch.py), get_song_url 本地按偏好顺序挑第一个可播档.
 
 
-async def test_get_song_url_uses_bypass_path():
-    """get_song_url 在 quality 偏好顺序中依次试 _try_bypass_url, 命中即返."""
+def _vkey_entry(filename: str, purl: str = "", result: int | None = None) -> dict:
+    entry: dict = {"filename": filename, "purl": purl}
+    if result is not None:
+        entry["result"] = result
+    return entry
+
+
+async def test_get_song_url_single_batch_request_picks_preferred():
+    """get_song_url 只发一次 vkey 请求 (全档 filename 对齐数组), 按偏好取首个命中."""
     svc = QuaverService()
-    svc._ct_value = 2
+    calls: list[dict] = []
 
-    attempts: list[str] = []
+    async def fake_post(_module, _method, param, **_kwargs):
+        calls.append(param)
+        return {
+            "midurlinfo": [
+                _vkey_entry("F000m1m1.flac", purl="F000m1.flac?vkey=k"),
+                _vkey_entry("M800m1m1.mp3", purl="M800m1.mp3?vkey=k"),
+                _vkey_entry("O600m1m1.ogg", purl="O600m1.ogg?vkey=k"),
+                _vkey_entry("M500m1m1.mp3", purl="M500m1.mp3?vkey=k"),
+            ]
+        }
 
-    async def fake_try(mid, quality, **_kwargs):
-        attempts.append(quality)
-        if quality == "FLAC":
-            return "https://x/F000m.flac?vkey=k", None
-        return None, None
-
-    svc._try_bypass_url = fake_try
+    svc._bypass_post = fake_post
     url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
     assert url is not None
     assert url.quality == "FLAC"
-    assert attempts[0] == "FLAC"
+    assert url.url == "https://isure.stream.qqmusic.qq.com/F000m1.flac?vkey=k"
+    # 恒定单请求, filename/songmid/songtype 数组对齐
+    assert len(calls) == 1
+    assert calls[0]["filename"] == [
+        "F000m1m1.flac",
+        "M800m1m1.mp3",
+        "O600m1m1.ogg",
+        "M500m1m1.mp3",
+    ]
+    assert calls[0]["songmid"] == ["m1"] * 4
+    assert calls[0]["songtype"] == [0] * 4
 
 
-async def test_get_song_url_walks_through_quality_until_hit():
+async def test_get_song_url_falls_to_lower_quality_in_same_response():
+    """高档拒发 (purl 空) 时, 同一响应里直接落到低档, 不再发第二次请求."""
     svc = QuaverService()
-    svc._ct_value = 2
+    calls: list[dict] = []
 
-    async def fake_try(mid, quality, **_kwargs):
-        if quality == "MP3_128":
-            return "https://x/M500m.mp3?vkey=k", None
-        return None, None
+    async def fake_post(_module, _method, param, **_kwargs):
+        calls.append(param)
+        return {
+            "midurlinfo": [
+                _vkey_entry("F000m1m1.flac", result=104003),
+                _vkey_entry("M800m1m1.mp3", result=104003),
+                _vkey_entry("O600m1m1.ogg", result=104003),
+                _vkey_entry("M500m1m1.mp3", purl="M500m1.mp3?vkey=k"),
+            ]
+        }
 
-    svc._try_bypass_url = fake_try
+    svc._bypass_post = fake_post
     url = await svc.get_song_url(Song(mid="m1", name="x"), quality_preference="high")
     assert url.quality == "MP3_128"
+    assert len(calls) == 1
 
 
 async def test_get_song_url_all_fail_returns_none():
     svc = QuaverService()
-    svc._ct_value = 2
 
-    async def fake_try(_mid, _q, **_kwargs):
-        return None, None
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"midurlinfo": []}
 
-    svc._try_bypass_url = fake_try
+    svc._bypass_post = fake_post
     assert await svc.get_song_url(Song(mid="m", name="x")) is None
 
 
 async def test_get_song_url_quality_unknown_falls_back_to_balanced():
     svc = QuaverService()
-    svc._ct_value = 2
-    attempts: list[str] = []
+    calls: list[dict] = []
 
-    async def fake_try(mid, q, **_kwargs):
-        attempts.append(q)
-        return f"https://x/{q}?vkey=k", None
+    async def fake_post(_module, _method, param, **_kwargs):
+        calls.append(param)
+        return {"midurlinfo": [_vkey_entry("M800mm.mp3", purl="M800m.mp3?vkey=k")]}
 
-    svc._try_bypass_url = fake_try
-    await svc.get_song_url(Song(mid="m", name="x"), quality_preference="bogus")
-    # balanced 首选 MP3_320
-    assert attempts[0] == "MP3_320"
+    svc._bypass_post = fake_post
+    url = await svc.get_song_url(Song(mid="m", name="x"), quality_preference="bogus")
+    # balanced 档序: MP3_320 / OGG_192 / MP3_128
+    assert calls[0]["filename"] == ["M800mm.mp3", "O600mm.ogg", "M500mm.mp3"]
+    assert url.quality == "MP3_320"
 
 
-async def test_try_bypass_url_uses_media_mid_for_filename():
+async def test_try_bypass_urls_uses_media_mid_for_filename():
     svc = QuaverService()
     captured: dict[str, object] = {}
 
@@ -467,19 +496,40 @@ async def test_try_bypass_url_uses_media_mid_for_filename():
         return {"midurlinfo": [{"purl": "C400m.m4a?vkey=k"}]}
 
     svc._bypass_post = fake_post
-    url, code = await svc._try_bypass_url(
+    result = await svc._try_bypass_urls(
         "songmid",
-        "MP3_128",
+        ("MP3_128",),
         media_mid="mediamid",
     )
 
-    assert url == "https://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k"
-    assert code is None
+    assert result["MP3_128"] == (
+        "https://isure.stream.qqmusic.qq.com/C400m.m4a?vkey=k",
+        None,
+    )
     assert captured["songmid"] == ["songmid"]
     assert captured["filename"] == ["M500mediamidmediamid.mp3"]
 
 
-async def test_try_bypass_url_uses_persistent_device_guid():
+async def test_try_bypass_urls_index_fallback_requires_matching_count():
+    """缺 filename 回显且响应条数与请求档数不符时, 保守判全部不可用 (不按下标错配).
+
+    旧实现会把唯一一条的 purl 错安给第一个请求档 → 静默音质错标 (review 发现).
+    """
+    svc = QuaverService()
+
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"midurlinfo": [{"purl": "M800m.mp3?vkey=k"}]}  # 1 条且无 filename 回显
+
+    svc._bypass_post = fake_post
+    result = await svc._try_bypass_urls("m", ("MP3_320", "OGG_192", "MP3_128"))
+    assert result == {
+        "MP3_320": (None, None),
+        "OGG_192": (None, None),
+        "MP3_128": (None, None),
+    }
+
+
+async def test_try_bypass_urls_uses_persistent_device_guid():
     """反风控 G1：guid 用持久设备 id，而非每次随机（同账号多设备 = 盗刷特征）。"""
     svc = QuaverService()
     svc._device_guid = "deviceguid0000000000000000000000"
@@ -490,12 +540,12 @@ async def test_try_bypass_url_uses_persistent_device_guid():
         return {"midurlinfo": [{"purl": "M800m.mp3?vkey=k"}]}
 
     svc._bypass_post = fake_post
-    await svc._try_bypass_url("m", "MP3_320")
+    await svc._try_bypass_urls("m", ("MP3_320",))
 
     assert captured["guid"] == "deviceguid0000000000000000000000"
 
 
-async def test_try_bypass_url_uses_short_vkey_timeout():
+async def test_try_bypass_urls_uses_short_vkey_timeout():
     svc = QuaverService()
     captured: dict[str, object] = {}
 
@@ -504,16 +554,66 @@ async def test_try_bypass_url_uses_short_vkey_timeout():
         return {"midurlinfo": [{"purl": "M500m.mp3?vkey=k"}]}
 
     svc._bypass_post = fake_post
-    await svc._try_bypass_url("m", "MP3_128")
+    await svc._try_bypass_urls("m", ("MP3_128",))
 
     assert captured["timeout"] == svc._VKEY_REQUEST_TIMEOUT_SEC
 
 
-async def test_try_bypass_url_logs_diagnostics_on_empty_purl(caplog):
-    """purl="" 时打 DEBUG 日志带上 mid/quality/filename/midurlinfo[0] 字段, 方便复现.
+async def test_try_bypass_urls_matches_by_response_filename_when_reordered():
+    """服务端乱序返回时按回显 filename 对位, 不靠下标."""
+    svc = QuaverService()
 
-    背景: vkey 接口在版权/区域受限时不返回 errcode, 只返回 purl="", 当前
-    实现直接 return None 丢掉所有上下文, 导致诊断难度极大.
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {
+            "midurlinfo": [
+                _vkey_entry("M500mm.mp3", purl="M500m.mp3?vkey=low"),
+                _vkey_entry("M800mm.mp3", purl="M800m.mp3?vkey=hi"),
+            ]
+        }
+
+    svc._bypass_post = fake_post
+    result = await svc._try_bypass_urls("m", ("MP3_320", "MP3_128"))
+    assert result["MP3_320"][0].endswith("M800m.mp3?vkey=hi")
+    assert result["MP3_128"][0].endswith("M500m.mp3?vkey=low")
+
+
+async def test_try_bypass_urls_falls_back_to_index_without_filename_echo():
+    """响应缺 filename 回显时按下标对应 (实测正常响应都带回显, 这是漂移兜底)."""
+    svc = QuaverService()
+
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {
+            "midurlinfo": [
+                {"purl": "M800m.mp3?vkey=hi"},
+                {"purl": "M500m.mp3?vkey=low"},
+            ]
+        }
+
+    svc._bypass_post = fake_post
+    result = await svc._try_bypass_urls("m", ("MP3_320", "MP3_128"))
+    assert result["MP3_320"][0].endswith("M800m.mp3?vkey=hi")
+    assert result["MP3_128"][0].endswith("M500m.mp3?vkey=low")
+
+
+async def test_try_bypass_urls_tolerates_short_response():
+    """响应条数少于请求档数: 缺的档降级 (None, None), 不抛 IndexError."""
+    svc = QuaverService()
+
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"midurlinfo": [_vkey_entry("M800mm.mp3", purl="M800m.mp3?vkey=k")]}
+
+    svc._bypass_post = fake_post
+    result = await svc._try_bypass_urls("m", ("MP3_320", "OGG_192", "MP3_128"))
+    assert result["MP3_320"][0] is not None
+    assert result["OGG_192"] == (None, None)
+    assert result["MP3_128"] == (None, None)
+
+
+async def test_try_bypass_urls_logs_diagnostics_on_empty_purl(caplog):
+    """purl="" 时打 DEBUG 日志带上 mid/quality/filename/entry 字段, 方便复现.
+
+    背景: vkey 接口在版权/区域受限时不返回 errcode, 只返回 purl="", 丢掉
+    上下文会导致诊断难度极大.
     """
     import logging
 
@@ -524,15 +624,15 @@ async def test_try_bypass_url_logs_diagnostics_on_empty_purl(caplog):
 
     svc._bypass_post = fake_post
     with caplog.at_level(logging.DEBUG, logger="quaverq.core.service"):
-        url, _code = await svc._try_bypass_url("mid_unplayable", "FLAC", media_mid="m0")
-    assert url is None
+        result = await svc._try_bypass_urls("mid_unplayable", ("FLAC",), media_mid="m0")
+    assert result["FLAC"][0] is None
     diag = " ".join(rec.getMessage() for rec in caplog.records)
     assert "mid_unplayable" in diag
     assert "FLAC" in diag
 
 
-async def test_try_bypass_url_logs_diagnostics_on_missing_midurlinfo(caplog):
-    """midurlinfo 缺失/空时同样要打 DEBUG 日志带 mid+quality, 便于排查接口异常."""
+async def test_try_bypass_urls_logs_diagnostics_on_missing_midurlinfo(caplog):
+    """midurlinfo 缺失/空时同样要打 DEBUG 日志带 mid+labels, 便于排查接口异常."""
     import logging
 
     svc = QuaverService()
@@ -542,8 +642,8 @@ async def test_try_bypass_url_logs_diagnostics_on_missing_midurlinfo(caplog):
 
     svc._bypass_post = fake_post
     with caplog.at_level(logging.DEBUG, logger="quaverq.core.service"):
-        url = await svc._try_bypass_url("mid_blocked", "MP3_320")
-    assert url == (None, None)
+        result = await svc._try_bypass_urls("mid_blocked", ("MP3_320",))
+    assert result == {"MP3_320": (None, None)}
     diag = " ".join(rec.getMessage() for rec in caplog.records)
     assert "mid_blocked" in diag
     assert "MP3_320" in diag
@@ -554,12 +654,11 @@ async def test_get_song_url_all_fail_warning_includes_identifiers(caplog):
     import logging
 
     svc = QuaverService()
-    svc._ct_value = 2
 
-    async def fake_try(_mid, _q, **_kwargs):
-        return None, None
+    async def fake_post(_module, _method, _param, **_kwargs):
+        return {"midurlinfo": []}
 
-    svc._try_bypass_url = fake_try
+    svc._bypass_post = fake_post
     song = Song(mid="mid_xyz", name="Here I Am", media_mid="media_xyz")
     with caplog.at_level(logging.WARNING, logger="quaverq.core.service"):
         result = await svc.get_song_url(song)

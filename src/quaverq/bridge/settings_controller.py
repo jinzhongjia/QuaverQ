@@ -34,6 +34,12 @@ _LYRIC_FONT_SIZE_MIN = 12
 _LYRIC_FONT_SIZE_MAX = 48
 _LYRIC_FONT_SIZE_DEFAULT = 22
 
+# 切歌淡入淡出 (issue #11): 200ms 以下听感同硬切, 2s 以上拖沓; 默认 500ms 对齐
+# QQ 官方桌面端的衔接节奏. 这是音频包络时长, 与 reduceMotion (视觉动效) 无关.
+_FADE_DURATION_MIN_MS = 200
+_FADE_DURATION_MAX_MS = 2000
+_FADE_DURATION_DEFAULT_MS = 500
+
 
 def _normalize_hex_color(raw: str | None) -> str | None:
     """把任意输入归一为大写 ``#RRGGBB``; 非法 hex / 空串 / None -> 返回 ``None``.
@@ -85,6 +91,13 @@ class SettingsController(QObject):
             "playback/qualityPreference",
             "balanced",
             _QUALITY_PREFERENCES,
+        )
+        self._fade_enabled = self._read_bool("playback/fadeEnabled", True)
+        self._fade_duration_ms = self._read_int_clamped(
+            "playback/fadeDurationMs",
+            _FADE_DURATION_DEFAULT_MS,
+            _FADE_DURATION_MIN_MS,
+            _FADE_DURATION_MAX_MS,
         )
         # 输出设备: id 为 base64 编码的 QAudioDevice.id() 字节串, 空 = 跟随系统默认;
         # label 是选择时的设备显示名快照, 设备断开时设置页占位 "xxx (已断开)" 用
@@ -162,6 +175,15 @@ class SettingsController(QObject):
     @Property(str, notify=settingsChanged)
     def qualityPreference(self) -> str:
         return self._quality_preference
+
+    @Property(bool, notify=settingsChanged)
+    def fadeEnabled(self) -> bool:
+        """切歌淡入淡出总开关; 关闭后播放行为与无 fade 的旧实现完全一致."""
+        return self._fade_enabled
+
+    @Property(int, notify=settingsChanged)
+    def fadeDurationMs(self) -> int:
+        return self._fade_duration_ms
 
     @Property(str, notify=settingsChanged)
     def audioOutputDeviceId(self) -> str:
@@ -273,6 +295,30 @@ class SettingsController(QObject):
             return
         self._quality_preference = value
         self._settings.setValue("playback/qualityPreference", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setFadeEnabled(self, enabled: bool) -> None:
+        value = bool(enabled)
+        if self._fade_enabled == value:
+            return
+        self._fade_enabled = value
+        self._settings.setValue("playback/fadeEnabled", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(int)
+    def setFadeDurationMs(self, duration_ms: int) -> None:
+        try:
+            value = int(duration_ms)
+        except (TypeError, ValueError):
+            return
+        value = max(_FADE_DURATION_MIN_MS, min(_FADE_DURATION_MAX_MS, value))
+        if self._fade_duration_ms == value:
+            return
+        self._fade_duration_ms = value
+        self._settings.setValue("playback/fadeDurationMs", value)
         self._settings.sync()
         self.settingsChanged.emit()
 

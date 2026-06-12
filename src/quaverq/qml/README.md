@@ -13,6 +13,7 @@ Qt Quick UI 根目录。`Main.qml` 是应用主窗口，五个子目录按职责
 - **主题协调**：把 `settingsController.themeMode`（用户偏好）和 `systemTheme.dark`（freedesktop portal 探测的系统色）绑给 [`Theme/Theme.qml`](Theme/README.md) singleton，决定明暗。
 - **关闭到托盘**：`closeToTray` 由 Python 在托盘可用时置 `true`，`onClosing` 拦截后隐藏窗口而非退出。
 - **`QtMultimedia`**：嵌入 `MediaPlayer` + `AudioOutput`，由 `PlayerController` 控制。
+- **淡入淡出（issue #11）**：`fadeFactor`（0↔1，两个 `NumberAnimation`）乘进 `AudioOutput.volume`；切歌淡出由 Python `fadeOutRequested` 协调（取链与淡出并行，淡出播完才换源），尾部淡出在 `applyTailFade()` 里随 position 触发（seek 离开尾部窗口自愈淡回），暂停走 `min(fade, 200ms)` 渐弱后真 `pause()`（`pauseFadePending`），新源挂载/转入 PlayingState 时从 0 淡入。音频包络刻意**不接** `Motion.reduceMotion`（那是视觉动效开关），由 `settingsController.fadeEnabled` 独立控制，关闭后行为与无 fade 完全一致。
 - **挂载 [`LoginDialog`](dialogs/README.md) + [`LyricPanel`](panels/README.md) + [`QueuePanel`](panels/README.md)** 作为右侧抽屉 / 模态弹窗。
 
 ## 子目录

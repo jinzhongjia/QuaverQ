@@ -230,20 +230,28 @@ async def test_end_of_media_repeat_all_wraps_to_first_song():
     assert controller.sourceUrl == "https://audio.example.test/m1.mp3"
 
 
-async def test_end_of_media_repeat_one_reloads_same_song():
+async def test_end_of_media_repeat_one_replays_without_refetching_url():
+    """单曲循环 EOS: 链接未变, 回卷重播, 不重取链 (issue #11 Stage A2)."""
     service = _FakeServiceController()
     controller = PlayerController(service)  # type: ignore[arg-type]
     controller.setMode("repeat_one")
     await controller.play_songs_async([_song("m1", "晴天"), _song("m2", "七里香")], 1)
 
+    seeks: list[int] = []
+    plays: list[bool] = []
+    controller.seekRequested.connect(seeks.append)
+    controller.playRequested.connect(lambda: plays.append(True))
+
     await controller.handleEndOfMedia()
 
     assert controller.currentIndex == 1
     assert controller.currentSong["name"] == "七里香"
-    assert [(song.mid, quality) for song, quality in service.calls] == [
-        ("m2", "balanced"),
-        ("m2", "balanced"),
-    ]
+    # 只有首次加载取过一次链
+    assert [(song.mid, quality) for song, quality in service.calls] == [("m2", "balanced")]
+    assert seeks == [0]
+    assert plays == [True]
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"
+    assert controller.positionMs == 0
 
 
 def test_restore_session_snapshot_populates_queue_without_loading(tmp_path):
@@ -418,7 +426,7 @@ async def test_media_error_gives_up_after_one_retry():
 
 
 async def test_media_error_non_retryable_reports_immediately():
-    # FormatError 解码错误重试无意义 -> 直接报错, 不重取链
+    # FormatError 解码错误重试无意义 -> 直接报错, 不重取链 (歌中段/开头损坏)
     service = _FakeServiceController()
     controller = PlayerController(service)  # type: ignore[arg-type]
     errors: list[str] = []
@@ -430,6 +438,44 @@ async def test_media_error_non_retryable_reports_immediately():
     assert len(service.calls) == 1  # 没重取链
     assert controller.playbackState == "stopped"
     assert errors and "晴天" in errors[-1]
+
+
+async def test_format_error_near_stream_end_ignored_as_normal_finish():
+    """CDN FLAC 尾部坏帧: 播到末尾 emit FormatError, 但歌已播完, 不误报'播放失败'.
+
+    issue #11 真机暴露: 每首 FLAC 最后几秒 errorOccurred(FormatError) + 紧随 EndOfMedia,
+    旧逻辑报'播放失败'+ stopped, UI 闪错误又被 EndOfMedia 切歌 -> 诡异. 末尾豁免后
+    静默忽略, 由 EndOfMedia 正常切歌.
+    """
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(197_000)  # 200s 歌, 末尾前 3s
+    service.calls.clear()
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "Invalid data")
+
+    assert errors == []  # 不误报"播放失败"
+    assert controller.errorMessage == ""
+    assert service.calls == []  # 不重取链
+    assert controller.playbackState == "playing"  # 不设 stopped, 让 EndOfMedia 接管切歌
+
+
+async def test_resource_error_near_stream_end_still_retries():
+    """末尾的 ResourceError (网络断/401) 仍重取链重试: 末尾豁免只针对解码类 FormatError."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(197_000)
+    service.calls.clear()
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.ResourceError.value, "401")
+
+    assert len(service.calls) == 1  # 网络类错误末尾也重取链, 不豁免
 
 
 async def test_play_songs_records_queue_source_and_emits_change():
@@ -794,3 +840,387 @@ async def test_network_exception_stops_without_skipping():
     assert controller.errorMessage != ""
     assert notices == []
     assert controller.currentIndex == 0
+
+
+# ------------------------------------------------------------------ 预取下一首 (issue #11 Stage A2)
+# 起播后后台预取 peek_next 的链接; 切歌时 mid+音质偏好 双匹配才消费, 消费即清.
+
+
+async def test_playing_state_schedules_prefetch_of_next_song():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller._prefetch_delay_s = 0  # 测试注入: 立即预取
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    assert [s.mid for s, _ in service.calls] == ["m1"]
+
+    controller.updatePlaybackState("playing")
+    assert controller._prefetch_task is not None
+    await controller._prefetch_task
+
+    assert [s.mid for s, _ in service.calls] == ["m1", "m2"]
+    assert controller._prefetched is not None
+    assert controller._prefetched[0] == "m2"
+
+
+async def test_prefetched_url_consumed_on_next_without_refetch():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller._prefetch_delay_s = 0
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    await controller._prefetch_task
+
+    await controller.next()
+
+    # 命中预取缓存: 不再发第三次取链请求, 消费即清
+    assert [s.mid for s, _ in service.calls] == ["m1", "m2"]
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"
+    assert controller._prefetched is None
+
+
+async def test_prefetched_url_discarded_when_quality_pref_changes():
+    service = _FakeServiceController()
+    settings = _FakeSettingsController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=settings,  # type: ignore[arg-type]
+    )
+    controller._prefetch_delay_s = 0
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    await controller._prefetch_task
+    assert controller._prefetched[1] == "high"
+
+    settings.qualityPreference = "standard"
+    await controller.next()
+
+    # 音质偏好变了 -> 丢弃缓存, 以新偏好现取
+    assert [(s.mid, q) for s, q in service.calls] == [
+        ("m1", "high"),
+        ("m2", "high"),
+        ("m2", "standard"),
+    ]
+    assert controller._prefetched is None
+
+
+async def test_prefetched_url_discarded_when_jumping_elsewhere():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller._prefetch_delay_s = 0
+    await controller.play_songs_async(
+        [_song("m1", "A"), _song("m2", "B"), _song("m3", "C")],
+        0,
+    )
+    controller.updatePlaybackState("playing")
+    await controller._prefetch_task
+    assert controller._prefetched[0] == "m2"
+
+    await controller.play_queue_index_async(2)
+
+    # 跳到别处: 缓存 mid 失配 -> 丢弃, 正常取链 m3
+    assert [s.mid for s, _ in service.calls] == ["m1", "m2", "m3"]
+    assert controller.sourceUrl == "https://audio.example.test/m3.mp3"
+    assert controller._prefetched is None
+
+
+async def test_prefetch_skips_when_no_next_song():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller._prefetch_delay_s = 0
+    await controller.play_songs_async([_song("m1", "A")], 0)  # SEQUENCE 单曲: 无下一首
+
+    controller.updatePlaybackState("playing")
+    if controller._prefetch_task is not None:
+        await controller._prefetch_task
+
+    assert [s.mid for s, _ in service.calls] == ["m1"]
+    assert controller._prefetched is None
+
+
+async def test_prefetch_does_not_cache_rejected_song():
+    """拒发 (None) 不缓存: 跳过通知/连跳计数等逻辑留给正常链路."""
+
+    class _RejectM2Service(_FakeServiceController):
+        async def get_song_url(self, song, *, quality_preference):
+            if song.mid == "m2":
+                self.calls.append((song, quality_preference))
+                return None
+            return await super().get_song_url(song, quality_preference=quality_preference)
+
+    service = _RejectM2Service()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller._prefetch_delay_s = 0
+    await controller.play_songs_async(
+        [_song("m1", "A"), _song("m2", "B"), _song("m3", "C")],
+        0,
+    )
+    controller.updatePlaybackState("playing")
+    await controller._prefetch_task
+    assert controller._prefetched is None  # 预取到拒发 -> 不缓存
+
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+    await controller.next()
+
+    # 正常链路重新取 m2 (第二次), 触发自动跳过到 m3
+    assert [s.mid for s, _ in service.calls] == ["m1", "m2", "m2", "m3"]
+    assert controller.currentSong["mid"] == "m3"
+    assert notices and "无法播放" in notices[0]
+
+
+async def test_prefetch_failure_is_swallowed():
+    class _FlakyService(_FakeServiceController):
+        async def get_song_url(self, song, *, quality_preference):
+            if song.mid == "m2":
+                raise RuntimeError("network down")
+            return await super().get_song_url(song, quality_preference=quality_preference)
+
+    service = _FlakyService()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller._prefetch_delay_s = 0
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    await controller._prefetch_task
+
+    # 预取失败静默 (best-effort), 不冒泡错误
+    assert errors == []
+    assert controller._prefetched is None
+
+
+# ------------------------------------------------------------------ REPEAT_ONE EOS 短路 (issue #11 Stage A2)
+# 主行为见上面 test_end_of_media_repeat_one_replays_without_refetching_url
+
+
+async def test_repeat_one_eos_falls_back_to_load_when_no_source():
+    """加载失败后 (sourceUrl 空) 的 REPEAT_ONE EOS 仍走完整取链, 不短路."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.play_songs_async([_song("m1", "A")], 0)
+    controller.setMode("repeat_one")
+    controller.stop()  # 模拟 source 被清空
+    assert controller.sourceUrl == ""
+
+    await controller.handleEndOfMedia()
+
+    assert len(service.calls) == 2  # 重新取链
+    assert controller.sourceUrl == "https://audio.example.test/m1.mp3"
+
+
+# ------------------------------------------------------------------ 切歌淡出协调 (issue #11 Stage C2)
+# 正在出声时切歌: 先发 fadeOutRequested 并保留旧 source (清了立即哑), 取链与淡出
+# 并行; 淡出播完才换源. 淡出窗口内冻结 QML 进度回传 (UI 已显示新歌).
+
+
+class _FadeSettings:
+    qualityPreference = "balanced"
+    fadeEnabled = True
+    fadeDurationMs = 60  # 测试用短时长
+
+
+async def test_switch_while_playing_emits_fade_out_then_mounts_new_source():
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    fades: list[int] = []
+    sources: list[str] = []
+    controller.fadeOutRequested.connect(fades.append)
+    controller.sourceUrlChanged.connect(lambda: sources.append(controller.sourceUrl))
+
+    await controller.next()
+
+    assert fades == [60]
+    # 淡出期间旧 source 不被清空: 唯一一次变更即直接挂新源 (无中间空串)
+    assert sources == ["https://audio.example.test/m2.mp3"]
+
+
+async def test_switch_keeps_old_source_during_fade_window():
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    task = controller.next()  # @asyncSlot 调用即返回已创建的 Task
+    await asyncio.sleep(0.01)  # 取链瞬时完成, 此刻应仍在等淡出播完 (60ms)
+    assert controller.sourceUrl == "https://audio.example.test/m1.mp3"  # 旧源还挂着
+
+    # 淡出窗口内冻结 QML 进度回传 (旧歌还在响, 不能把进度条拽回去)
+    controller.updatePosition(123_456)
+    assert controller.positionMs == 0
+
+    await asyncio.wait_for(task, timeout=2)
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"
+    # 窗口结束后进度回传恢复
+    controller.updatePosition(777)
+    assert controller.positionMs == 777
+
+
+async def test_no_fade_out_when_not_playing():
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    fades: list[int] = []
+    controller.fadeOutRequested.connect(fades.append)
+
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)  # stopped 态起播
+    await controller.next()  # loading 态切歌
+
+    assert fades == []
+
+
+async def test_no_fade_out_when_disabled():
+    class _FadeOff(_FadeSettings):
+        fadeEnabled = False
+
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeOff(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    fades: list[int] = []
+    controller.fadeOutRequested.connect(fades.append)
+    await controller.next()
+
+    assert fades == []
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"
+
+
+async def test_fade_wait_respects_generation_guard():
+    """淡出等待期间再次切歌: 旧 generation 醒来后不得覆盖新源."""
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    task = controller.next()  # @asyncSlot 调用即返回已创建的 Task
+    await asyncio.sleep(0.01)  # task 进入淡出等待窗口
+    await controller.play_queue_index_async(0)  # 用户改主意点回第一首 (新 generation)
+    await asyncio.wait_for(task, timeout=2)
+
+    assert controller.sourceUrl == "https://audio.example.test/m1.mp3"
+
+
+async def test_fade_error_path_clears_source_and_unfreezes_position():
+    class _BoomService(_FakeServiceController):
+        async def get_song_url(self, song, *, quality_preference):
+            if song.mid == "m2":
+                raise RuntimeError("network down")
+            return await super().get_song_url(song, quality_preference=quality_preference)
+
+    service = _BoomService()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+    await controller.next()
+
+    assert errors  # 报错冒泡
+    assert controller.sourceUrl == ""  # 旧源已卸 (不能让它静音空转)
+    controller.updatePosition(555)
+    assert controller.positionMs == 555  # 冻结解除
+
+
+# ------------------------------------------------------------------ review 修复回归 (issue #11)
+
+
+async def test_format_error_short_track_not_exempted():
+    """短歌 (duration < 容差) 开头的 FormatError 不能被末尾豁免吞掉.
+
+    旧实现 `duration > 0` 守卫挡不住 `duration - 5000` 为负 → 短歌任何位置的
+    FormatError 都被静默忽略, 用户看到播放器静默卡死 (review 发现).
+    """
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "短曲", "duration": 4})  # 4s
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(0)  # 开头
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "bad")
+
+    assert errors and "短曲" in errors[0]  # 报错, 不被豁免
+    assert controller.playbackState == "stopped"
+
+
+async def test_format_error_short_track_near_end_still_exempted():
+    """短歌真播到后半段末尾的 FormatError 仍豁免 (CDN 坏帧)."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "短曲", "duration": 4})  # 4s
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(3500)  # 4s 歌的 3.5s, 后半段末尾
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "bad")
+
+    assert errors == []  # 豁免
+    assert controller.playbackState == "playing"
+
+
+async def test_pause_during_fade_out_not_overridden_by_play():
+    """fade 淡出 sleep 期间用户暂停, 不被切歌的 playRequested 覆盖 (review 发现).
+
+    旧实现 pause() 不参与 generation, sleep 醒来照常 playRequested → 暂停意图丢失.
+    """
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    plays: list[bool] = []
+    controller.playRequested.connect(lambda: plays.append(True))
+
+    task = controller.next()  # 切歌, 进入 fade 淡出 sleep (60ms)
+    await asyncio.sleep(0.01)  # 仍在 sleep 中
+    controller.pause()  # 用户暂停
+    await asyncio.wait_for(task, timeout=2)
+
+    assert plays == []  # 不应 playRequested, 尊重用户暂停
+    assert controller.sourceUrl == "https://audio.example.test/m2.mp3"  # 源已挂好但不播
+
+
+async def test_play_after_pause_during_fade_resumes():
+    """fade sleep 期间先 pause 又 play (改主意), 最终应播放 (pause_pending 被 play 清除)."""
+    service = _FakeServiceController()
+    controller = PlayerController(
+        service,  # type: ignore[arg-type]
+        settings_controller=_FadeSettings(),  # type: ignore[arg-type]
+    )
+    await controller.play_songs_async([_song("m1", "A"), _song("m2", "B")], 0)
+    controller.updatePlaybackState("playing")
+    plays: list[bool] = []
+    controller.playRequested.connect(lambda: plays.append(True))
+
+    task = controller.next()
+    await asyncio.sleep(0.01)
+    controller.pause()
+    controller.play()  # 改主意, 又要播
+    await asyncio.wait_for(task, timeout=2)
+
+    assert plays  # 最终应 playRequested

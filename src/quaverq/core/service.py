@@ -19,7 +19,7 @@ import random
 import re
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -805,17 +805,23 @@ class QuaverService:
         *,
         quality_preference: str = "balanced",
     ) -> SongUrl | None:
-        """按音质降级, 走 bypass vkey 路径拿可播完整 URL."""
+        """按音质偏好, 走 bypass vkey 路径拿可播完整 URL.
+
+        全部降级档批量塞进单个 UrlGetVkey 请求 (1 次往返), 本地按偏好顺序挑
+        第一个可播档 —— 旧实现按档串行降级最多 3 次往返, 是切歌延迟大头之一
+        (issue #11). 实测响应保序回显 filename, 见 scripts/debug_vkey_batch.py.
+        """
         order = self._QUALITY_PROFILES.get(
             quality_preference, self._QUALITY_PROFILES[self._DEFAULT_QUALITY]
         )
+        fetched = await self._try_bypass_urls(
+            song_obj.mid,
+            order,
+            media_mid=song_obj.media_mid,
+        )
         failure_codes: dict[str, int] = {}
         for quality_label in order:
-            url, vkey_result = await self._try_bypass_url(
-                song_obj.mid,
-                quality_label,
-                media_mid=song_obj.media_mid,
-            )
+            url, vkey_result = fetched.get(quality_label, (None, None))
             if url:
                 artists = " / ".join(s.name for s in song_obj.singers) or "未知歌手"
                 album = f" [{song_obj.album_name}]" if song_obj.album_name else ""
@@ -907,75 +913,116 @@ class QuaverService:
                 return True
         return False
 
-    async def _try_bypass_url(
+    async def _try_bypass_urls(
         self,
         mid: str,
-        quality_label: str,
+        quality_labels: Sequence[str],
         *,
         media_mid: str = "",
-    ) -> tuple[str | None, int | None]:
-        """vkey bypass. ct 实例生命周期内固定 (启动时从 _SAFE_CT_VALUES 随机).
+    ) -> dict[str, tuple[str | None, int | None]]:
+        """vkey bypass 批量: 全部档位 filename 塞同一请求, 按档返回 (url, vkey_result 码).
 
-        返回 (url, vkey_result 码): 成功 (url, None); 拒发时 url=None, 码透给调用方
-        进 warning 日志 (104003=无版权/不可下发, 真机实测灰色歌曲返回该码).
+        ct 实例生命周期内固定 (启动时从 _SAFE_CT_VALUES 随机). 成功档 (url, None);
+        拒发档 url=None, 码透给调用方进 warning 日志 (104003=无版权/不可下发,
+        真机实测灰色歌曲返回该码). 未知档位不进结果. 形状漂移 (非 dict 条目 /
+        条数不齐 / 缺回显) 一律降级为该档 (None, None), 不抛.
         """
-        prefix_ext = self._QUALITY_FILE.get(quality_label)
-        if not prefix_ext:
-            return None, None
-        prefix, ext = prefix_ext
         file_mid = media_mid or mid
-        filename = f"{prefix}{file_mid}{file_mid}.{ext}"
+        known = [
+            (label, self._QUALITY_FILE[label])
+            for label in quality_labels
+            if label in self._QUALITY_FILE
+        ]
+        if not known:
+            return {}
+        filenames = [f"{prefix}{file_mid}{file_mid}.{ext}" for _, (prefix, ext) in known]
+        results: dict[str, tuple[str | None, int | None]] = {
+            label: (None, None) for label, _ in known
+        }
 
         data = await self._bypass_post(
             "music.vkey.GetVkey",
             "UrlGetVkey",
             {
-                "filename": [filename],
+                "filename": filenames,
                 "guid": self._device_guid or uuid.uuid4().hex,
-                "songmid": [mid],
-                "songtype": [0],
+                "songmid": [mid] * len(filenames),
+                "songtype": [0] * len(filenames),
             },
             require_login=True,
             timeout=self._VKEY_REQUEST_TIMEOUT_SEC,
         )
         if not data:
-            logger.debug("vkey 空响应: mid=%s quality=%s filename=%s", mid, quality_label, filename)
-            return None, None
+            logger.debug("vkey 空响应: mid=%s labels=%s", mid, list(quality_labels))
+            return results
 
         midurlinfo = data.get("midurlinfo") or []
         if not midurlinfo:
             # vkey 接口未返回 midurlinfo, 一般是请求路径异常 (而非曲目不可下发)
             logger.debug(
-                "vkey 缺 midurlinfo: mid=%s quality=%s filename=%s data_keys=%s",
+                "vkey 缺 midurlinfo: mid=%s labels=%s data_keys=%s",
                 mid,
-                quality_label,
-                filename,
+                list(quality_labels),
                 sorted(data.keys()),
             )
-            return None, None
-        entry = midurlinfo[0] if isinstance(midurlinfo[0], dict) else {}
-        purl = entry.get("purl", "") or ""
-        if not purl:
-            # 区域/版权/会员限制时 purl 置空, result 码标明原因 (104003=无版权).
-            # DEBUG (而非 WARNING): 某些档失败是常态 (例如非 VIP 试 FLAC), 不应刷屏;
-            # 全档失败时 get_song_url 的 warning 会带上这里的码.
+            return results
+
+        # 对位策略 (review 加固): 正常响应每条都回显请求的 filename, 按 filename 精确
+        # 对位 (最可靠, 见 scripts/debug_vkey_batch.py). 若有条目缺 filename 回显, 退化
+        # 为按下标对位 (假设保序), 但要求条数与请求档数**完全一致** —— 否则无法可靠
+        # 对位, 该批保持全部不可用. 避免旧实现"混合回显时 setdefault 撞键 / 无回显时
+        # 把 A 档 purl 错安给 B 档"导致的静默音质错标.
+        dict_entries = [e for e in midurlinfo if isinstance(e, dict)]
+        all_echoed = bool(dict_entries) and all(e.get("filename") for e in dict_entries)
+        if all_echoed:
+            by_filename: dict[str, dict[str, Any]] = {}
+            for entry in dict_entries:
+                by_filename.setdefault(str(entry["filename"]), entry)
+            pairs: list[tuple[str, str, dict[str, Any] | None]] = [
+                (label, filename, by_filename.get(filename))
+                for (label, _), filename in zip(known, filenames, strict=True)
+            ]
+        elif len(dict_entries) == len(filenames):
+            pairs = [
+                (label, filename, entry)
+                for (label, _), filename, entry in zip(known, filenames, dict_entries, strict=True)
+            ]
+        else:
             logger.debug(
-                "vkey purl 空: mid=%s quality=%s filename=%s entry=%s",
+                "vkey 响应无法对位 (缺 filename 回显且条数不符): mid=%s 请求=%d 响应=%d",
                 mid,
-                quality_label,
-                filename,
-                entry,
+                len(filenames),
+                len(dict_entries),
             )
-            raw_result = entry.get("result")
-            try:
-                code = int(raw_result) if raw_result not in (None, "") else None
-            except (TypeError, ValueError):
-                code = None
-            return None, code
-        # 返回真实 CDN https url：由 bridge 的 StreamProxy 用 curl_cffi 官方 TLS
-        # 指纹 (impersonate) 拉流，经本机回环 http 喂给 FFmpeg。FFmpeg 自身的 TLS
-        # 指纹会被 CDN 风控 (https→401/403)，故不让它直连；明文只在本机回环。
-        return f"https://isure.stream.qqmusic.qq.com/{purl}", None
+            return results
+
+        for label, filename, entry in pairs:
+            if entry is None:
+                continue
+            purl = entry.get("purl", "") or ""
+            if not purl:
+                # 区域/版权/会员限制时 purl 置空, result 码标明原因 (104003=无版权).
+                # DEBUG (而非 WARNING): 某些档失败是常态 (例如非 VIP 试 FLAC), 不应刷屏;
+                # 全档失败时 get_song_url 的 warning 会带上这里的码.
+                logger.debug(
+                    "vkey purl 空: mid=%s quality=%s filename=%s entry=%s",
+                    mid,
+                    label,
+                    filename,
+                    entry,
+                )
+                raw_result = entry.get("result")
+                try:
+                    code = int(raw_result) if raw_result not in (None, "") else None
+                except (TypeError, ValueError):
+                    code = None
+                results[label] = (None, code)
+                continue
+            # 返回真实 CDN https url：由 bridge 的 StreamProxy 用 curl_cffi 官方 TLS
+            # 指纹 (impersonate) 拉流，经本机回环 http 喂给 FFmpeg。FFmpeg 自身的 TLS
+            # 指纹会被 CDN 风控 (https→401/403)，故不让它直连；明文只在本机回环。
+            results[label] = (f"https://isure.stream.qqmusic.qq.com/{purl}", None)
+        return results
 
     # ------------------------------------------------------------------
     # 用户库 (我喜欢 + 我创建的歌单)

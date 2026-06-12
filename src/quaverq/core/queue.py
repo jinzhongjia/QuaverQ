@@ -239,6 +239,28 @@ class PlayQueue:
             return self.current()
         return self.next()
 
+    def peek_next(self) -> Song | None:
+        """非变异地看"自然播完后将播哪首" (on_song_end 语义), 供预取下一首链接用.
+
+        SHUFFLE 空池时不重洗直接返 None —— 重洗只在真正 advance 时发生,
+        否则 peek 会改变后续随机顺序.
+        """
+        if not self.songs:
+            return None
+        if self.mode == PlayMode.REPEAT_ONE:
+            return self.current()
+        if self.mode == PlayMode.SHUFFLE:
+            if not self._shuffle_remaining:
+                return None
+            idx = self._shuffle_remaining[0]
+            return self.songs[idx] if 0 <= idx < len(self.songs) else None
+        nxt = self.current_index + 1
+        if nxt >= len(self.songs):
+            if self.mode != PlayMode.REPEAT_ALL:
+                return None
+            nxt = 0
+        return self.songs[nxt] if 0 <= nxt < len(self.songs) else None
+
     # ------------------------------------------------------------------
     # SHUFFLE 内部
     # ------------------------------------------------------------------
