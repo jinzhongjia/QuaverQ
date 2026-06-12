@@ -16,6 +16,7 @@ Rectangle {
     property var coverController
     property var songDetailController
     property var playerController
+    property var downloadController
     property bool selected: false
     readonly property string coverUrl: root.song && root.song.coverUrl ? root.song.coverUrl : ""
     readonly property var firstSinger: {
@@ -93,14 +94,33 @@ Rectangle {
         topPadding: 0
         bottomPadding: 0
 
-        contentItem: Label {
-            text: mi.text
-            color: mi.enabled
-                ? ThemeTokens.Palette.surfaceText
-                : ThemeTokens.Palette.surfaceVariantText
-            font.pixelSize: ThemeTokens.TypeScale.bodySm
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
+        contentItem: Item {
+            implicitHeight: 36
+
+            Label {
+                anchors.left: parent.left
+                anchors.right: subMenuArrow.visible ? subMenuArrow.left : parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: mi.text
+                color: mi.enabled
+                    ? ThemeTokens.Palette.surfaceText
+                    : ThemeTokens.Palette.surfaceVariantText
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+
+            // 嵌套子菜单的级联指示箭头 (普通菜单项不显示)
+            Label {
+                id: subMenuArrow
+
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !!mi.subMenu
+                text: "›"
+                color: ThemeTokens.Palette.surfaceVariantText
+                font.pixelSize: ThemeTokens.TypeScale.body
+            }
         }
 
         background: Rectangle {
@@ -122,11 +142,13 @@ Rectangle {
         }
     }
 
-    Menu {
-        id: contextMenu
+    // 菜单底座: contextMenu 与嵌套子菜单共用样式; delegate 接管嵌套 Menu
+    // 自动生成的父级菜单项 (否则落到 Basic 默认白底样式)
+    component StyledMenu: Menu {
         modal: false
         dim: false
         padding: ThemeTokens.Spacing.s2
+        delegate: StyledMenuItem {}
 
         background: Rectangle {
             implicitWidth: 180
@@ -144,6 +166,10 @@ Rectangle {
                 z: -1
             }
         }
+    }
+
+    StyledMenu {
+        id: contextMenu
 
         StyledMenuItem {
             text: qsTr("播放")
@@ -165,6 +191,52 @@ Rectangle {
             onTriggered: {
                 if (root.playerController)
                     root.playerController.appendToQueue([root.song])
+            }
+        }
+
+        StyledMenu {
+            title: qsTr("下载")
+
+            StyledMenuItem {
+                text: qsTr("默认音质")
+                onTriggered: {
+                    if (root.downloadController && root.song && root.song.mid)
+                        root.downloadController.downloadSong(root.song)
+                }
+            }
+
+            StyledMenuSeparator {}
+
+            StyledMenuItem {
+                text: qsTr("标准（128K）")
+                onTriggered: {
+                    if (root.downloadController && root.song && root.song.mid)
+                        root.downloadController.downloadSongWithQuality(root.song, "standard")
+                }
+            }
+
+            StyledMenuItem {
+                text: qsTr("高品质（320K）")
+                onTriggered: {
+                    if (root.downloadController && root.song && root.song.mid)
+                        root.downloadController.downloadSongWithQuality(root.song, "balanced")
+                }
+            }
+
+            StyledMenuItem {
+                text: qsTr("无损（FLAC）")
+                onTriggered: {
+                    if (root.downloadController && root.song && root.song.mid)
+                        root.downloadController.downloadSongWithQuality(root.song, "high")
+                }
+            }
+
+            StyledMenuItem {
+                text: qsTr("臻品母带")
+                onTriggered: {
+                    if (root.downloadController && root.song && root.song.mid)
+                        root.downloadController.downloadSongWithQuality(root.song, "master")
+                }
             }
         }
 

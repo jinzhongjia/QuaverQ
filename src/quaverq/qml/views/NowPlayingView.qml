@@ -27,6 +27,7 @@ Item {
 
     signal queueRequested()
     signal backRequested()
+    signal downloadRequested()
 
     // 清空队列 (无歌) 时头图回占位: retainOnSwitch 的"换曲保留旧图"语义只该作用于
     // 换曲过渡, "没歌了"必须显式清掉, 否则上一首封面残留 (真机验收反馈)
@@ -130,6 +131,17 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 libraryController: root.libraryController
                 song: root.currentSong
+            }
+
+            Components.IconButton {
+                visible: !root.wideLayout
+                Layout.alignment: Qt.AlignVCenter
+                text: qsTr("下载当前歌曲")
+                iconSource: "../icons/download.svg"
+                iconSize: 18
+                iconColor: ThemeTokens.Palette.surfaceVariantText
+                enabled: root.hasSong
+                onClicked: root.downloadRequested()
             }
 
             Components.IconButton {
@@ -254,6 +266,15 @@ Item {
                                 Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
                                 libraryController: root.libraryController
                                 song: root.currentSong
+                            }
+
+                            Components.IconButton {
+                                text: qsTr("下载当前歌曲")
+                                iconSource: "../icons/download.svg"
+                                iconSize: 18
+                                iconColor: ThemeTokens.Palette.surfaceVariantText
+                                enabled: root.hasSong
+                                onClicked: root.downloadRequested()
                             }
 
                             Components.IconButton {

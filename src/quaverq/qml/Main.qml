@@ -40,11 +40,13 @@ ApplicationWindow {
     readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
     readonly property var settingsController: SettingsController
+    readonly property var downloadController: DownloadController
     readonly property var systemTheme: SystemTheme
     // qmllint enable unqualified
     // 托盘可用时由 Python 置 true: 关闭改为隐藏到托盘而非退出
     property bool closeToTray: false
     property bool queuePanelOpen: false
+    property bool downloadsPanelOpen: false
     // 正在播放沉浸浮层 (盖侧栏 + 内容区, 不进导航栈): 开/关语义, 收起后精确还原打开前的位置
     property bool nowPlayingOpen: false
     property string currentRoute: "home"
@@ -99,6 +101,7 @@ ApplicationWindow {
 
     function resetContent(component, route) {
         root.queuePanelOpen = false
+        root.downloadsPanelOpen = false
         root.currentDetailTitle = ""
         // replace(null, ...) = 整栈替换: 走 replaceEnter/Exit 的 120ms 交叉淡入 (O2);
         // reduceMotion 时 durFast=0, 行为等价原 StackView.Immediate
@@ -132,6 +135,7 @@ ApplicationWindow {
             return
         }
         root.queuePanelOpen = false
+        root.downloadsPanelOpen = false
         root.releaseTextFocus()
         // 闩锁必须先置位: Behavior 的 enabled 依赖它, 否则首开没有滑入动画
         nowPlayingLoader.everOpened = true
@@ -149,6 +153,7 @@ ApplicationWindow {
     function pushDetail(kind, detailId, title, subtitle, coverUrl) {
         root.nowPlayingOpen = false
         root.queuePanelOpen = false
+        root.downloadsPanelOpen = false
         root.releaseTextFocus()
         contentStack.push(detailPageComponent, {
             detailKind: kind,
@@ -388,7 +393,7 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Space"
-        enabled: !searchField.activeFocus && !loginDialog.visible && !root.queuePanelOpen
+        enabled: !searchField.activeFocus && !loginDialog.visible && !root.queuePanelOpen && !root.downloadsPanelOpen
         onActivated: {
             if (root.playerController)
                 root.playerController.togglePlayPause()
@@ -433,10 +438,12 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Esc"
-        enabled: searchField.activeFocus || root.queuePanelOpen || root.nowPlayingOpen || contentStack.depth > 1
+        enabled: searchField.activeFocus || root.queuePanelOpen || root.downloadsPanelOpen || root.nowPlayingOpen || contentStack.depth > 1
         onActivated: {
             if (searchField.activeFocus) {
                 root.releaseTextFocus()
+            } else if (root.downloadsPanelOpen) {
+                root.downloadsPanelOpen = false
             } else if (root.queuePanelOpen) {
                 root.queuePanelOpen = false
             } else if (root.nowPlayingOpen) {
@@ -724,6 +731,7 @@ ApplicationWindow {
         queueCount: root.playerController && root.playerController.queueModel
             ? root.playerController.queueModel.count
             : 0
+        downloadActiveCount: root.downloadController ? root.downloadController.activeCount : 0
         loading: root.playerController ? root.playerController.loading : false
         errorMessage: root.playerController ? root.playerController.errorMessage : ""
         bottomCornerRadius: root.windowCornerRadius
@@ -755,8 +763,15 @@ ApplicationWindow {
             if (root.playerController)
                 root.playerController.setMode(value)
         }
-        onQueueRequested: root.queuePanelOpen = !root.queuePanelOpen
+        onQueueRequested: {
+            root.downloadsPanelOpen = false
+            root.queuePanelOpen = !root.queuePanelOpen
+        }
         onNowPlayingRequested: root.openNowPlaying()
+        onDownloadRequested: {
+            root.queuePanelOpen = false
+            root.downloadsPanelOpen = !root.downloadsPanelOpen
+        }
     }
 
     Component {
@@ -764,6 +779,7 @@ ApplicationWindow {
 
         Views.HomeView {
             appController: root.appController
+            downloadController: root.downloadController
             coverController: root.coverController
             homeController: root.homeController
             libraryController: root.libraryController
@@ -785,6 +801,7 @@ ApplicationWindow {
 
         Views.SearchView {
             serviceController: root.serviceController
+            downloadController: root.downloadController
             playerController: root.playerController
             libraryController: root.libraryController
             coverController: root.coverController
@@ -800,6 +817,7 @@ ApplicationWindow {
 
         Views.LibraryView {
             appController: root.appController
+            downloadController: root.downloadController
             coverController: root.coverController
             libraryController: root.libraryController
             playerController: root.playerController
@@ -817,6 +835,7 @@ ApplicationWindow {
 
         Views.DetailView {
             coverController: root.coverController
+            downloadController: root.downloadController
             detailControllerFactory: root.detailControllerFactory
             playerController: root.playerController
             libraryController: root.libraryController
@@ -840,6 +859,7 @@ ApplicationWindow {
         Views.SettingsView {
             appController: root.appController
             settingsController: root.settingsController
+            downloadController: root.downloadController
             onLoginRequested: loginDialog.open()
             onLogoutRequested: logoutConfirmDialog.open()
         }
@@ -891,8 +911,15 @@ ApplicationWindow {
                 libraryController: root.libraryController
                 lyricController: root.lyricController
                 settingsController: root.settingsController
-                onQueueRequested: root.queuePanelOpen = true
+                onQueueRequested: {
+                    root.downloadsPanelOpen = false
+                    root.queuePanelOpen = true
+                }
                 onBackRequested: root.closeNowPlaying()
+                onDownloadRequested: {
+                    if (root.downloadController && root.playerController)
+                        root.downloadController.downloadSong(root.playerController.currentSong)
+                }
             }
         }
     }
@@ -950,6 +977,58 @@ ApplicationWindow {
                 onClearRequested: {
                     if (root.playerController)
                         root.playerController.clearQueue()
+                }
+            }
+        }
+    }
+
+    // 下载管理抽屉: 与待播抽屉同款交互 (常驻 Loader + 右滑入), 两者互斥开启
+    Loader {
+        id: downloadsPanelLoader
+
+        property bool everOpened: false
+
+        active: root.downloadsPanelOpen || downloadsPanelLoader.everOpened
+        onLoaded: downloadsPanelLoader.everOpened = true
+        visible: root.downloadsPanelOpen || downloadsPanelSlideAnim.running
+        clip: true
+        anchors.top: headerBar.bottom
+        anchors.right: parent.right
+        anchors.bottom: playerBar.top
+        anchors.rightMargin: root.windowShadowMargin
+        width: Math.min(360, root.width - 96 - root.windowShadowMargin * 2)
+        z: 10
+
+        transform: Translate {
+            x: root.downloadsPanelOpen ? 0 : downloadsPanelLoader.width
+
+            Behavior on x {
+                NumberAnimation {
+                    id: downloadsPanelSlideAnim
+
+                    duration: ThemeTokens.Motion.durMed
+                    easing.type: root.downloadsPanelOpen ? ThemeTokens.Motion.easeOut : ThemeTokens.Motion.easeIn
+                }
+            }
+        }
+
+        sourceComponent: Component {
+            Panels.DownloadsPanel {
+                anchors.fill: parent
+                downloadModel: root.downloadController ? root.downloadController.downloadModel : null
+                activeCount: root.downloadController ? root.downloadController.activeCount : 0
+                onCloseRequested: root.downloadsPanelOpen = false
+                onCancelRequested: function(row) {
+                    if (root.downloadController)
+                        root.downloadController.cancelTask(row)
+                }
+                onRetryRequested: function(row) {
+                    if (root.downloadController)
+                        root.downloadController.retryTask(row)
+                }
+                onOpenDirRequested: {
+                    if (root.downloadController)
+                        root.downloadController.openDownloadDirectory()
                 }
             }
         }
@@ -1030,6 +1109,16 @@ ApplicationWindow {
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
         // 轻提示 (自动跳过无版权曲目等): info 级, 不用错误红
         function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
+    }
+    Connections {
+        target: root.downloadController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+        function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
+        function onDownloadFinished(name, qualityText) {
+            globalSnackbar.show(qualityText
+                ? qsTr("已下载:%1（%2）").arg(name).arg(qualityText)
+                : qsTr("已下载:%1").arg(name), "success")
+        }
     }
 
     Item {

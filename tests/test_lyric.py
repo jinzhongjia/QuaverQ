@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from quaverq.core.lyric import LyricSync, parse_lrc, parse_qrc
+from quaverq.core.lyric import LyricSync, parse_lrc, parse_qrc, to_lrc
 from quaverq.core.models import Lyric, LyricLine
 
 # ============================================================== parse_lrc
@@ -225,3 +225,72 @@ def test_window_empty_lyric():
     win, active = s.window(position_ms=5000)
     assert win == []
     assert active == -1
+
+
+# ============================================================== to_lrc
+
+
+def test_to_lrc_basic_lines():
+    lyric = Lyric(
+        mid="m1",
+        lines=[
+            LyricLine(timestamp_ms=12500, text="第一行"),
+            LyricLine(timestamp_ms=83450, text="第二行"),
+        ],
+    )
+    assert to_lrc(lyric) == "[00:12.50]第一行\n[01:23.45]第二行\n"
+
+
+def test_to_lrc_roundtrips_through_parse_lrc():
+    lyric = Lyric(
+        mid="m1",
+        lines=[
+            LyricLine(timestamp_ms=5000, text="hello"),
+            LyricLine(timestamp_ms=65200, text="world"),
+        ],
+    )
+    parsed = parse_lrc(to_lrc(lyric))
+    assert [(ln.timestamp_ms, ln.text) for ln in parsed] == [(5000, "hello"), (65200, "world")]
+
+
+def test_to_lrc_translation_as_second_line_same_timestamp():
+    # QQ 双行风格: 译文紧随原文, 共用时间戳
+    lyric = Lyric(
+        mid="m1",
+        lines=[LyricLine(timestamp_ms=1000, text="Hello", translation="你好")],
+        has_translation=True,
+    )
+    assert to_lrc(lyric) == "[00:01.00]Hello\n[00:01.00]你好\n"
+
+
+def test_to_lrc_translation_can_be_disabled():
+    lyric = Lyric(
+        mid="m1",
+        lines=[LyricLine(timestamp_ms=1000, text="Hello", translation="你好")],
+        has_translation=True,
+    )
+    assert to_lrc(lyric, with_translation=False) == "[00:01.00]Hello\n"
+
+
+def test_to_lrc_metadata_header():
+    lyric = Lyric(mid="m1", lines=[LyricLine(timestamp_ms=0, text="x")])
+    text = to_lrc(lyric, title="晴天", artist="周杰伦", album="叶惠美")
+    assert text.startswith("[ti:晴天]\n[ar:周杰伦]\n[al:叶惠美]\n")
+    assert text.endswith("[00:00.00]x\n")
+
+
+def test_to_lrc_empty_lyric_returns_empty():
+    assert to_lrc(Lyric(mid="m1")) == ""
+    assert to_lrc(None) == ""
+
+
+def test_to_lrc_long_song_minutes_beyond_an_hour():
+    # LRC 的 mm 字段直接放分钟数, 不进位到小时
+    lyric = Lyric(mid="m1", lines=[LyricLine(timestamp_ms=75 * 60_000, text="x")])
+    assert to_lrc(lyric) == "[75:00.00]x\n"
+
+
+def test_to_lrc_centisecond_rounding():
+    # 毫秒向下取整到厘秒, 不四舍五入进位 (避免 999ms -> 100cs 溢出)
+    lyric = Lyric(mid="m1", lines=[LyricLine(timestamp_ms=1999, text="x")])
+    assert to_lrc(lyric) == "[00:01.99]x\n"

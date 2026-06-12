@@ -20,6 +20,7 @@ from .bridge import (
     CoverController,
     CoverImageProvider,
     DetailControllerFactory,
+    DownloadController,
     HomeController,
     LibraryController,
     LyricController,
@@ -379,8 +380,12 @@ def main() -> None:
         player_controller=player_controller,
     )
     lyric_controller = LyricController(service_controller, player_controller)
+    download_controller = DownloadController(service_controller, settings_controller)
     app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
     app.aboutToQuit.connect(stream_proxy.stop)
+    # 置位取消事件让在途下载线程尽快退出并清掉 .part (aboutToQuit 可能被 qasync 的
+    # run_until_complete 提前触发, 但 shutdown 幂等且只影响下载任务, 无副作用)
+    app.aboutToQuit.connect(download_controller.shutdown)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
@@ -395,6 +400,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("LyricController", lyric_controller)
     engine.rootContext().setContextProperty("PlayerController", player_controller)
     engine.rootContext().setContextProperty("SettingsController", settings_controller)
+    engine.rootContext().setContextProperty("DownloadController", download_controller)
     engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
     # 启动同步读盘加载凭据 -> 首帧即登录态 (本地, 不联网, 不需事件循环);
     # connect + 网络有效性校验由后台 start() 完成. 让私有区块也能在 QML 绑定前用缓存填好.

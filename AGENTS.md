@@ -200,6 +200,7 @@ LLM 约定：
 - **`dbus-next>=0.2.3`** (**仅 Linux**, `sys_platform == "linux"` marker) — 纯 Python 异步 D-Bus 实现, 用于 MPRIS2 (媒体键 / GNOME 媒体控件 / KDE 通知面板). 服务端通过 `__annotations__` 读取 D-Bus 签名字符串 (`"b"` / `"s"` / `"a{sv}"` 等), 不是 Python 类型注解, 不要"修正" (见 `src/quaverq/core/mpris.py` 与"禁止动 MPRIS D-Bus 注解形式"). Windows / macOS 走各自原生 API, 不依赖此包.
 - **`platformdirs>=4.0`** — 跨平台 config / cache 目录解析. Linux 走 XDG (`~/.config/quaverq`, `~/.cache/quaverq`), Windows 走 `%APPDATA%\quaverq` + `%LOCALAPPDATA%\quaverq\Cache`, macOS 走 `~/Library/Application Support/quaverq` + `~/Library/Caches/quaverq`. **业务代码只用 `from quaverq.config import CONFIG_DIR, CACHE_DIR`**, 不直接 `os.path.expanduser("~/.config/...")`.
 - **`keyring>=24.0`** — 跨平台凭据存储. 自动选平台后端: Linux Secret Service (gnome-keyring / kwallet) / Windows Credential Manager / macOS Keychain. 服务名 `QuaverQ`, 用户名 `credential`, 内容为 JSON blob. 不再有文件兜底——keyring 不可用 (headless / 无 D-Bus) 时凭据不持久化, 用户重启需重新扫码.
+- **`mutagen>=1.47`** — 音频标签读写 (纯 Python). 下载功能用它把 标题/歌手/专辑/封面 嵌进产物 (mp3 走 ID3v2, flac 走 Vorbis comment + Picture, ogg 仅文字 tag); GPL-2+ 与本项目 GPL-3+ 兼容. 见 `core/downloader.py` 的 `embed_tags`.
 - **`tomli-w>=1.0`** — TOML 写入. 读侧用 Python 3.11+ 内置 `tomllib` (3.10 fallback 到 `tomli`), 写 `config.toml` 用 `tomli_w.dump` (路径走 `CONFIG_DIR`).
 
 ### 开发依赖 (`[dependency-groups] dev`)

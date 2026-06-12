@@ -16,6 +16,7 @@ Rectangle {
     property bool loading: false
     property string errorMessage: ""
     property int queueCount: 0
+    property int downloadActiveCount: 0
     property int bottomCornerRadius: 0
     property var libraryController
     property var coverController
@@ -38,6 +39,7 @@ Rectangle {
     signal modeRequested(string mode)
     signal queueRequested()
     signal nowPlayingRequested()
+    signal downloadRequested()
 
     height: ThemeTokens.Spacing.playerBarHeight
     radius: root.bottomCornerRadius
@@ -371,6 +373,17 @@ Rectangle {
 
                                 OverflowRow {
                                     Layout.fillWidth: true
+                                    label: root.downloadActiveCount > 0
+                                        ? qsTr("下载管理 (%1)").arg(root.downloadActiveCount > 99 ? "99+" : root.downloadActiveCount)
+                                        : qsTr("下载管理")
+                                    onActivated: {
+                                        overflowPopup.close()
+                                        root.downloadRequested()
+                                    }
+                                }
+
+                                OverflowRow {
+                                    Layout.fillWidth: true
                                     label: qsTr("歌词")
                                     enabled: root.hasSong
                                     onActivated: {
@@ -524,11 +537,47 @@ Rectangle {
 
         // ---------------------------------------------------------- RIGHT zone
         RowLayout {
-            Layout.preferredWidth: root.width >= 920 ? 232 : 0
-            Layout.maximumWidth: root.width >= 920 ? 232 : 0
+            Layout.preferredWidth: root.width >= 920 ? 276 : 0
+            Layout.maximumWidth: root.width >= 920 ? 276 : 0
             Layout.fillHeight: true
             visible: root.width >= 920
             spacing: ThemeTokens.Spacing.s2
+
+            Item {
+                Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
+                Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+
+                IconButton {
+                    anchors.fill: parent
+                    text: qsTr("下载管理")
+                    iconSource: "../icons/download.svg"
+                    iconSize: 18
+                    iconColor: ThemeTokens.Palette.surfaceVariantText
+                    onClicked: root.downloadRequested()
+                }
+
+                // 进行中任务数角标 (与待播列表角标同款)
+                Rectangle {
+                    visible: root.downloadActiveCount > 0
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.rightMargin: 2
+                    anchors.topMargin: 4
+                    width: Math.max(16, downloadBadgeLabel.implicitWidth + 8)
+                    height: 16
+                    radius: 8
+                    color: ThemeTokens.Palette.primary
+
+                    Label {
+                        id: downloadBadgeLabel
+                        anchors.centerIn: parent
+                        text: root.downloadActiveCount > 99 ? "99+" : root.downloadActiveCount
+                        color: ThemeTokens.Palette.primaryText
+                        font.pixelSize: 10
+                        font.weight: ThemeTokens.TypeScale.medium
+                    }
+                }
+            }
 
             IconButton {
                 text: qsTr("歌词")
