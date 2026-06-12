@@ -426,7 +426,7 @@ async def test_media_error_gives_up_after_one_retry():
 
 
 async def test_media_error_non_retryable_reports_immediately():
-    # FormatError 解码错误重试无意义 -> 直接报错, 不重取链
+    # FormatError 解码错误重试无意义 -> 直接报错, 不重取链 (歌中段/开头损坏)
     service = _FakeServiceController()
     controller = PlayerController(service)  # type: ignore[arg-type]
     errors: list[str] = []
@@ -438,6 +438,44 @@ async def test_media_error_non_retryable_reports_immediately():
     assert len(service.calls) == 1  # 没重取链
     assert controller.playbackState == "stopped"
     assert errors and "晴天" in errors[-1]
+
+
+async def test_format_error_near_stream_end_ignored_as_normal_finish():
+    """CDN FLAC 尾部坏帧: 播到末尾 emit FormatError, 但歌已播完, 不误报'播放失败'.
+
+    issue #11 真机暴露: 每首 FLAC 最后几秒 errorOccurred(FormatError) + 紧随 EndOfMedia,
+    旧逻辑报'播放失败'+ stopped, UI 闪错误又被 EndOfMedia 切歌 -> 诡异. 末尾豁免后
+    静默忽略, 由 EndOfMedia 正常切歌.
+    """
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(197_000)  # 200s 歌, 末尾前 3s
+    service.calls.clear()
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.FormatError.value, "Invalid data")
+
+    assert errors == []  # 不误报"播放失败"
+    assert controller.errorMessage == ""
+    assert service.calls == []  # 不重取链
+    assert controller.playbackState == "playing"  # 不设 stopped, 让 EndOfMedia 接管切歌
+
+
+async def test_resource_error_near_stream_end_still_retries():
+    """末尾的 ResourceError (网络断/401) 仍重取链重试: 末尾豁免只针对解码类 FormatError."""
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    await controller.push_and_play_async({"mid": "m1", "name": "晴天", "duration": 200})
+    controller.updatePlaybackState("playing")
+    controller.updatePosition(197_000)
+    service.calls.clear()
+
+    await controller.handle_media_error_async(QMediaPlayer.Error.ResourceError.value, "401")
+
+    assert len(service.calls) == 1  # 网络类错误末尾也重取链, 不豁免
 
 
 async def test_play_songs_records_queue_source_and_emits_change():

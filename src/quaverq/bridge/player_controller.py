@@ -43,6 +43,12 @@ _RETRYABLE_MEDIA_ERRORS = frozenset(
     }
 )
 _MAX_MEDIA_RETRIES = 1
+# 流末尾解码错误豁免窗口: QQ CDN 的音频文件 (尤其 FLAC) 尾部常带坏帧, 播到末尾时
+# QMediaPlayer emit FormatError, 但歌已实际播完 (EndOfMedia 随后 ~0.4s 接管切歌).
+# position 落在 duration 最后这段内的 FormatError 视为"正常播完", 静默忽略, 不误报
+# "播放失败" (见 handle_media_error_async). 取 5s 容差: 覆盖坏帧位置波动 + position
+# 回传滞后, 又不至于把末尾前的真损坏也吞掉.
+_END_OF_STREAM_TOLERANCE_MS = 5000
 
 
 class PlayerController(QObject):
@@ -504,6 +510,22 @@ class PlayerController(QObject):
         """QML MediaPlayer 报错回调: 瞬态错误 (CDN 401 等) 重取链重试当前曲一次."""
         song = self._queue.current()
         if song is None:
+            return
+        # 流末尾解码错误豁免: CDN FLAC 尾部坏帧让 QMediaPlayer 在播到末尾时 emit
+        # FormatError, 但歌已播完 (EndOfMedia 随后接管切歌). 静默忽略, 否则会误报
+        # "播放失败" + 让 UI 闪错误又被切歌 (真机暴露的诡异 UI). 仅 FormatError +
+        # 接近末尾; 网络/资源类错误即便在末尾也照常重取链重试 (可能是真断流).
+        if (
+            int(error) == QMediaPlayer.Error.FormatError.value
+            and self._duration_ms > 0
+            and self._position_ms >= self._duration_ms - _END_OF_STREAM_TOLERANCE_MS
+        ):
+            logger.debug(
+                "忽略流末尾解码错误 (歌已近播完, 由 EndOfMedia 接管): %s @%d/%dms",
+                song.name,
+                self._position_ms,
+                self._duration_ms,
+            )
             return
         if song.mid != self._media_retry_mid:  # 换了曲 -> 重置计数
             self._media_retry_mid = song.mid
