@@ -54,6 +54,13 @@ Rectangle {
         anchors.rightMargin: root.compact ? ThemeTokens.Spacing.s2 : ThemeTokens.Spacing.s4
         spacing: ThemeTokens.Spacing.s4
 
+        // 0) account identity (C4): 头像 + 昵称 + VIP 徽章; 未登录时即登录入口
+        IdentityArea {
+            objectName: "identityArea"
+            Layout.fillWidth: true
+            onActivated: root.authed ? root.routeRequested("library") : root.loginRequested()
+        }
+
         // 1) primary navigation
         ColumnLayout {
             Layout.fillWidth: true
@@ -146,39 +153,12 @@ Rectangle {
                     ? qsTr("还没有歌单")
                     : (root.appController && root.appController.loginState === "expired"
                         ? qsTr("登录已过期，请重新登录")
-                        : qsTr("登录后在这里看到你的歌单"))
+                        : qsTr("点击上方头像登录，同步你的歌单"))
                 color: root.appController && root.appController.loginState === "expired"
                     ? ThemeTokens.Palette.error
                     : ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 wrapMode: Text.WordWrap
-            }
-
-            Button {
-                id: loginButton
-
-                Layout.fillWidth: true
-                Layout.preferredHeight: 36
-                visible: !root.authed
-                text: qsTr("登录同步")
-                Accessible.name: text
-                onClicked: root.loginRequested()
-
-                contentItem: Label {
-                    text: loginButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: ThemeTokens.Palette.primaryText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: ThemeTokens.TypeScale.medium
-                }
-
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusPill
-                    color: loginButton.down
-                        ? ThemeTokens.Palette.primaryActive
-                        : loginButton.hovered ? ThemeTokens.Palette.primaryHover : ThemeTokens.Palette.primary
-                }
             }
 
             Item { Layout.fillHeight: true }
@@ -204,6 +184,167 @@ Rectangle {
     }
 
     // ---- inline components ----
+
+    component IdentityArea: Rectangle {
+        id: ia
+
+        readonly property bool loggedIn: root.authed
+        readonly property string nickname: root.appController ? (root.appController.nickname || "") : ""
+        // 已登录但画像还没拉到 (加载中 / 拉取失败) 时回退「已登录」
+        readonly property string displayName: ia.loggedIn
+            ? (ia.nickname.length > 0 ? ia.nickname : qsTr("已登录"))
+            : qsTr("点击登录")
+        readonly property string avatarUrl: ia.loggedIn && root.appController
+            ? (root.appController.avatarUrl || "") : ""
+        readonly property string vipKind: ia.loggedIn && root.appController
+            ? (root.appController.vipKind || "") : ""
+        readonly property string vipLabel: ia.vipKind === "svip"
+            ? qsTr("SVIP")
+            : ia.vipKind === "hugevip"
+                ? qsTr("豪华绿钻")
+                : ia.vipKind === "vip" ? qsTr("绿钻") : ""
+
+        signal activated()
+
+        implicitHeight: root.compact ? 48 : 56
+        radius: ThemeTokens.Spacing.radiusMd
+        color: iaHover.hovered ? ThemeTokens.Palette.stateHover : "transparent"
+
+        Accessible.role: Accessible.Button
+        Accessible.name: ia.loggedIn
+            ? ia.displayName + (ia.vipLabel.length > 0 ? " " + ia.vipLabel : "")
+            : qsTr("点击登录")
+        activeFocusOnTab: true
+
+        HoverHandler {
+            id: iaHover
+
+            cursorShape: Qt.PointingHandCursor
+        }
+        TapHandler { onTapped: ia.activated() }
+        Keys.onReturnPressed: ia.activated()
+        Keys.onSpacePressed: ia.activated()
+
+        Rectangle {
+            anchors.fill: parent
+            // Rectangle 无 visualFocus (Control 专属); TapHandler 点击不夺焦,
+            // activeFocus 实际只在键盘 Tab 聚焦时为真, 同 FunctionRow/PlaylistRow
+            visible: ia.activeFocus
+            radius: parent.radius
+            color: "transparent"
+            border.color: ThemeTokens.Palette.focusRing
+            border.width: 2
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: root.compact ? 0 : ThemeTokens.Spacing.s3
+            anchors.rightMargin: root.compact ? 0 : ThemeTokens.Spacing.s3
+            spacing: ThemeTokens.Spacing.s3
+
+            Item {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                Layout.alignment: Qt.AlignVCenter
+                // 紧凑态只剩头像, 占满整行居中
+                Layout.fillWidth: root.compact
+
+                AlbumArt {
+                    width: 36
+                    height: 36
+                    anchors.centerIn: parent
+                    visible: ia.loggedIn
+                    circular: true
+                    compact: true
+                    coverUrl: ia.avatarUrl
+                    coverController: root.coverController
+                    // 头像没加载出来时回退昵称首字 (Array.from 防截断代理对)
+                    iconText: ia.displayName.length > 0 ? Array.from(ia.displayName)[0] : "♪"
+                    iconSize: ThemeTokens.TypeScale.bodySm
+                }
+
+                Rectangle {
+                    width: 36
+                    height: 36
+                    anchors.centerIn: parent
+                    visible: !ia.loggedIn
+                    radius: width / 2
+                    color: ThemeTokens.Palette.albumSurface
+                    border.color: ThemeTokens.Palette.outlineMuted
+                    border.width: 1
+
+                    AppIcon {
+                        anchors.centerIn: parent
+                        size: 18
+                        source: "../icons/user.svg"
+                        color: ThemeTokens.Palette.surfaceVariantText
+                    }
+                }
+            }
+
+            ColumnLayout {
+                visible: !root.compact
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 2
+
+                Label {
+                    Layout.fillWidth: true
+                    text: ia.displayName
+                    color: ThemeTokens.Palette.surfaceText
+                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                    font.weight: ThemeTokens.TypeScale.medium
+                    elide: Text.ElideRight
+                }
+
+                RowLayout {
+                    visible: ia.vipLabel.length > 0
+                    spacing: ThemeTokens.Spacing.s2
+
+                    // 服务端官方等级徽章图优先; 拉不到 (离线 / 无 TLS) 回退文字 pill
+                    Image {
+                        id: vipIconImage
+
+                        readonly property bool ready: vipIconImage.status === Image.Ready
+
+                        visible: vipIconImage.ready
+                        source: root.appController ? (root.appController.vipIconUrl || "") : ""
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        Layout.preferredHeight: 14
+                        Layout.preferredWidth: vipIconImage.ready
+                            ? Math.round(14 * vipIconImage.sourceSize.width
+                                / Math.max(1, vipIconImage.sourceSize.height))
+                            : 0
+                    }
+
+                    Rectangle {
+                        visible: !vipIconImage.ready
+                        implicitHeight: 16
+                        implicitWidth: vipBadgeLabel.implicitWidth + ThemeTokens.Spacing.s2 * 2
+                        radius: height / 2
+                        color: ia.vipKind === "vip"
+                            ? ThemeTokens.Palette.primaryContainer
+                            : ThemeTokens.Palette.vipGoldContainer
+
+                        Label {
+                            id: vipBadgeLabel
+
+                            anchors.centerIn: parent
+                            text: ia.vipLabel
+                            color: ia.vipKind === "vip"
+                                ? ThemeTokens.Palette.primaryFg
+                                : ThemeTokens.Palette.vipGold
+                            font.pixelSize: ThemeTokens.TypeScale.caption
+                            font.weight: ThemeTokens.TypeScale.medium
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+            }
+        }
+    }
 
     component FunctionRow: Rectangle {
         id: fr

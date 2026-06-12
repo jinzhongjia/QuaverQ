@@ -8,8 +8,8 @@
 
 | 文件 | 类 | 作用 |
 | --- | --- | --- |
-| `app_controller.py` | `AppController` | 应用级状态：登录态、二维码扫码登录流、凭据过期通知、深色模式切换、`appVersion` 常量属性（`application_version()` 读包元数据，读不到回退 "dev"）。 |
-| `service_controller.py` | `ServiceController` | QQ 音乐服务层（`core.service.QuaverService`）的 QML 包装：搜索、详情、首页 API。账号 key、凭据预热、网络有效性校验都在这里。 |
+| `app_controller.py` | `AppController` | 应用级状态：登录态、二维码扫码登录流、凭据过期通知、深色模式切换、`appVersion` 常量属性（`application_version()` 读包元数据，读不到回退 "dev"）。账号画像（C4 侧栏身份区）：`nickname` / `avatarUrl` / `vipKind`（""/vip/hugevip/svip）/ `vipIconUrl` 四属性 + `profileChanged` 信号；`_set_authed` 变 true（login / cached prime）时 fire-and-forget 拉 `ServiceController.get_user_profile()`，变 false（登出/过期）同步清空并取消在途任务，迟到结果按当前 authed 丢弃（竞态保护）；拉取失败仅 log warning，身份区静默缺席不挡登录主流程。 |
+| `service_controller.py` | `ServiceController` | QQ 音乐服务层（`core.service.QuaverService`）的 QML 包装：搜索、详情、首页 API。账号 key、凭据预热、网络有效性校验都在这里。`get_user_profile()` 走 `call_service` 统一凭据过期处理。 |
 | `home_controller.py` | `HomeController` | 首页发现：每日推荐 / 今日歌单 / 新歌速递 / 排行榜。SWR：先用 `home_cache` 同步喂首帧，再后台 `refresh_*_async`。猜你喜欢 (`daily`) 走 `DAILY_TTL_SECONDS = 6h` 门：启动 / 登录态变化触发的自动刷新若缓存还新鲜则跳过网络；只有用户主动从 QML 调 `refreshHome()` / `refreshDailyThirty()` 才 `force=True` 穿透 TTL。注入 `PlayerController` 后联动：`dailyPreviewSong` 跟随播放中曲目；监听 `queueExhausted("daily")` 自动 `extend_daily_async()` 续取下一批并 `append_to_queue` 续播。 |
 | `library_controller.py` | `LibraryController` | 资料库：我喜欢、我的歌单、收藏歌单、收藏专辑、关注艺人，登录后从 `home_cache` 私有区块同步首帧再刷新。 |
 | `detail_controller.py` | `DetailController` + `DetailControllerFactory` | 歌单 / 专辑 / 艺人 / 排行榜详情页状态：标题、封面、曲目列表、loading / error。歌手详情页扩展：`similarSingersModel` / `singerSongsModel` / `singerAlbumsModel` 三个懒加载 model（`loadSimilarSingers` / `loadSingerSongs` / `loadSingerAlbums` slots），切歌手时自动 reset；用 `*Loaded` 标志保证幂等。**Controller 走 factory 模式**：每个 `DetailView` push 入栈时 `factory.create(view)` 拿到独立实例（Qt parent=view, GC 自动），避免栈式 view 共享 singleton 导致 pop 后 state 错乱（见 [AGENTS.md](../../../AGENTS.md) 契约 1）。 |

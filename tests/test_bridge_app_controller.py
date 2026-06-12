@@ -9,6 +9,7 @@ import logging
 from PySide6.QtCore import QObject, Signal
 
 from quaverq.bridge.app_controller import AppController
+from quaverq.core.models import UserProfile
 
 
 class _FakeServiceController(QObject):
@@ -23,6 +24,20 @@ class _FakeServiceController(QObject):
         self.login_calls = 0
         self.logout_calls = 0
         self.last_login_type = None
+        self.profile_calls = 0
+        self.profile_error: Exception | None = None
+        self.profile_result = UserProfile(
+            nickname="鹿鸣",
+            avatar_url="http://thirdqq.qlogo.cn/g?k=abc",
+            vip_kind="svip",
+            vip_icon_url="https://y.qq.com/mediastyle/global/vip_icon/lv_7.png",
+        )
+
+    async def get_user_profile(self) -> UserProfile | None:
+        self.profile_calls += 1
+        if self.profile_error is not None:
+            raise self.profile_error
+        return self.profile_result
 
     async def start(self) -> None:
         self.started = True
@@ -342,3 +357,109 @@ def test_application_version_falls_back_when_package_missing():
     from quaverq.bridge.app_controller import application_version
 
     assert application_version("definitely-not-installed-pkg") == "dev"
+
+
+# ============================================================== 用户身份区 (C4 侧栏)
+
+
+async def _drain_profile_task(controller: AppController) -> None:
+    """等 fire-and-forget 的 profile 刷新 task 跑完 (被取消也算完)."""
+    task = controller._profile_task
+    if task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_login_populates_user_profile():
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+    changes: list[str] = []
+    controller.profileChanged.connect(lambda: changes.append(controller.nickname))
+
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    assert service.profile_calls == 1
+    assert controller.nickname == "鹿鸣"
+    assert controller.avatarUrl == "http://thirdqq.qlogo.cn/g?k=abc"
+    assert controller.vipKind == "svip"
+    assert controller.vipIconUrl.endswith("lv_7.png")
+    assert changes  # profileChanged 已发射
+
+
+async def test_cached_credential_prime_populates_user_profile():
+    """启动期 prime 凭据走 _sync_auth_state ("cached" reason) 同样触发刷新."""
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+
+    service.authed = True
+    service.authStateChanged.emit()
+    await _drain_profile_task(controller)
+
+    assert controller.nickname == "鹿鸣"
+
+
+async def test_logout_clears_user_profile():
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+    changes: list[str] = []
+    controller.profileChanged.connect(lambda: changes.append(controller.nickname))
+
+    await controller.logout_async()
+
+    assert controller.nickname == ""
+    assert controller.avatarUrl == ""
+    assert controller.vipKind == ""
+    assert controller.vipIconUrl == ""
+    assert changes == [""]
+
+
+async def test_credential_expired_clears_user_profile():
+    service = _FakeServiceController()
+    controller = AppController(service)  # type: ignore[arg-type]
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    service.expire()
+
+    assert controller.nickname == ""
+    assert controller.vipKind == ""
+
+
+async def test_profile_fetch_failure_keeps_identity_empty(caplog):
+    """拉取失败不挡登录主流程: 身份区静默缺席, 仅 log warning."""
+    caplog.set_level(logging.WARNING, logger="quaverq.bridge.app_controller")
+    service = _FakeServiceController()
+    service.profile_error = RuntimeError("profile boom")
+    controller = AppController(service)  # type: ignore[arg-type]
+
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    assert controller.authed is True
+    assert controller.nickname == ""
+    assert controller.vipKind == ""
+    assert "profile boom" in caplog.text
+
+
+async def test_profile_discarded_when_logged_out_during_fetch():
+    """拉取期间登出: 迟到的结果不得复活身份区 (竞态保护)."""
+    gate = asyncio.Event()
+
+    class _SlowProfileService(_FakeServiceController):
+        async def get_user_profile(self) -> UserProfile | None:
+            await gate.wait()
+            return await super().get_user_profile()
+
+    service = _SlowProfileService()
+    controller = AppController(service)  # type: ignore[arg-type]
+    await controller.login_by_qrcode_async()
+
+    await controller.logout_async()
+    gate.set()
+    await _drain_profile_task(controller)
+
+    assert controller.nickname == ""
+    assert controller.vipKind == ""

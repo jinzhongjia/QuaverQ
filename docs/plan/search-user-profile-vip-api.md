@@ -1,6 +1,6 @@
 # 调研：C4 侧栏身份区的数据来源（昵称 / 头像 / VIP 种类）
 
-> 2026-06-11 调研完成，**尚未实施**。实施时机与 UI 形态见 [search-ui-review.md](search-ui-review.md) 的 C4 项。
+> 2026-06-11 调研完成；**2026-06-12 已实施**（见文末实施记录）。UI 形态见 [search-ui-review.md](search-ui-review.md) 的 C4 项。
 
 ## 任务描述
 
@@ -43,9 +43,10 @@ client.user.get_homepage(euin, credential=cred)
 
 `identity.icon` 是意外收获：侧栏徽章可以直接渲染 QQ 官方徽章资产，不用手绘。
 
-### 3. 上游 issue 已提
+### 3. 上游 issue 已提（→ 已被采纳）
 
 - **https://github.com/L-1124/QQMusicApi/issues/257** —— 按上游 feature 模板提交：脱敏响应形状 + 建议的 `VipIdentity(Response)` 子模型代码（可直接抄）+ `extra="allow"` 零成本替代方案。提交前已确认上游 main 未建模、无重复 issue。
+- **2026-06-12 上游已实现**（PR #258，commit `650437317290c4905bc81fefed169a9e725f7c29`）：新增 `VipIdentity` 子模型（绿钻/豪华绿钻/年费/家庭组等标志 + 起止时间 + 官方徽章 icon）+ `UserVipInfoResponse` 顶层补 `svip` / `star` / `ystar` / `identity`，全字段默认值容错。该提交在 v0.6.2 **之后**、尚未发版。
 
 ## 预期结果（C4 实施时的数据面方案）
 
@@ -56,3 +57,13 @@ client.user.get_homepage(euin, credential=cred)
 2. `AppController` 暴露 `nickname` / `avatarUrl` / `vipKind`（或 `vipIconUrl`），登录 / 登出 / 凭据过期时刷新。
 3. 徽章展示优先级：**SVIP > 豪华绿钻 > 绿钻 > 无**（非会员不显示负面标签）；优先用服务端 `icon` 图，拉不到回退文字徽章。
 4. **风险与降级**：`_bypass_post` 走未公开原始接口，字段名可能随服务端变——解析函数对缺字段一律默认 `0` / 空串，徽章静默缺席、昵称回退"已登录"、头像回退占位首字，不挡登录主流程。上游 issue 被采纳发版后，解析切回官方模型并解除版本锁内的裸调。
+
+## 实施记录（2026-06-12）
+
+上游在实施前已合入 VipIdentity 建模（见上"已被采纳"），故**跳过 `_bypass_post` 裸调阶段，直接走官方类型化模型**；其余按预期方案落地：
+
+1. **依赖**：`pyproject.toml` 把 `qqmusic-api-python` 临时 git pin 到上游 commit `6504373`（PyPI 包 repository 即 `github.com/l-1124/QQMusicApi`，`luren-dc` 为同仓库旧名重定向）；hatchling 需 `[tool.hatch.metadata] allow-direct-references = true` 放行 direct reference。**上游发布含该提交的版本后切回 PyPI 版本锁并移除这两处**。
+2. **service 层**（`core/service.py` + `core/models.py`）：`UserProfile` dataclass；`get_user_profile()` 用 `asyncio.gather(return_exceptions=True)` 并发 `user.get_homepage` + `user.get_vip_info`，单失败不挡另一半、双失败返 None、凭据过期抛 `CredentialExpiredError`；`_parse_user_profile` 纯函数按优先级映射 `vip_kind`，非会员抑制 icon。契约测试含"原始响应形状 → 上游 pydantic 模型 → 我们的解析"全链路（防上游 alias 漂移）。
+3. **桥接层**：`ServiceController.get_user_profile()` 走 `call_service` 统一过期处理；`AppController` 暴露 `nickname / avatarUrl / vipKind / vipIconUrl` + `profileChanged`，`_set_authed` 变 true 时 fire-and-forget 刷新、变 false 同步清空 + 取消在途任务 + 丢弃迟到结果。
+4. **UI**（`Sidebar.qml` 顶部 `IdentityArea`）：头像（`AlbumArt circular` 复用封面缓存管道，回退昵称首字）+ 昵称（回退"已登录"）+ VIP 徽章（官方 icon 图优先，`Image.status !== Ready` 回退文字 pill：SVIP/豪华绿钻金色 `vipGold` token、绿钻 `primaryFg`）；未登录显示人形占位（新增 `icons/user.svg`）+ "点击登录"即登录入口（原"登录同步"按钮移除）；已登录点击进资料库；紧凑态只显头像。
+5. **测试**：+28（service 解析/并发容错 15、AppController 身份生命周期 6、ServiceController 包装 2、Sidebar 离屏契约 5），720 全绿 + lint 全绿。

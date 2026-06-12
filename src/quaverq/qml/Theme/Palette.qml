@@ -44,6 +44,11 @@ QtObject {
     readonly property color accentContainer: Theme.dark ? "#1e2a40" : "#e8f0fe"
     readonly property color accentText: "#ffffff"
 
+    // ---- VIP 徽章 (C4 侧栏身份区, 豪华绿钻 / SVIP 用金) ----
+    // 亮色文字压暗到 4.79:1 (on container) 达标 WCAG 小字; 暗色 7.4:1
+    readonly property color vipGold: Theme.dark ? "#e8c574" : "#8a6720"
+    readonly property color vipGoldContainer: Theme.dark ? "#3d3422" : "#fdf6e3"
+
     // ---- 封面占位 ----
     readonly property color albumSurface: Theme.dark ? "#2a2c32" : "#f0f0f2"
     readonly property color albumAccent: "#31c27c"
