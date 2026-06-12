@@ -330,8 +330,12 @@ class AppController(QObject):
             return
         if not self._authed:  # 拉取期间已登出, 丢弃迟到结果
             return
-        self._set_profile(profile)
-        self._persist_profile(profile)
+        # service 在双请求都失败 (断网) 时"成功返回 None"而非抛异常 —— 此时
+        # 保留 prime 自 HomeCache 的画像 (SWR: 刷新失败不回退首帧); 清空职责
+        # 完全由 _set_authed(False) 的登出/过期路径承担.
+        if profile is not None:
+            self._set_profile(profile)
+            self._persist_profile(profile)
 
     def _persist_profile(self, profile: UserProfile | None) -> None:
         """网络刷新成功后回写缓存, 下次启动首帧直出; 登出清理走 clear_private 链路."""

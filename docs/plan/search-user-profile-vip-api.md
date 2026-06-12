@@ -89,3 +89,9 @@ client.user.get_homepage(euin, credential=cred)
 - **根因**：`identity.icon`（`…/vip_icon/lv_N.png`）是**"绿钻等级"徽章**（绿钻图标 + 等级数），**不表达会员种类**——SVIP 账号它也给绿钻图。"官方 icon 图优先"策略加载成功后把正确的 SVIP 文字 pill 顶掉了。调研时把"等级徽章"误判为"种类徽章"。
 - **修复**：侧栏徽章**放弃 icon 图，统一文字 pill** 按 `vipKind` 显示（SVIP / 豪华绿钻金色、绿钻绿色）——种类零歧义，顺带消掉"pill → 图"的加载切换。`vipIconUrl` 数据与属性保留（docstring 注明真实语义），留作未来资料页等级展示，侧栏不消费。
 - **回归测试**：Sidebar 离屏断言 SVIP 账号 `vipBadgeLabel` 实际渲染 "SVIP" 且可见。733 全绿。
+
+### 断网刷新清空缓存画像修复（2026-06-12，PR #17 评审意见）
+
+- **问题**（gemini-code-assist 指出，确认属实）：`QuaverService.get_user_profile` 双请求都失败（断网）时 log warning 后**成功返回 None** 而非抛异常——走 `refresh_profile_async` 的正常路径，`_set_profile(None)` 把启动时 prime 自 HomeCache 的画像清空，断网下身份区从「昵称+徽章」跳回「已登录」，破坏 SWR。测试盲点：既有失败测试用 raise 路径（except 分支提前 return），未覆盖"成功返回 None"——fake 与真实 service 的又一次行为差异。
+- **修复**：refresh 拿到 None 时不动现有画像（清空职责完全由 `_set_authed(False)` 登出/过期路径承担）；仅非 None 才 `_set_profile` + 回写。
+- **回归测试** ×2：有缓存 prime + 刷新返 None → 画像/缓存文件均保持且零信号；无缓存 + 返 None → 保持空态。735 全绿。

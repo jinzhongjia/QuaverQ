@@ -550,3 +550,46 @@ async def test_same_profile_refresh_does_not_re_emit(tmp_path):
 
     assert service.profile_calls == 1  # 网络刷新仍发生 (SWR 的 revalidate)
     assert changes == []  # 但同值不引发第二次 UI 跳变
+
+
+async def test_refresh_returning_none_keeps_primed_cache_profile(tmp_path):
+    """回归 (PR #17 评论): 刷新"成功返回 None"不得清空 prime 的缓存画像.
+
+    QuaverService.get_user_profile 在双请求都失败 (断网) 时 log warning 后
+    返回 None 而非抛异常 —— 走的是 refresh 的正常路径, 不是 except 分支.
+    此前 _set_profile(None) 会把启动时从 HomeCache 恢复的画像清掉, 断网下
+    身份区从「昵称+徽章」跳回「已登录」, 破坏 SWR.
+    """
+    service = _FakeServiceController()
+    service.account_key_value = "acc1"
+    service.profile_result = None  # 模拟双失败: 成功返回 None
+    cache = _home_cache_with_profile(tmp_path, "acc1")
+    controller = AppController(service, home_cache=cache)  # type: ignore[arg-type]
+    controller.prime_profile_from_cache("acc1")
+    assert controller.nickname == "影翼"
+    changes: list[str] = []
+    controller.profileChanged.connect(lambda: changes.append(controller.nickname))
+
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    assert service.profile_calls == 1  # 刷新仍发生
+    assert controller.nickname == "影翼"  # 缓存画像未被清空
+    assert controller.vipKind == "svip"
+    assert changes == []
+    assert cache.load("acc1").profile is not None  # 缓存文件也未被动
+
+
+async def test_refresh_returning_none_without_cache_stays_empty():
+    """无缓存画像时刷新返回 None: 身份区保持空态, 不发多余信号."""
+    service = _FakeServiceController()
+    service.profile_result = None
+    controller = AppController(service)  # type: ignore[arg-type]
+    changes: list[str] = []
+    controller.profileChanged.connect(lambda: changes.append(controller.nickname))
+
+    await controller.login_by_qrcode_async()
+    await _drain_profile_task(controller)
+
+    assert controller.nickname == ""
+    assert changes == []
