@@ -40,6 +40,7 @@ ApplicationWindow {
     readonly property var lyricController: LyricController
     readonly property var playerController: PlayerController
     readonly property var settingsController: SettingsController
+    readonly property var audioDeviceController: AudioDeviceController
     readonly property var systemTheme: SystemTheme
     // qmllint enable unqualified
     // 托盘可用时由 Python 置 true: 关闭改为隐藏到托盘而非退出
@@ -258,6 +259,11 @@ ApplicationWindow {
 
         volume: root.muteForPendingSeek ? 0 : (root.playerController ? root.playerController.volume : 0.8)
         muted: root.playerController ? root.playerController.muted : false
+        // 设备路由交给 Python 托管 (枚举 / 持久化匹配 / 热插拔软回退), 见 AudioDeviceController
+        Component.onCompleted: {
+            if (root.audioDeviceController)
+                root.audioDeviceController.attachAudioOutput(audioOutput)
+        }
     }
 
     MediaPlayer {
@@ -840,6 +846,7 @@ ApplicationWindow {
         Views.SettingsView {
             appController: root.appController
             settingsController: root.settingsController
+            audioDeviceController: root.audioDeviceController
             onLoginRequested: loginDialog.open()
             onLogoutRequested: logoutConfirmDialog.open()
         }

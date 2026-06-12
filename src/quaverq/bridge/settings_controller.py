@@ -86,6 +86,16 @@ class SettingsController(QObject):
             "balanced",
             _QUALITY_PREFERENCES,
         )
+        # 输出设备: id 为 base64 编码的 QAudioDevice.id() 字节串, 空 = 跟随系统默认;
+        # label 是选择时的设备显示名快照, 设备断开时设置页占位 "xxx (已断开)" 用
+        self._audio_output_device_id = str(
+            self._settings.value("playback/audioOutputDeviceId", "") or ""
+        )
+        self._audio_output_device_label = str(
+            self._settings.value("playback/audioOutputDeviceLabel", "") or ""
+        )
+        if not self._audio_output_device_id:
+            self._audio_output_device_label = ""
         self._cover_cache_max_bytes = self._read_int(
             "cache/coverMaxBytes",
             _DEFAULT_COVER_MAX_BYTES,
@@ -152,6 +162,16 @@ class SettingsController(QObject):
     @Property(str, notify=settingsChanged)
     def qualityPreference(self) -> str:
         return self._quality_preference
+
+    @Property(str, notify=settingsChanged)
+    def audioOutputDeviceId(self) -> str:
+        """所选输出设备 id (base64 编码字节串); 空串 = 跟随系统默认."""
+        return self._audio_output_device_id
+
+    @Property(str, notify=settingsChanged)
+    def audioOutputDeviceLabel(self) -> str:
+        """所选输出设备的显示名快照; 跟随系统默认时恒为空串."""
+        return self._audio_output_device_label
 
     @Property(str, notify=cacheChanged)
     def coverCacheSizeText(self) -> str:
@@ -253,6 +273,23 @@ class SettingsController(QObject):
             return
         self._quality_preference = value
         self._settings.setValue("playback/qualityPreference", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(str, str)
+    def setAudioOutputDevice(self, device_id: str, label: str) -> None:
+        """选择输出设备: id 为 base64 字符串 (空 = 跟随系统默认), label 为设备显示名."""
+        id_value = str(device_id or "").strip()
+        label_value = str(label or "").strip() if id_value else ""
+        if (self._audio_output_device_id, self._audio_output_device_label) == (
+            id_value,
+            label_value,
+        ):
+            return
+        self._audio_output_device_id = id_value
+        self._audio_output_device_label = label_value
+        self._settings.setValue("playback/audioOutputDeviceId", id_value)
+        self._settings.setValue("playback/audioOutputDeviceLabel", label_value)
         self._settings.sync()
         self.settingsChanged.emit()
 
