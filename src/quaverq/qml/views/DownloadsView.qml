@@ -172,14 +172,19 @@ Item {
                             elide: Text.ElideRight
                         }
 
-                        // 失败时整行副标题让位给错误原因 (红色); 正常显示 歌手 · 状态 · 音质
+                        // 失败时整行副标题让位给错误原因 (红色); 否则 歌手 · 状态 · 音质。
+                        // done 自明 (有删除按钮/可播放), 省去"已完成"字样, 只留 歌手 · 音质。
                         Label {
                             Layout.fillWidth: true
-                            text: taskRow.status === "failed" && taskRow.errorText
-                                ? taskRow.errorText
-                                : [taskRow.singers, taskRow.statusText, taskRow.qualityText]
-                                    .filter(function(part) { return part && part.length > 0 })
-                                    .join(" · ")
+                            text: {
+                                if (taskRow.status === "failed" && taskRow.errorText)
+                                    return taskRow.errorText
+                                const parts = [taskRow.singers]
+                                if (taskRow.status !== "done")
+                                    parts.push(taskRow.statusText)
+                                parts.push(taskRow.qualityText)
+                                return parts.filter(function(part) { return part && part.length > 0 }).join(" · ")
+                            }
                             color: taskRow.status === "failed"
                                 ? ThemeTokens.Palette.error
                                 : taskRow.status === "missing"
