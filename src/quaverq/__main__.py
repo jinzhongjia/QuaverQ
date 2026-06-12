@@ -80,34 +80,65 @@ def _install_qt_message_filter() -> None:
     qInstallMessageHandler(_qt_message_handler)
 
 
+def _libavutil_candidates(platform: str, pyside_dir: Path) -> list[Path]:
+    """该平台下 PySide6 自带 libavutil 的候选路径 (按搜索优先级).
+
+    Linux / macOS 的 ffmpeg 库在 ``PySide6/Qt/lib/``, Windows 在 ``PySide6/`` 顶层
+    或 ``Qt/bin/``. 旧实现只搜顶层, Linux 上 candidates 恒空 -> av_log_set_level
+    从未被调到 -> ffmpeg 一直刷 invalid sync code / Input #0 到 stderr (issue #11
+    真机排查发现). 版本号会变 (58 / 59 / ...), 用 glob 兜底.
+    """
+    if platform == "win32":
+        dirs = [pyside_dir, pyside_dir / "Qt" / "bin"]
+        pattern = "avutil-*.dll"
+    elif platform == "linux":
+        # 只取带版本号的 (libavutil.so.59 / .so.59.39.100); 裸 libavutil.so 可能是
+        # 链接器专用 ld script, 不可 dlopen.
+        dirs = [pyside_dir / "Qt" / "lib", pyside_dir]
+        pattern = "libavutil.so.*"
+    elif platform == "darwin":
+        dirs = [pyside_dir / "Qt" / "lib", pyside_dir]
+        pattern = "libavutil*.dylib"
+    else:
+        return []
+    out: list[Path] = []
+    for directory in dirs:
+        if directory.exists():
+            out.extend(sorted(directory.glob(pattern)))
+    return out
+
+
 def _silence_ffmpeg_logs() -> None:
     """把 PySide6 自带 ffmpeg 的全局日志级别置 ``AV_LOG_QUIET`` (-8),
-    防止 ``av_dump_format`` 在每次切歌时把 ``Input #0, mp3, ...`` 元数据直接
-    printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到).
+    防止 ``av_dump_format`` 在每次切歌时把 ``Input #0, mp3, ...`` 元数据 + FLAC
+    解码器的 ``invalid sync code`` (CDN 音频文件尾部坏帧, 见 player_controller 的
+    流末尾豁免) 直接 printf 到 stderr (绕过 Qt 日志系统, ``_qt_message_handler`` 抓不到).
 
     必须在任何 ``QMediaPlayer`` 实例化前调; 否则 ffmpeg 后端首帧 dump 已发生.
     best-effort: 找不到对应平台的 libavutil 时静默跳过, 不影响功能.
     """
     try:
+        import contextlib
         import ctypes
-        from pathlib import Path
+        import ctypes.util
 
         from PySide6 import __file__ as pyside_init
 
         pyside_dir = Path(pyside_init).parent
-        # PySide6 自带的 libavutil 版本号会变 (58 / 59 / ...), 用 glob 兜底
-        if sys.platform == "win32":
-            candidates = list(pyside_dir.glob("avutil-*.dll"))
-        elif sys.platform == "linux":
-            candidates = list(pyside_dir.glob("libavutil.so*"))
-        elif sys.platform == "darwin":
-            candidates = list(pyside_dir.glob("libavutil*.dylib"))
-        else:
-            candidates = []
-
-        for dll_path in candidates:
+        candidates = _libavutil_candidates(sys.platform, pyside_dir)
+        if not candidates:
+            return
+        # Linux / macOS: PySide6 的 libavutil 引用 OpenSSL 的 RAND_bytes, 单独 dlopen
+        # 会 "undefined symbol: RAND_bytes"; 先 RTLD_GLOBAL 预加载 libcrypto 让符号
+        # 对后续 dlopen 可见. Windows 不需要 (依赖随 dll 同目录解析).
+        if sys.platform != "win32":
+            crypto = ctypes.util.find_library("crypto")
+            if crypto:
+                with contextlib.suppress(OSError):
+                    ctypes.CDLL(crypto, mode=ctypes.RTLD_GLOBAL)
+        for path in candidates:
             try:
-                lib = ctypes.CDLL(str(dll_path))
+                lib = ctypes.CDLL(str(path), mode=ctypes.RTLD_GLOBAL)
                 lib.av_log_set_level.argtypes = [ctypes.c_int]
                 lib.av_log_set_level.restype = None
                 lib.av_log_set_level(-8)  # AV_LOG_QUIET
