@@ -19,6 +19,7 @@ Rectangle {
     property int bottomCornerRadius: 0
     property var libraryController
     property var coverController
+    property var songDetailController
 
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -158,77 +159,113 @@ Rectangle {
             }
         }
 
-        // 歌曲信息 + 喜欢. 固定宽度防止布局随标题/歌手长度跳变;
+        // 歌曲信息 + 歌曲级操作 (喜欢/下载). QQ 音乐原版布局: 文字在上,
+        // 操作图标在下, 整个左区紧密成簇. 固定宽度防止布局随标题/歌手长度跳变;
         // 超长文字走 MarqueeLabel 自动横向滚动, hover 弹 ToolTip 看完整信息.
-        Item {
-            id: songInfo
-
+        ColumnLayout {
             Layout.preferredWidth: 200
             Layout.maximumWidth: 200
-            Layout.preferredHeight: 56
-            Accessible.role: Accessible.Button
-            Accessible.name: qsTr("打开正在播放")
-            activeFocusOnTab: root.hasSong
+            Layout.alignment: Qt.AlignVCenter
+            spacing: 2
 
-            TapHandler {
-                enabled: root.hasSong
-                onTapped: root.nowPlayingRequested()
-            }
+            Item {
+                id: songInfo
 
-            HoverHandler {
-                id: songInfoHover
-                enabled: root.hasSong
-            }
+                Layout.fillWidth: true
+                Layout.preferredHeight: infoColumn.implicitHeight
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("打开正在播放")
+                activeFocusOnTab: root.hasSong
 
-            AppToolTip {
-                parent: songInfo
-                visible: songInfoHover.hovered && root.hasSong
-                text: root.songTitle + qsTr(" — ") + root.songMeta
-            }
-
-            Keys.onReturnPressed: { if (root.hasSong) root.nowPlayingRequested() }
-            Keys.onSpacePressed: { if (root.hasSong) root.nowPlayingRequested() }
-
-            Rectangle {
-                anchors.fill: parent
-                visible: parent.activeFocus
-                radius: ThemeTokens.Spacing.radiusMd
-                color: "transparent"
-                border.color: ThemeTokens.Palette.focusRing
-                border.width: 2
-                z: 1
-            }
-
-            ColumnLayout {
-                id: infoColumn
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width
-                spacing: ThemeTokens.Spacing.s2
-
-                MarqueeLabel {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 20
-                    text: root.songTitle
-                    color: ThemeTokens.Palette.surfaceText
-                    pixelSize: ThemeTokens.TypeScale.bodySm
-                    fontWeight: ThemeTokens.TypeScale.medium
+                TapHandler {
+                    enabled: root.hasSong
+                    onTapped: root.nowPlayingRequested()
                 }
 
-                MarqueeLabel {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 16
-                    text: root.loading ? qsTr("正在准备播放链接") : root.songMeta
-                    color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceVariantText
-                    pixelSize: ThemeTokens.TypeScale.caption
+                HoverHandler {
+                    id: songInfoHover
+                    enabled: root.hasSong
+                }
+
+                AppToolTip {
+                    parent: songInfo
+                    visible: songInfoHover.hovered && root.hasSong
+                    text: root.songTitle + qsTr(" — ") + root.songMeta
+                }
+
+                Keys.onReturnPressed: { if (root.hasSong) root.nowPlayingRequested() }
+                Keys.onSpacePressed: { if (root.hasSong) root.nowPlayingRequested() }
+
+                Rectangle {
+                    anchors.fill: parent
+                    visible: parent.activeFocus
+                    radius: ThemeTokens.Spacing.radiusMd
+                    color: "transparent"
+                    border.color: ThemeTokens.Palette.focusRing
+                    border.width: 2
+                    z: 1
+                }
+
+                ColumnLayout {
+                    id: infoColumn
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    spacing: ThemeTokens.Spacing.s2
+
+                    MarqueeLabel {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 20
+                        text: root.songTitle
+                        color: ThemeTokens.Palette.surfaceText
+                        pixelSize: ThemeTokens.TypeScale.bodySm
+                        fontWeight: ThemeTokens.TypeScale.medium
+                    }
+
+                    MarqueeLabel {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 16
+                        text: root.loading ? qsTr("正在准备播放链接") : root.songMeta
+                        color: root.errorMessage.length > 0 ? ThemeTokens.Palette.error : ThemeTokens.Palette.surfaceVariantText
+                        pixelSize: ThemeTokens.TypeScale.caption
+                    }
                 }
             }
-        }
 
-        LikeButton {
-            Layout.preferredWidth: ThemeTokens.Spacing.toolHitSize
-            Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-            libraryController: root.libraryController
-            song: root.currentSong
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 0
+
+                LikeButton {
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
+                    libraryController: root.libraryController
+                    song: root.currentSong
+                }
+
+                IconButton {
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
+                    text: qsTr("下载当前歌曲")
+                    iconSource: "../icons/download.svg"
+                    iconSize: 16
+                    iconColor: ThemeTokens.Palette.surfaceVariantText
+                    enabled: root.hasSong
+                    onClicked: root.downloadRequested()
+                }
+
+                IconButton {
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
+                    text: qsTr("歌曲详情")
+                    iconSource: "../icons/more-horizontal.svg"
+                    iconSize: 16
+                    iconColor: ThemeTokens.Palette.surfaceVariantText
+                    enabled: root.hasSong && !!root.songDetailController
+                    onClicked: root.songDetailController.open(root.currentSong)
+                }
+
+                Item { Layout.fillWidth: true }
+            }
         }
 
         // ---------------------------------------------------------- CENTER zone
@@ -369,16 +406,6 @@ Rectangle {
                             // 与歌曲行右键菜单同一套语言: 纯文字行 + 分隔线, 不带图标列
                             contentItem: ColumnLayout {
                                 spacing: ThemeTokens.Spacing.s2
-
-                                OverflowRow {
-                                    Layout.fillWidth: true
-                                    label: qsTr("下载当前歌曲")
-                                    enabled: root.hasSong
-                                    onActivated: {
-                                        overflowPopup.close()
-                                        root.downloadRequested()
-                                    }
-                                }
 
                                 OverflowRow {
                                     Layout.fillWidth: true
@@ -535,20 +562,11 @@ Rectangle {
 
         // ---------------------------------------------------------- RIGHT zone
         RowLayout {
-            Layout.preferredWidth: root.width >= 920 ? 276 : 0
-            Layout.maximumWidth: root.width >= 920 ? 276 : 0
+            Layout.preferredWidth: root.width >= 920 ? 232 : 0
+            Layout.maximumWidth: root.width >= 920 ? 232 : 0
             Layout.fillHeight: true
             visible: root.width >= 920
             spacing: ThemeTokens.Spacing.s2
-
-            IconButton {
-                text: qsTr("下载当前歌曲")
-                iconSource: "../icons/download.svg"
-                iconSize: 18
-                iconColor: ThemeTokens.Palette.surfaceVariantText
-                enabled: root.hasSong
-                onClicked: root.downloadRequested()
-            }
 
             IconButton {
                 text: qsTr("歌词")
