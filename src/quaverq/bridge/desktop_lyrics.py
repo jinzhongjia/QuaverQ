@@ -119,11 +119,20 @@ def _is_vertical_char(c: str) -> bool:
     )
 
 
-def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
-    """将文本拆分为 (段文字, 是否竖排) 对, 用于混排竖向布局.
+def _should_stack_latin_vertically(word: str) -> bool:
+    """CJK 竖排里的短大写缩写逐字符直立, 避免旋转成横向字块."""
+    word = word.strip()
+    if not 1 <= len(word) <= 3:
+        return False
+    return all("A" <= c <= "Z" or "0" <= c <= "9" for c in word)
 
-    CJK + 全角标点 → is_vertical=True (逐字堆叠)
-    Latin/ASCII → is_vertical=False, 按单词拆分 (每个词独立旋转 90°)
+
+def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
+    """将文本拆分为 (段文字, 是否直立竖排) 对, 用于混排竖向布局.
+
+    CJK + 全角标点 → True (逐字堆叠)
+    短大写 ASCII 缩写 / 数字 (DJ / QQ / VIP / 1E) → True (逐字堆叠)
+    普通 Latin/ASCII → False, 按单词拆分后每个词旋转 90°
     """
     if not text:
         return []
@@ -145,7 +154,7 @@ def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
             result.append((seg_text, True))
         else:
             for word in seg_text.split():
-                result.append((word, False))
+                result.append((word, _should_stack_latin_vertically(word)))
     return result
 
 
