@@ -19,6 +19,7 @@ from quaverq.core.service import (
     QuaverService,
     is_credential_expired_error,
 )
+from quaverq.perf import log_elapsed
 
 from .error_utils import log_bridge_error
 from .models import (
@@ -68,6 +69,8 @@ class ServiceController(QObject):
         self._loading = False
         self._has_next_page = False
         self._search_keyword = ""
+        self._search_generation = 0
+        self._search_task: asyncio.Task[Any] | None = None
         self._current_page = 0
         self._page_size = 30
         self._error_message = ""
@@ -149,29 +152,31 @@ class ServiceController(QObject):
         async with self._start_lock:
             if self._started:  # 等锁期间别的调用已完成
                 return
-            await self._service.connect()
-            get_cached = getattr(self._service, "_get_cached_credential", None)
-            set_credential = getattr(self._service, "set_credential", None)
-            if callable(get_cached) and callable(set_credential):
-                cached_credential = await get_cached()
-                if cached_credential is not None:
-                    await set_credential(cached_credential)
-                    probe_result = await self._probe_current_credential()
-                    if probe_result is False:
-                        await self._expire_credential(
-                            "登录已过期，请重新扫码",
-                            remove_cache=True,
-                            emit_error=False,
-                        )
-                    else:
-                        if probe_result is True:
-                            logger.info("loaded verified QQ Music credential")
-                        else:
-                            logger.info(
-                                "loaded cached QQ Music credential (credential probe unavailable)"
+            with log_elapsed(logger, "service.start"):
+                await self._service.connect()
+                get_cached = getattr(self._service, "_get_cached_credential", None)
+                set_credential = getattr(self._service, "set_credential", None)
+                if callable(get_cached) and callable(set_credential):
+                    cached_credential = await get_cached()
+                    if cached_credential is not None:
+                        await set_credential(cached_credential)
+                        probe_result = await self._probe_current_credential()
+                        if probe_result is False:
+                            await self._expire_credential(
+                                "登录已过期，请重新扫码",
+                                remove_cache=True,
+                                emit_error=False,
                             )
-                        self.authStateChanged.emit()
-            self._started = True
+                        else:
+                            if probe_result is True:
+                                logger.info("loaded verified QQ Music credential")
+                            else:
+                                logger.info(
+                                    "loaded cached QQ Music credential "
+                                    "(credential probe unavailable)"
+                                )
+                            self.authStateChanged.emit()
+                self._started = True
 
     async def stop(self) -> None:
         if not self._started:
@@ -207,17 +212,29 @@ class ServiceController(QObject):
         await self.search_async(keyword)
 
     async def search_async(self, keyword: str) -> None:
+        generation, task = self._begin_search_request()
+        try:
+            await self._search_async_impl(keyword, generation)
+        except asyncio.CancelledError:
+            if self._is_current_search(generation):
+                self._set_loading(False)
+                raise
+        finally:
+            self._finish_search_request(generation, task)
+
+    async def _search_async_impl(self, keyword: str, generation: int) -> None:
         kw = (keyword or "").strip()
         self._set_error_message("")
         if not kw:
             self._reset_search_state()
             self._song_results.clear()
             self._card_results.clear()
+            self._set_loading(False)
             return
         if self._search_type == "songs":
-            await self._load_search_page(kw, 1)
+            await self._load_search_page(kw, 1, generation)
         else:
-            await self._load_card_search(kw)
+            await self._load_card_search(kw, generation, self._search_type)
 
     @asyncSlot(str)
     async def setSearchType(self, search_type: str) -> None:
@@ -235,32 +252,38 @@ class ServiceController(QObject):
         if keyword:
             await self.search_async(keyword)
         else:
+            self._cancel_active_search()
             self._reset_search_state()
 
-    async def _load_card_search(self, keyword: str) -> None:
+    async def _load_card_search(self, keyword: str, generation: int, search_type: str) -> None:
         self._set_loading(True)
         self._set_error_message("")
         try:
-            to_card = _CARD_CONVERTERS[self._search_type]
+            to_card = _CARD_CONVERTERS[search_type]
             items = await self.call_service(
-                lambda service: self._fetch_cards(service, keyword),
-                operation_name=f"search {self._search_type} {keyword}",
+                lambda service: self._fetch_cards(service, keyword, search_type),
+                operation_name=f"search {search_type} {keyword}",
             )
+            if not self._is_current_search(generation):
+                return
             self._search_keyword = keyword
             self._card_results.set_cards([to_card(item) for item in items])
             self._set_current_page(1 if items else 0)
             self._set_has_next_page(False)
         except Exception as exc:
-            message = log_bridge_error(logger, f"search {self._search_type} failed: {keyword}", exc)
+            if not self._is_current_search(generation):
+                return
+            message = log_bridge_error(logger, f"search {search_type} failed: {keyword}", exc)
             self._set_error_message(message)
             self.errorRaised.emit(message)
         finally:
-            self._set_loading(False)
+            if self._is_current_search(generation):
+                self._set_loading(False)
 
-    def _fetch_cards(self, service: Any, keyword: str) -> Any:
-        if self._search_type == "singers":
+    def _fetch_cards(self, service: Any, keyword: str, search_type: str) -> Any:
+        if search_type == "singers":
             return service.search_singers(keyword, limit=self._page_size)
-        if self._search_type == "albums":
+        if search_type == "albums":
             return service.search_albums(keyword, limit=self._page_size)
         return service.search_playlists(keyword, limit=self._page_size)
 
@@ -271,7 +294,15 @@ class ServiceController(QObject):
     async def next_page_async(self) -> None:
         if not self._search_keyword or self._loading or not self._has_next_page:
             return
-        await self._load_search_page(self._search_keyword, self._current_page + 1)
+        generation, task = self._begin_search_request()
+        try:
+            await self._load_search_page(self._search_keyword, self._current_page + 1, generation)
+        except asyncio.CancelledError:
+            if self._is_current_search(generation):
+                self._set_loading(False)
+                raise
+        finally:
+            self._finish_search_request(generation, task)
 
     @asyncSlot()
     async def previousPage(self) -> None:
@@ -280,9 +311,17 @@ class ServiceController(QObject):
     async def previous_page_async(self) -> None:
         if not self._search_keyword or self._loading or self._current_page <= 1:
             return
-        await self._load_search_page(self._search_keyword, self._current_page - 1)
+        generation, task = self._begin_search_request()
+        try:
+            await self._load_search_page(self._search_keyword, self._current_page - 1, generation)
+        except asyncio.CancelledError:
+            if self._is_current_search(generation):
+                self._set_loading(False)
+                raise
+        finally:
+            self._finish_search_request(generation, task)
 
-    async def _load_search_page(self, keyword: str, page: int) -> None:
+    async def _load_search_page(self, keyword: str, page: int, generation: int) -> None:
         self._set_loading(True)
         self._set_error_message("")
         try:
@@ -294,6 +333,8 @@ class ServiceController(QObject):
                 ),
                 operation_name=f"search {keyword}",
             )
+            if not self._is_current_search(generation):
+                return
             if page > 1 and not songs:
                 self._set_has_next_page(False)
                 return
@@ -302,6 +343,8 @@ class ServiceController(QObject):
             self._set_current_page(page if songs or page == 1 else 0)
             self._set_has_next_page(len(songs) >= self._page_size)
         except Exception as exc:
+            if not self._is_current_search(generation):
+                return
             message = log_bridge_error(
                 logger,
                 f"search failed: {keyword} page {page}",
@@ -310,14 +353,17 @@ class ServiceController(QObject):
             self._set_error_message(message)
             self.errorRaised.emit(message)
         finally:
-            self._set_loading(False)
+            if self._is_current_search(generation):
+                self._set_loading(False)
 
     @Slot()
     def clear(self) -> None:
+        self._cancel_active_search()
         self._set_error_message("")
         self._reset_search_state()
         self._song_results.clear()
         self._card_results.clear()
+        self._set_loading(False)
 
     async def get_song_url(
         self,
@@ -442,6 +488,30 @@ class ServiceController(QObject):
         if credential_path and os.path.exists(credential_path):
             os.remove(credential_path)
             logger.info("removed cached QQ Music credential: %s", credential_path)
+
+    def _begin_search_request(self) -> tuple[int, asyncio.Task[Any] | None]:
+        self._search_generation += 1
+        generation = self._search_generation
+        task = asyncio.current_task()
+        previous = self._search_task
+        if previous is not None and previous is not task and not previous.done():
+            previous.cancel()
+        self._search_task = task
+        return generation, task
+
+    def _finish_search_request(self, generation: int, task: asyncio.Task[Any] | None) -> None:
+        if self._search_generation == generation and self._search_task is task:
+            self._search_task = None
+
+    def _cancel_active_search(self) -> None:
+        self._search_generation += 1
+        task = self._search_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._search_task = None
+
+    def _is_current_search(self, generation: int) -> bool:
+        return self._search_generation == generation
 
     def _set_loading(self, value: bool) -> None:
         if self._loading == value:

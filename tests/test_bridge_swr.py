@@ -6,6 +6,7 @@ prime 不覆盖已到达的网络数据 (count>0 guard)、登出清私有、acco
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from quaverq.bridge.home_controller import HomeController
@@ -105,6 +106,21 @@ async def test_refresh_persists_public_and_private(tmp_path: Path) -> None:
     other = cache.load("other-key")
     assert other.daily == []
     assert other.playlists and other.tops
+
+
+async def test_home_refresh_logs_section_elapsed(tmp_path: Path, caplog) -> None:
+    cache = HomeCache(tmp_path / "home.json")
+    sc = ServiceController(service=_FakeService(authed=True, musicid=42))  # type: ignore[arg-type]
+    home = HomeController(sc, home_cache=cache)
+
+    with caplog.at_level(logging.INFO, logger="quaverq.bridge.home_controller"):
+        await home.refresh_top_lists_async()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        message.startswith("perf home.refresh_section elapsed_ms=") and "section=tops" in message
+        for message in messages
+    )
 
 
 # ----------------------------------------------------------------- Home: prime

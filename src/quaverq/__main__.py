@@ -36,6 +36,7 @@ from .core.cover_cache import CoverCache
 from .core.download_store import DownloadStore
 from .core.home_cache import HomeCache
 from .core.state import SessionState
+from .perf import log_elapsed
 from .platform import get_platform
 
 logger = logging.getLogger("quaverq")
@@ -393,7 +394,8 @@ def main() -> None:
     # 否则首帧按 _dark=False 渲染浅色, portal 回包后翻深色 -> 视觉上"白闪一下".
     system_theme_watcher = pal.system_theme()
     if system_theme_watcher is not None:
-        loop.run_until_complete(system_theme_watcher.start())
+        with log_elapsed(logger, "startup.system_theme"):
+            loop.run_until_complete(system_theme_watcher.start())
     cover_controller = CoverController(cover_cache)
     app_controller = AppController(service_controller, home_cache=home_cache)
     detail_controller_factory = DetailControllerFactory(service_controller)
@@ -448,15 +450,17 @@ def main() -> None:
     engine.rootContext().setContextProperty("SystemTheme", system_theme_watcher)
     # 启动同步读盘加载凭据 -> 首帧即登录态 (本地, 不联网, 不需事件循环);
     # connect + 网络有效性校验由后台 start() 完成. 让私有区块也能在 QML 绑定前用缓存填好.
-    service_controller.prime_credential_sync()
-    account_key = service_controller.account_key()
-    # SWR 首帧: 公共 + 私有区块都用上次缓存同步填好, QML 绑定时即有完整内容
-    home_controller.prime_public_from_cache()
-    home_controller.prime_private_from_cache(account_key)
-    library_controller.prime_from_cache(account_key)
-    app_controller.prime_profile_from_cache(account_key)
+    with log_elapsed(logger, "startup.prime_cache"):
+        service_controller.prime_credential_sync()
+        account_key = service_controller.account_key()
+        # SWR 首帧: 公共 + 私有区块都用上次缓存同步填好, QML 绑定时即有完整内容
+        home_controller.prime_public_from_cache()
+        home_controller.prime_private_from_cache(account_key)
+        library_controller.prime_from_cache(account_key)
+        app_controller.prime_profile_from_cache(account_key)
     qml_path = _qml_main_path()
-    engine.load(QUrl.fromLocalFile(str(qml_path)))
+    with log_elapsed(logger, "startup.qml_load"):
+        engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
         logger.error("QML load failed: %s", qml_path)
         sys.exit(1)

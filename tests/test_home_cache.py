@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -141,6 +142,37 @@ def test_update_creates_parent_dirs(tmp_path: Path) -> None:
     cache = HomeCache(tmp_path / "nested" / "deep" / "home.json")
     cache.update(tops=[_card("top", "t")])
     assert cache.path.exists()
+
+
+async def test_update_coalesces_disk_writes_while_event_loop_running(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    cache = HomeCache(tmp_path / "home.json", write_delay_seconds=0.01)
+    writes = 0
+    original_write_raw = cache._write_raw
+
+    def counted_write_raw(raw: dict) -> None:
+        nonlocal writes
+        writes += 1
+        original_write_raw(raw)
+
+    monkeypatch.setattr(cache, "_write_raw", counted_write_raw)
+
+    cache.update(playlists=[_card("playlist", "p1")])
+    cache.update(tops=[_card("top", "t1")])
+
+    snap = cache.load(account_key=ACC)
+    assert snap.playlists == [_card("playlist", "p1")]
+    assert snap.tops == [_card("top", "t1")]
+    assert writes == 0
+
+    await asyncio.sleep(0.05)
+
+    assert writes == 1
+    raw = json.loads(cache.path.read_text(encoding="utf-8"))
+    assert raw["sections"]["playlists"]["cards"] == [_card("playlist", "p1")]
+    assert raw["sections"]["tops"]["cards"] == [_card("top", "t1")]
 
 
 # ----------------------------------------------------------------- 容错
