@@ -886,6 +886,35 @@ async def test_get_lyric_prefers_qrc_words(monkeypatch):
     assert ly.lines[0].words[0].start_ms == 1000
 
 
+async def test_get_lyric_qrc_translation_fuzzy_timestamp_match(monkeypatch):
+    """QRC 毫秒精度 (2061) vs 翻译 LRC 厘秒精度 (2060) 应模糊匹配."""
+    import qqmusic_api.algorithms as algo
+
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
+
+    qrc_text = "[2061,3000]Hello(2061,1500) world(3561,1500)"
+    trans_lrc = "[00:02.06]你好世界"
+
+    async def fake_post(module, method, param, **kw):
+        if param.get("qrc") == 1:
+            return {"lyric": "ENC_QRC", "trans": "ENC_TRANS", "crypt": 1}
+        return {"lyric": "", "trans": "", "crypt": 0}
+
+    monkeypatch.setattr(svc, "_bypass_post", fake_post)
+    monkeypatch.setattr(
+        algo,
+        "qrc_decrypt",
+        lambda s: qrc_text if s == "ENC_QRC" else trans_lrc,
+    )
+
+    ly = await svc.get_lyric("x")
+    assert ly.has_translation is True
+    assert ly.lines[0].timestamp_ms == 2061
+    assert ly.lines[0].translation == "你好世界"
+
+
 async def test_get_lyric_falls_back_to_lrc_when_no_qrc(monkeypatch):
     """无 QRC (解密空) 时回退逐行 LRC, words 为空."""
     import base64
