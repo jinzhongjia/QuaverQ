@@ -78,6 +78,8 @@ class ServiceController(QObject):
         # 串行化 start(): 乐观登录后 Sidebar 刷新与 _load_initial_state 会并发触发 start,
         # 没锁会双 connect()/probe -> 泄漏第二个 Client (curl_cffi 线程) -> 退出卡死.
         self._start_lock = asyncio.Lock()
+        self._lyric_memory_cache: dict[tuple[str, bool], Lyric] = {}
+        self._lyric_inflight: dict[tuple[str, bool], asyncio.Task[Lyric]] = {}
 
     @Property(QObject, notify=songResultsChanged)
     def songResults(self) -> SongListModel:
@@ -388,7 +390,28 @@ class ServiceController(QObject):
         *,
         with_translation: bool = True,
     ) -> Lyric:
+        key = ((mid or "").strip(), bool(with_translation))
+        if not key[0]:
+            return Lyric(mid="")
+        cached = self._lyric_memory_cache.get(key)
+        if cached is not None:
+            return cached
         await self._ensure_started()
+        cached = self._lyric_memory_cache.get(key)
+        if cached is not None:
+            return cached
+        task = self._lyric_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(self._fetch_lyric_for_cache(*key))
+            self._lyric_inflight[key] = task
+            task.add_done_callback(
+                lambda done, lyric_key=key: self._drop_lyric_inflight(lyric_key, done)
+            )
+        lyric = await asyncio.shield(task)
+        self._lyric_memory_cache[key] = lyric
+        return lyric
+
+    async def _fetch_lyric_for_cache(self, mid: str, with_translation: bool) -> Lyric:
         return await self.call_service(
             lambda service: service.get_lyric(
                 mid,
@@ -396,6 +419,10 @@ class ServiceController(QObject):
             ),
             operation_name="get lyric",
         )
+
+    def _drop_lyric_inflight(self, key: tuple[str, bool], task: asyncio.Task[Lyric]) -> None:
+        if self._lyric_inflight.get(key) is task:
+            self._lyric_inflight.pop(key, None)
 
     async def get_user_profile(self) -> Any:
         """登录账号画像 (昵称 / 头像 / VIP 种类); 走 call_service 统一过期处理."""

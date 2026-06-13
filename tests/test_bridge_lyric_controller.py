@@ -5,7 +5,10 @@ from __future__ import annotations
 from quaverq.bridge.lyric_controller import LyricController
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.bridge.service_controller import ServiceController
+from quaverq.core.lyric_cache import LyricCache
 from quaverq.core.models import Lyric, LyricLine, Singer, Song, SongUrl
+from quaverq.core.queue import PlayQueue
+from quaverq.core.state import SessionState
 
 
 class _FakeLyricService:
@@ -92,6 +95,97 @@ async def test_active_index_tracks_player_position():
     assert controller.activeIndex == 1
     assert controller.currentLineText == "第二行"
     assert controller.currentLineTranslation == "line two"
+
+
+async def test_restored_session_primes_current_mid_and_position(tmp_path):
+    """重启恢复队列 + 进度后, LyricController 不应错过当前歌曲状态."""
+    state_path = tmp_path / "state.json"
+    queue = PlayQueue()
+    queue.push([_song()], play_now=True)
+    SessionState(state_path).save(queue, position_ms=1500, volume=0.8)
+
+    service = _FakeLyricService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    player_controller = PlayerController(
+        service_controller,
+        session_state=SessionState(state_path),
+    )
+    controller = LyricController(service_controller, player_controller)
+
+    assert controller.currentMid == "m1"
+    assert controller.positionMs == 1500
+    assert service.lyric_calls == []
+
+    await controller.refresh_current_lyric_async()
+
+    assert controller.activeIndex == 1
+    assert controller.currentLineText == "第二行"
+    assert controller.currentLineTranslation == "line two"
+
+
+async def test_current_song_primes_cached_lyric_before_network_refresh(tmp_path):
+    cache = LyricCache(tmp_path / "lyrics")
+    cache.save(
+        Lyric(
+            mid="m1",
+            has_translation=True,
+            lines=[
+                LyricLine(timestamp_ms=0, text="缓存第一行", translation="cached"),
+                LyricLine(timestamp_ms=1000, text="缓存第二行", translation="cached 2"),
+            ],
+        ),
+        with_translation=True,
+    )
+    service = _FakeLyricService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    player_controller = PlayerController(service_controller)
+    player_controller._queue.push([_song()], play_now=True)  # noqa: SLF001
+    player_controller._emit_current_changed()  # noqa: SLF001
+
+    controller = LyricController(service_controller, player_controller, lyric_cache=cache)
+
+    assert service.lyric_calls == []
+    assert controller.lineCount == 2
+    assert controller.currentLineText == "缓存第一行"
+    assert controller.hasTranslation is True
+
+    await controller.refresh_current_lyric_async()
+
+    assert service.lyric_calls == [("m1", True)]
+    assert controller.lineCount == 3
+    assert controller.currentLineText == "第一行"
+    assert cache.load("m1", with_translation=True) == service.lyrics["m1"]
+
+
+async def test_cached_lyric_survives_refresh_failure(tmp_path):
+    class _FailingLyricService(_FakeLyricService):
+        async def get_lyric(
+            self,
+            mid: str,
+            *,
+            with_translation: bool = True,
+        ) -> Lyric:
+            self.lyric_calls.append((mid, with_translation))
+            raise RuntimeError("network down")
+
+    cache = LyricCache(tmp_path / "lyrics")
+    cache.save(
+        Lyric(mid="m1", lines=[LyricLine(timestamp_ms=0, text="缓存行")]),
+        with_translation=True,
+    )
+    service = _FailingLyricService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    player_controller = PlayerController(service_controller)
+    player_controller._queue.push([_song()], play_now=True)  # noqa: SLF001
+    player_controller._emit_current_changed()  # noqa: SLF001
+    controller = LyricController(service_controller, player_controller, lyric_cache=cache)
+
+    await controller.refresh_current_lyric_async()
+
+    assert service.lyric_calls == [("m1", True)]
+    assert controller.lineCount == 1
+    assert controller.currentLineText == "缓存行"
+    assert controller.errorMessage
 
 
 async def test_song_change_clears_lyric_before_next_refresh():

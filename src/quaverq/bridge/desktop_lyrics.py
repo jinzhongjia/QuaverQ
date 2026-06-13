@@ -83,6 +83,7 @@ _VTRANS_SIZE_RATIO = 0.75  # 竖排翻译字号比例 (竖排本身字不大, 0.
 _TRANS_OUTLINE_WIDTH = 2
 _TRANS_GAP = 6
 _VCOL_GAP = 12  # 竖排双列间距 (歌词右列 + 翻译左列)
+_SCROLL_EDGE_PADDING = 8  # 超长歌词滚动到首尾时给描边/抗锯齿留一点余量
 
 
 def _has_cjk(text: str) -> bool:
@@ -158,6 +159,51 @@ def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
     return result
 
 
+_CREDIT_ASCII_PREFIXES = ("OP", "SP", "CP")
+_CREDIT_CJK_PREFIXES = (
+    "词",
+    "曲",
+    "作词",
+    "作曲",
+    "编曲",
+    "制作人",
+    "出品",
+    "发行",
+    "版权所有",
+    "唱片公司",
+    "监制",
+    "混音",
+    "母带",
+    "录音",
+)
+
+
+def _is_credit_line(text: str) -> bool:
+    """制作/版权信息行在竖排桌面歌词里整行旋转, 不做歌词式混排."""
+    s = text.strip()
+    if not s:
+        return False
+    upper = s.upper()
+    for prefix in _CREDIT_ASCII_PREFIXES:
+        rest = upper[len(prefix) :] if upper.startswith(prefix) else ""
+        if rest.lstrip().startswith((":", "：")):
+            return True
+    for prefix in _CREDIT_CJK_PREFIXES:
+        rest = s[len(prefix) :] if s.startswith(prefix) else ""
+        if rest.lstrip().startswith((":", "：")):
+            return True
+    return False
+
+
+def _normalize_path_x(path: QPainterPath, outline_width: int) -> tuple[QPainterPath, float]:
+    """把横向路径 X bbox 归一到 [pad, pad+width], 供旋转成竖向块时计高."""
+    bounds = path.boundingRect()
+    pad = max(1.0, float(outline_width))
+    normalized = QPainterPath(path)
+    normalized.translate(-bounds.left() + pad, 0.0)
+    return normalized, float(bounds.width() + pad * 2.0)
+
+
 class _WordInfo(NamedTuple):
     """预处理后的逐字信息, 消除热路径 dict.get() 开销."""
 
@@ -173,6 +219,33 @@ class _VBlock(NamedTuple):
     path: QPainterPath
     v_height: float
     rotated: bool
+    content_h: float
+
+
+class _HorizontalLayout(NamedTuple):
+    """横排绘制布局, 坐标为 widget 像素; scale 固定 1, 超长靠原点滚动."""
+
+    scale: float
+    main_x: float
+    baseline: float
+    baseline_local: float
+    viewport_h: float
+    trans_x: float
+    trans_baseline: float
+
+
+class _VerticalColumnLayout(NamedTuple):
+    """竖排绘制布局, 坐标为 widget 像素; scale 固定 1, 超长靠原点滚动."""
+
+    scale: float
+    main_cx: float
+    trans_cx: float
+    main_start_y: float
+    trans_start_y: float
+    main_h: float
+    trans_h: float
+    main_ascent: float
+    trans_ascent: float
     content_h: float
 
 
@@ -252,6 +325,8 @@ class DesktopLyricsWindow(QWidget):
         # 翻译
         self._translation = ""
         self._has_trans = False
+        self._line_start_ms: int | None = None
+        self._line_end_ms: int | None = None
         self._trans_outline_pen = QPen(_OUTLINE_COLOR, _TRANS_OUTLINE_WIDTH)
         self._trans_outline_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         self._trans_outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -300,22 +375,44 @@ class DesktopLyricsWindow(QWidget):
         self._words = []
         self._word_infos = []
         self._word_starts = []
+        self._line_start_ms = None
+        self._line_end_ms = None
         self._sung_count = 0
         self._wipe_timer.stop()
         self._rebuild_paint_cache()
         self.update()
 
     def set_line(
-        self, text: str, words: list[dict[str, Any]] | None, translation: str = ""
+        self,
+        text: str,
+        words: list[dict[str, Any]] | None,
+        translation: str = "",
+        *,
+        line_start_ms: int | None = None,
+        line_end_ms: int | None = None,
     ) -> None:
         """更新当前行 + 逐字时间 + 翻译. words 为 None / [] 时整句作为单段高亮."""
         text = text or ""
         words = list(words or [])
         translation = translation or ""
-        if text == self._text and words == self._words and translation == self._translation:
+        try:
+            line_start = None if line_start_ms is None else int(line_start_ms)
+            line_end = None if line_end_ms is None else int(line_end_ms)
+        except (TypeError, ValueError):
+            line_start = None
+            line_end = None
+        if (
+            text == self._text
+            and words == self._words
+            and translation == self._translation
+            and line_start == self._line_start_ms
+            and line_end == self._line_end_ms
+        ):
             return
         self._text = text
         self._translation = translation
+        self._line_start_ms = line_start
+        self._line_end_ms = line_end
         self._words = words
         self._word_infos = _make_word_infos(words)
         self._word_starts = [w.start_ms for w in self._word_infos]
@@ -332,11 +429,14 @@ class DesktopLyricsWindow(QWidget):
             ms = int(position_ms)
         except (TypeError, ValueError):
             return
-        if not self._word_infos:
-            return
-        old_count = self._sung_count
+        old_anchor = self._anchor_ms
         self._anchor_ms = ms
         self._anchor_perf = time.perf_counter()
+        if not self._word_infos:
+            if self._has_line_timing() and old_anchor != ms:
+                self.update()
+            return
+        old_count = self._sung_count
         self._sung_count = bisect.bisect_right(self._word_starts, ms)
         self._toggle_wipe_timer()
         if self._sung_count != old_count or self._wipe_timer.isActive():
@@ -480,9 +580,15 @@ class DesktopLyricsWindow(QWidget):
     def _build_vertical_cache(self, fm: QFontMetrics) -> None:
         full_text = "".join(w.text for w in self._display_words)
         has_cjk_chars = _has_cjk(full_text)
-        self._v_rotated = not has_cjk_chars
+        self._v_rotated = _is_credit_line(full_text) or not has_cjk_chars
         if self._v_rotated:
             self._v_mixed = False
+            self._v_word_blocks = []
+            self._v_word_v_heights = []
+            self._v_total_v_height = 0.0
+            self._v_word_paths = []
+            self._v_word_char_counts = []
+            self._v_total_chars = 0
             self._build_horizontal_cache(fm)
             return
         has_latin = any(not _is_vertical_char(c) for c in full_text if not c.isspace())
@@ -528,9 +634,11 @@ class DesktopLyricsWindow(QWidget):
                 else:
                     path = QPainterPath()
                     path.addText(0.0, 0.0, self._font, seg_text)
-                    run_w = float(fm.horizontalAdvance(seg_text))
-                    v_h = run_w + gap
-                    blocks.append(_VBlock(path=path, v_height=v_h, rotated=True, content_h=run_w))
+                    path, visual_w = _normalize_path_x(path, _OUTLINE_WIDTH)
+                    v_h = visual_w + gap
+                    blocks.append(
+                        _VBlock(path=path, v_height=v_h, rotated=True, content_h=visual_w)
+                    )
                 word_h += v_h
             word_blocks.append(blocks)
             word_heights.append(word_h)
@@ -574,9 +682,9 @@ class DesktopLyricsWindow(QWidget):
             else:
                 path = QPainterPath()
                 path.addText(0.0, 0.0, self._trans_font, seg_text)
-                run_w = float(tfm.horizontalAdvance(seg_text))
-                v_h = run_w + gap
-                blocks.append(_VBlock(path=path, v_height=v_h, rotated=True, content_h=run_w))
+                path, visual_w = _normalize_path_x(path, _TRANS_OUTLINE_WIDTH)
+                v_h = visual_w + gap
+                blocks.append(_VBlock(path=path, v_height=v_h, rotated=True, content_h=visual_w))
             total_h += v_h
         self._v_trans_blocks = blocks
         self._v_trans_v_height = total_h
@@ -621,6 +729,194 @@ class DesktopLyricsWindow(QWidget):
             x = geo.x() + (geo.width() - width) // 2
             y = geo.y() + geo.height() - height - 60
         self.setGeometry(x, y, width, height)
+
+    @staticmethod
+    def _scroll_origin(content_len: float, focus_pos: float, viewport_len: float) -> float:
+        if content_len <= viewport_len:
+            return (viewport_len - content_len) / 2.0
+        padding = min(float(_SCROLL_EDGE_PADDING), viewport_len / 4.0)
+        target = viewport_len / 2.0 - focus_pos
+        min_origin = viewport_len - content_len - padding
+        max_origin = padding
+        return min(max(target, min_origin), max_origin)
+
+    def _active_display_word_index(self, ms: int) -> int:
+        if not self._display_words:
+            return -1
+        idx = 0
+        for i, word in enumerate(self._display_words):
+            if ms >= word.start_ms:
+                idx = i
+            else:
+                break
+        return idx
+
+    @staticmethod
+    def _clamp_pos(value: float, upper: float) -> float:
+        return min(max(0.0, value), max(0.0, upper))
+
+    def _has_line_timing(self) -> bool:
+        return (
+            self._line_start_ms is not None
+            and self._line_end_ms is not None
+            and self._line_end_ms > self._line_start_ms
+        )
+
+    def _line_fraction(self, ms: int) -> float | None:
+        if not self._has_line_timing():
+            return None
+        start = self._line_start_ms
+        end = self._line_end_ms
+        if ms <= start:
+            return 0.0
+        if ms >= end:
+            return 1.0
+        return (ms - start) / (end - start)
+
+    def _horizontal_focus_x(self) -> float:
+        if self._h_total_w <= 0:
+            return 0.0
+        if not self._word_infos or not self._display_words:
+            fraction = self._line_fraction(self._effective_ms())
+            return self._h_total_w * fraction if fraction is not None else self._h_total_w / 2.0
+        ms = self._effective_ms()
+        idx = self._active_display_word_index(ms)
+        if idx < 0:
+            return 0.0
+        word = self._display_words[idx]
+        fraction = self._fraction_at(word, ms)
+        focus = self._h_word_xs[idx] + self._h_word_widths[idx] * fraction
+        return self._clamp_pos(focus, self._h_total_w)
+
+    def _vertical_focus_y(self) -> float:
+        main_h = self._vertical_main_height()
+        if main_h <= 0:
+            return 0.0
+        if not self._word_infos or not self._display_words:
+            fraction = self._line_fraction(self._effective_ms())
+            return main_h * fraction if fraction is not None else main_h / 2.0
+        ms = self._effective_ms()
+        idx = self._active_display_word_index(ms)
+        if idx < 0:
+            return 0.0
+        word = self._display_words[idx]
+        fraction = self._fraction_at(word, ms)
+        if self._v_rotated:
+            focus = self._h_word_xs[idx] + self._h_word_widths[idx] * fraction
+        elif self._v_mixed:
+            focus = sum(self._v_word_v_heights[:idx]) + self._v_word_v_heights[idx] * fraction
+        else:
+            char_offset = sum(self._v_word_char_counts[:idx])
+            focus = (char_offset + self._v_word_char_counts[idx] * fraction) * self._v_line_h
+        return self._clamp_pos(focus, main_h)
+
+    def _horizontal_layout(self) -> _HorizontalLayout:
+        fm = self._cached_fm
+        if fm is None:
+            return _HorizontalLayout(1.0, 0.0, 0.0, 0.0, float(self.height()), 0.0, 0.0)
+
+        has_trans = self._has_trans and self._trans_fm is not None
+        main_h = float(fm.ascent() + fm.descent())
+        trans_h = 0.0
+        trans_ascent = 0.0
+        if has_trans:
+            trans_h = float(self._trans_fm.ascent() + self._trans_fm.descent())
+            trans_ascent = float(self._trans_fm.ascent())
+        total_h = main_h + (_TRANS_GAP + trans_h if has_trans else 0.0)
+        scale = 1.0
+        focus_x = self._horizontal_focus_x()
+        top = (self.height() - total_h) / 2.0
+        baseline = top + fm.ascent()
+        main_x = self._scroll_origin(self._h_total_w, focus_x, float(self.width()))
+        trans_x = 0.0
+        trans_baseline = 0.0
+        if has_trans:
+            ratio = focus_x / self._h_total_w if self._h_total_w > 0 else 0.5
+            trans_focus = self._trans_total_w * ratio
+            trans_x = self._scroll_origin(self._trans_total_w, trans_focus, float(self.width()))
+            trans_baseline = top + main_h + _TRANS_GAP + trans_ascent
+        baseline_local = baseline
+        viewport_h = float(self.height())
+        return _HorizontalLayout(
+            scale=scale,
+            main_x=main_x,
+            baseline=baseline,
+            baseline_local=baseline_local,
+            viewport_h=viewport_h,
+            trans_x=trans_x,
+            trans_baseline=trans_baseline,
+        )
+
+    def _vertical_main_height(self) -> float:
+        if self._v_rotated:
+            return self._h_total_w
+        if self._v_mixed:
+            return self._v_total_v_height
+        return self._v_line_h * self._v_total_chars
+
+    def _vertical_column_layout(self) -> _VerticalColumnLayout:
+        fm = self._cached_fm
+        if fm is None:
+            return _VerticalColumnLayout(
+                1.0,
+                self.width() / 2.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+
+        has_trans = self._has_trans and self._trans_fm is not None
+        main_h = float(self._vertical_main_height())
+        trans_h = float(self._v_trans_v_height if has_trans else 0.0)
+        main_ascent = float(fm.ascent())
+        trans_ascent = float(self._trans_fm.ascent() if has_trans else 0.0)
+        content_h = max(main_h, trans_h, 1.0)
+
+        main_w = float(fm.ascent() + fm.descent())
+        if has_trans:
+            trans_w = float(self._trans_fm.ascent() + self._trans_fm.descent())
+            content_w = main_w + _VCOL_GAP + trans_w
+        else:
+            trans_w = 0.0
+            content_w = main_w
+        scale = 1.0
+
+        left_edge = max(0.0, (self.width() - content_w) / 2.0)
+        if has_trans:
+            trans_cx = left_edge + trans_w / 2.0
+            main_cx = left_edge + trans_w + _VCOL_GAP + main_w / 2.0
+        else:
+            main_cx = self.width() / 2.0
+            trans_cx = 0.0
+
+        focus_y = self._vertical_focus_y()
+        main_top = self._scroll_origin(main_h, focus_y, float(self.height()))
+        ratio = focus_y / main_h if main_h > 0 else 0.5
+        if has_trans:
+            trans_focus = trans_h * ratio
+            trans_top = self._scroll_origin(trans_h, trans_focus, float(self.height()))
+        else:
+            trans_top = 0.0
+        main_start_y = main_top + main_ascent
+        trans_start_y = trans_top + trans_ascent if has_trans else 0.0
+
+        return _VerticalColumnLayout(
+            scale=scale,
+            main_cx=main_cx,
+            trans_cx=trans_cx,
+            main_start_y=main_start_y,
+            trans_start_y=trans_start_y,
+            main_h=main_h,
+            trans_h=trans_h,
+            main_ascent=main_ascent,
+            trans_ascent=trans_ascent,
+            content_h=content_h,
+        )
 
     def _is_word_sung(self, word_idx: int) -> bool:
         """无 word 数据 -> 整句视为已唱; 否则按 sung_count 判定."""
@@ -754,26 +1050,17 @@ class DesktopLyricsWindow(QWidget):
         """横向: 缓存路径 + 逐字 wipe clip + 翻译."""
         if not self._display_words or not self._cached_fm:
             return
-        fm = self._cached_fm
+        layout = self._horizontal_layout()
         has_trans = self._has_trans
 
-        if has_trans:
-            trans_fm = self._trans_fm
-            main_h = fm.ascent() + fm.descent()
-            trans_h = trans_fm.ascent() + trans_fm.descent()
-            total_h = main_h + _TRANS_GAP + trans_h
-            baseline = (self.height() - total_h) / 2.0 + fm.ascent()
-        else:
-            baseline = (self.height() + fm.ascent() - fm.descent()) / 2.0
-
-        x0 = (self.width() - self._h_total_w) / 2.0
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
         hi_brush = self._cached_brush_highlight
         nopen = Qt.PenStyle.NoPen
 
         painter.save()
-        painter.translate(x0, baseline)
+        painter.translate(layout.main_x, layout.baseline)
+        painter.scale(layout.scale, layout.scale)
 
         painter.setPen(self._outline_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -792,7 +1079,12 @@ class DesktopLyricsWindow(QWidget):
                 word_w = self._h_word_widths[i]
                 clip_w = max(1.0, word_w * fraction)
                 painter.save()
-                clip_path = self._make_horizontal_wipe_clip(word_x, clip_w, baseline)
+                clip_path = self._make_horizontal_wipe_clip(
+                    word_x,
+                    clip_w,
+                    layout.baseline_local,
+                    layout.viewport_h,
+                )
                 painter.setClipPath(clip_path)
                 painter.setBrush(hi_brush)
                 painter.drawPath(word_path)
@@ -800,10 +1092,9 @@ class DesktopLyricsWindow(QWidget):
         painter.restore()
 
         if has_trans:
-            trans_baseline = baseline + fm.descent() + _TRANS_GAP + trans_fm.ascent()
-            tx = (self.width() - self._trans_total_w) / 2.0
             painter.save()
-            painter.translate(tx, trans_baseline)
+            painter.translate(layout.trans_x, layout.trans_baseline)
+            painter.scale(layout.scale, layout.scale)
             painter.setPen(self._trans_outline_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self._trans_path)
@@ -814,33 +1105,23 @@ class DesktopLyricsWindow(QWidget):
 
     def _vcol_positions(self) -> tuple[float, float]:
         """竖排双列中心 X: (main_cx, trans_cx). 歌词右列, 翻译左列."""
-        fm = self._cached_fm
-        main_w = float(fm.ascent() + fm.descent())
-        if not self._has_trans or not self._trans_fm:
-            return self.width() / 2.0, 0.0
-        trans_w = float(self._trans_fm.ascent() + self._trans_fm.descent())
-        total = main_w + _VCOL_GAP + trans_w
-        left_edge = (self.width() - total) / 2.0
-        trans_cx = left_edge + trans_w / 2.0
-        main_cx = left_edge + trans_w + _VCOL_GAP + main_w / 2.0
-        return main_cx, trans_cx
+        layout = self._vertical_column_layout()
+        return layout.main_cx, layout.trans_cx
 
     def _paint_trans_vertical_blocks(
-        self, painter: QPainter, trans_cx: float, total_h: float
+        self, painter: QPainter, layout: _VerticalColumnLayout
     ) -> None:
         trans_fm = self._trans_fm
         trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
-        trans_start_y = max(
-            trans_fm.ascent(),
-            (self.height() - total_h) / 2.0 + trans_fm.ascent(),
-        )
+        scale = layout.scale
         base_brush = self._cached_brush_base
         nopen = Qt.PenStyle.NoPen
-        block_y = trans_start_y
+        block_y = layout.trans_start_y
         for blk in self._v_trans_blocks:
             if blk.rotated:
                 painter.save()
-                painter.translate(trans_cx, block_y + blk.content_h / 2.0)
+                painter.translate(layout.trans_cx, block_y + blk.content_h * scale / 2.0)
+                painter.scale(scale, scale)
                 painter.rotate(90)
                 painter.translate(-blk.content_h / 2.0, trans_baseline)
                 painter.setPen(self._trans_outline_pen)
@@ -852,7 +1133,8 @@ class DesktopLyricsWindow(QWidget):
                 painter.restore()
             else:
                 painter.save()
-                painter.translate(trans_cx, block_y)
+                painter.translate(layout.trans_cx, block_y)
+                painter.scale(scale, scale)
                 painter.setPen(self._trans_outline_pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawPath(blk.path)
@@ -860,7 +1142,7 @@ class DesktopLyricsWindow(QWidget):
                 painter.setBrush(base_brush)
                 painter.drawPath(blk.path)
                 painter.restore()
-            block_y += blk.v_height
+            block_y += blk.v_height * scale
 
     def _paint_vertical(self, painter: QPainter) -> None:
         """竖向: CJK 逐字堆叠 / 拉丁文旋转 90° 横排 + 翻译."""
@@ -873,31 +1155,26 @@ class DesktopLyricsWindow(QWidget):
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
+        layout = self._vertical_column_layout()
         line_h = self._v_line_h
-
-        main_h = line_h * self._v_total_chars
         has_trans = self._has_trans
-
-        main_cx, trans_cx = self._vcol_positions()
-        total_h = main_h
-        if has_trans:
-            total_h = max(main_h, self._v_trans_v_height)
-
-        start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
 
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
         hi_brush = self._cached_brush_highlight
         nopen = Qt.PenStyle.NoPen
+        scale = layout.scale
+        viewport_w = self.width() / scale
 
         char_idx = 0
         for i, w in enumerate(self._display_words):
             word_path = self._v_word_paths[i]
             fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
-            first_y = start_y + char_idx * line_h
+            first_y = layout.main_start_y + char_idx * line_h * scale
 
             painter.save()
-            painter.translate(main_cx, first_y)
+            painter.translate(layout.main_cx, first_y)
+            painter.scale(scale, scale)
 
             painter.setPen(self._outline_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -911,7 +1188,7 @@ class DesktopLyricsWindow(QWidget):
                 word_h = line_h * n_chars
                 clip_h = max(1, int(round(word_h * fraction)))
                 painter.save()
-                painter.setClipRect(-self.width(), -fm.ascent(), self.width() * 2, clip_h)
+                painter.setClipRect(-viewport_w, -fm.ascent(), viewport_w * 2, clip_h)
                 painter.setBrush(hi_brush)
                 painter.drawPath(word_path)
                 painter.restore()
@@ -920,7 +1197,7 @@ class DesktopLyricsWindow(QWidget):
             char_idx += self._v_word_char_counts[i]
 
         if has_trans:
-            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
+            self._paint_trans_vertical_blocks(painter, layout)
 
     def _paint_vertical_rotated(self, painter: QPainter) -> None:
         """拉丁文竖排: 横向文字旋转 90° 顺时针 + 翻译 (左列)."""
@@ -929,11 +1206,15 @@ class DesktopLyricsWindow(QWidget):
         fm = self._cached_fm
         has_trans = self._has_trans
 
-        main_cx, trans_cx = self._vcol_positions()
+        layout = self._vertical_column_layout()
+        scale = layout.scale
+        main_top = layout.main_start_y - fm.ascent() * scale
+        main_center_y = main_top + layout.main_h * scale / 2.0
 
         # 主歌词: 旋转 90° 居中于右列
         painter.save()
-        painter.translate(main_cx, self.height() / 2.0)
+        painter.translate(layout.main_cx, main_center_y)
+        painter.scale(scale, scale)
         painter.rotate(90)
 
         x0 = -self._h_total_w / 2.0
@@ -970,8 +1251,7 @@ class DesktopLyricsWindow(QWidget):
         painter.restore()
 
         if has_trans:
-            total_h = max(self._h_total_w, self._v_trans_v_height)
-            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
+            self._paint_trans_vertical_blocks(painter, layout)
 
     def _paint_vertical_mixed(self, painter: QPainter) -> None:
         """竖向混排: CJK 直立堆叠 + Latin 段旋转 90°. 翻译左列."""
@@ -980,22 +1260,16 @@ class DesktopLyricsWindow(QWidget):
         fm = self._cached_fm
         baseline_off = (fm.ascent() - fm.descent()) / 2.0
 
-        main_h = self._v_total_v_height
+        layout = self._vertical_column_layout()
         has_trans = self._has_trans
-        total_h = main_h
-        if has_trans:
-            trans_h = self._v_trans_v_height
-            total_h = max(main_h, trans_h)
-
-        main_cx, trans_cx = self._vcol_positions()
-        start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
 
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
         hi_brush = self._cached_brush_highlight
         nopen = Qt.PenStyle.NoPen
+        scale = layout.scale
 
-        word_y = start_y
+        word_y = layout.main_start_y
         for i, w in enumerate(self._display_words):
             blocks = self._v_word_blocks[i]
             word_h = self._v_word_v_heights[i]
@@ -1005,7 +1279,8 @@ class DesktopLyricsWindow(QWidget):
             for blk in blocks:
                 if blk.rotated:
                     painter.save()
-                    painter.translate(main_cx, block_y + blk.content_h / 2.0)
+                    painter.translate(layout.main_cx, block_y + blk.content_h * scale / 2.0)
+                    painter.scale(scale, scale)
                     painter.rotate(90)
                     painter.translate(-blk.content_h / 2.0, baseline_off)
                     painter.setPen(self._outline_pen)
@@ -1017,7 +1292,8 @@ class DesktopLyricsWindow(QWidget):
                     painter.restore()
                 else:
                     painter.save()
-                    painter.translate(main_cx, block_y)
+                    painter.translate(layout.main_cx, block_y)
+                    painter.scale(scale, scale)
                     painter.setPen(self._outline_pen)
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPath(blk.path)
@@ -1025,18 +1301,27 @@ class DesktopLyricsWindow(QWidget):
                     painter.setBrush(base_brush)
                     painter.drawPath(blk.path)
                     painter.restore()
-                block_y += blk.v_height
+                block_y += blk.v_height * scale
 
             if fraction > 0.0:
-                clip_total = word_h + fm.ascent()
+                clip_total = (word_h + fm.ascent()) * scale
                 clip_h = max(1, int(round(clip_total * fraction)))
                 painter.save()
-                painter.setClipRect(0, int(word_y - fm.ascent()), self.width(), clip_h)
+                painter.setClipRect(
+                    0,
+                    int(word_y - fm.ascent() * scale),
+                    self.width(),
+                    clip_h,
+                )
                 block_y = word_y
                 for blk in blocks:
                     if blk.rotated:
                         painter.save()
-                        painter.translate(main_cx, block_y + blk.content_h / 2.0)
+                        painter.translate(
+                            layout.main_cx,
+                            block_y + blk.content_h * scale / 2.0,
+                        )
+                        painter.scale(scale, scale)
                         painter.rotate(90)
                         painter.translate(-blk.content_h / 2.0, baseline_off)
                         painter.setPen(nopen)
@@ -1045,18 +1330,19 @@ class DesktopLyricsWindow(QWidget):
                         painter.restore()
                     else:
                         painter.save()
-                        painter.translate(main_cx, block_y)
+                        painter.translate(layout.main_cx, block_y)
+                        painter.scale(scale, scale)
                         painter.setPen(nopen)
                         painter.setBrush(hi_brush)
                         painter.drawPath(blk.path)
                         painter.restore()
-                    block_y += blk.v_height
+                    block_y += blk.v_height * scale
                 painter.restore()
 
-            word_y += word_h
+            word_y += word_h * scale
 
         if has_trans:
-            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
+            self._paint_trans_vertical_blocks(painter, layout)
 
     def _fill_brush(self, *, highlight: bool) -> QBrush:
         """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
@@ -1077,7 +1363,11 @@ class DesktopLyricsWindow(QWidget):
         return self._font.italic() or self._font.style() == QFont.Style.StyleOblique
 
     def _make_horizontal_wipe_clip(
-        self, x_left: float, width_px: float, baseline: float
+        self,
+        x_left: float,
+        width_px: float,
+        baseline: float,
+        viewport_height: float | None = None,
     ) -> QPainterPath:
         """横向 wipe 的 clip 路径. 直立字体 -> 矩形; 斜体 -> 与字形 shear 匹配的平行四边形.
 
@@ -1088,7 +1378,7 @@ class DesktopLyricsWindow(QWidget):
         clip 必须覆盖 widget 全高, 用 y=[-baseline, h-baseline] (translate 后).
         """
         path = QPainterPath()
-        h = float(self.height())
+        h = float(self.height()) if viewport_height is None else float(viewport_height)
         if not self._is_slanted_font():
             path.addRect(x_left, -baseline, width_px, h)
             return path
@@ -1247,7 +1537,14 @@ class DesktopLyricsController(QObject):
         text = getattr(self._lyric_controller, "currentLineText", "") or ""
         words = self._current_words()
         translation = getattr(self._lyric_controller, "currentLineTranslation", "") or ""
-        self._window.set_line(text, words, translation=translation)
+        line_start_ms, line_end_ms = self._current_line_timing()
+        self._window.set_line(
+            text,
+            words,
+            translation=translation,
+            line_start_ms=line_start_ms,
+            line_end_ms=line_end_ms,
+        )
 
     def _sync_position(self) -> None:
         if not getattr(self._lyric_controller, "positionMs", None) and not hasattr(
@@ -1259,18 +1556,45 @@ class DesktopLyricsController(QObject):
 
     def _current_words(self) -> list[dict[str, Any]]:
         """从 ``lyricModel.lineAt(activeIndex)`` 拿 ``words`` 列表; 失败时返 []."""
-        active_idx = getattr(self._lyric_controller, "activeIndex", -1)
-        if active_idx is None or active_idx < 0:
-            return []
-        model = getattr(self._lyric_controller, "lyricModel", None)
-        if model is None:
-            return []
-        line_at = getattr(model, "lineAt", None)
-        if not callable(line_at):
-            return []
-        try:
-            line = line_at(active_idx)
-        except Exception:
-            return []
+        line = self._current_line_map()
         words = (line or {}).get("words", [])
         return list(words) if isinstance(words, list) else []
+
+    def _current_line_timing(self) -> tuple[int | None, int | None]:
+        active_idx = getattr(self._lyric_controller, "activeIndex", -1)
+        if active_idx is None or active_idx < 0:
+            return None, None
+        line = self._current_line_map()
+        if not line:
+            return None, None
+        try:
+            start = int(line.get("timestampMs"))
+        except (TypeError, ValueError):
+            return None, None
+        next_line = self._line_map_at(active_idx + 1)
+        try:
+            end = int(next_line.get("timestampMs")) if next_line else None
+        except (TypeError, ValueError):
+            end = None
+        if end is not None and end <= start:
+            end = None
+        return start, end
+
+    def _current_line_map(self) -> dict[str, Any]:
+        active_idx = getattr(self._lyric_controller, "activeIndex", -1)
+        return self._line_map_at(active_idx)
+
+    def _line_map_at(self, idx: int) -> dict[str, Any]:
+        if idx is None or idx < 0:
+            return {}
+        model = getattr(self._lyric_controller, "lyricModel", None)
+        if model is None:
+            return {}
+        line_at = getattr(model, "lineAt", None)
+        if not callable(line_at):
+            return {}
+        try:
+            line = line_at(idx)
+        except Exception:
+            return {}
+        return line if isinstance(line, dict) else {}

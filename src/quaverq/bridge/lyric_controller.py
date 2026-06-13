@@ -10,6 +10,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot
 
 from quaverq.core.lyric import LyricSync
+from quaverq.core.lyric_cache import LyricCache
 from quaverq.core.models import Lyric
 
 from .error_utils import log_bridge_error
@@ -39,11 +40,13 @@ class LyricController(QObject):
         self,
         service_controller: ServiceController,
         player_controller: PlayerController,
+        lyric_cache: LyricCache | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
         self._player_controller = player_controller
+        self._lyric_cache = lyric_cache
         self._lyric_model = LyricLineListModel(self)
         self._sync = LyricSync()
         self._current_lyric: Lyric = Lyric(mid="")
@@ -57,6 +60,7 @@ class LyricController(QObject):
         self._player_controller.currentSongChanged.connect(self._handle_current_song_changed)
         self._player_controller.positionMsChanged.connect(self._handle_position_changed)
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
+        self._sync_current_song(schedule_load=False)
 
     @Property(QObject, notify=lyricModelChanged)
     def lyricModel(self) -> LyricLineListModel:
@@ -110,7 +114,10 @@ class LyricController(QObject):
         self._load_generation += 1
         generation = self._load_generation
         self._set_current_mid(song.mid)
-        self._set_lyric(Lyric(mid=song.mid))
+        if self._current_lyric.mid == song.mid and self._current_lyric.lines:
+            pass
+        elif not self._prime_lyric_from_cache(song.mid):
+            self._set_lyric(Lyric(mid=song.mid))
         self._set_error_message("")
         if not song.mid:
             self._set_loading(False)
@@ -119,18 +126,23 @@ class LyricController(QObject):
 
     @Slot()
     def _handle_current_song_changed(self) -> None:
+        self._sync_current_song(schedule_load=True)
+
+    def _sync_current_song(self, *, schedule_load: bool) -> None:
         song = song_from_map(self._player_controller.currentSong)
         if song.mid == self._current_mid:
             return
         self._load_generation += 1
         generation = self._load_generation
         self._set_current_mid(song.mid)
-        self._set_lyric(Lyric(mid=song.mid))
+        if not self._prime_lyric_from_cache(song.mid):
+            self._set_lyric(Lyric(mid=song.mid))
         self._set_error_message("")
         if not song.mid:
             self._set_loading(False)
             return
-        self._schedule_load(song.mid, generation)
+        if schedule_load:
+            self._schedule_load(song.mid, generation)
 
     @Slot()
     def _handle_position_changed(self) -> None:
@@ -173,12 +185,26 @@ class LyricController(QObject):
 
         if generation != self._load_generation:
             return
+        self._save_lyric_to_cache(lyric)
         self._set_lyric(lyric)
 
     @property
     def current_lyric(self) -> Lyric:
         """当前已加载的 Lyric (供同进程消费者拿原始数据, 不上 QML)."""
         return self._current_lyric
+
+    def _prime_lyric_from_cache(self, mid: str) -> bool:
+        if self._lyric_cache is None or not mid:
+            return False
+        lyric = self._lyric_cache.load(mid, with_translation=True)
+        if lyric is None:
+            return False
+        self._set_lyric(lyric)
+        return True
+
+    def _save_lyric_to_cache(self, lyric: Lyric) -> None:
+        if self._lyric_cache is not None:
+            self._lyric_cache.save(lyric, with_translation=True)
 
     def _set_lyric(self, lyric: Lyric) -> None:
         old_count = self._lyric_model.count

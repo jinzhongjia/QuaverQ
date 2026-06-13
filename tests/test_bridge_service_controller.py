@@ -8,7 +8,7 @@ import logging
 import pytest
 
 from quaverq.bridge.service_controller import ServiceController
-from quaverq.core.models import Album, Playlist, Singer, Song, UserProfile
+from quaverq.core.models import Album, Lyric, LyricLine, Playlist, Singer, Song, UserProfile
 from quaverq.core.service import CredentialExpiredError
 
 
@@ -581,3 +581,59 @@ async def test_get_user_profile_converts_expired_credential_to_signal(tmp_path):
         await controller.get_user_profile()
 
     assert expired_messages == ["登录已过期，请重新扫码"]
+
+
+async def test_get_lyric_deduplicates_inflight_and_reuses_memory_cache():
+    class _SlowLyricService(_FakeAuthService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, bool]] = []
+            self.release = asyncio.Event()
+
+        async def get_lyric(self, mid: str, *, with_translation: bool = True) -> Lyric:
+            self.calls.append((mid, with_translation))
+            await self.release.wait()
+            return Lyric(mid=mid, lines=[LyricLine(timestamp_ms=0, text=f"{mid}-line")])
+
+    service = _SlowLyricService()
+    controller = ServiceController(service=service)
+
+    first = asyncio.create_task(controller.get_lyric("m1", with_translation=True))
+    second = asyncio.create_task(controller.get_lyric("m1", with_translation=True))
+    for _ in range(10):
+        if service.calls:
+            break
+        await asyncio.sleep(0)
+
+    assert service.calls == [("m1", True)]
+
+    service.release.set()
+    lyric_a, lyric_b = await asyncio.gather(first, second)
+    lyric_c = await controller.get_lyric("m1", with_translation=True)
+
+    assert lyric_a == lyric_b == lyric_c
+    assert service.calls == [("m1", True)]
+
+
+async def test_get_lyric_does_not_cache_failures():
+    class _FlakyLyricService(_FakeAuthService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def get_lyric(self, mid: str, *, with_translation: bool = True) -> Lyric:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary")
+            return Lyric(mid=mid, lines=[LyricLine(timestamp_ms=0, text="ok")])
+
+    service = _FlakyLyricService()
+    controller = ServiceController(service=service)
+
+    with pytest.raises(RuntimeError, match="temporary"):
+        await controller.get_lyric("m1", with_translation=True)
+
+    lyric = await controller.get_lyric("m1", with_translation=True)
+
+    assert lyric.lines[0].text == "ok"
+    assert service.calls == 2

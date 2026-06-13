@@ -35,6 +35,7 @@ from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_cac
 from .core.cover_cache import CoverCache
 from .core.download_store import DownloadStore
 from .core.home_cache import HomeCache
+from .core.lyric_cache import LyricCache
 from .core.state import SessionState
 from .perf import log_elapsed
 from .platform import get_platform
@@ -383,6 +384,7 @@ def main() -> None:
     service_controller = ServiceController()
     cover_cache = CoverCache(CACHE_DIR / "covers")
     home_cache = HomeCache(CACHE_DIR / "home.json")
+    lyric_cache = LyricCache(CACHE_DIR / "lyrics")
     settings_controller = SettingsController(
         settings=_open_settings_ini(),
         cover_cache=cover_cache,
@@ -416,7 +418,9 @@ def main() -> None:
         home_cache=home_cache,
         player_controller=player_controller,
     )
-    lyric_controller = LyricController(service_controller, player_controller)
+    lyric_controller = LyricController(
+        service_controller, player_controller, lyric_cache=lyric_cache
+    )
     download_controller = DownloadController(
         service_controller,
         settings_controller,
