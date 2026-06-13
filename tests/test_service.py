@@ -942,6 +942,36 @@ async def test_get_lyric_falls_back_to_lrc_when_no_qrc(monkeypatch):
     assert ly.lines[0].words == []
 
 
+async def test_get_lyric_remembers_no_qrc_and_skips_next_probe(monkeypatch):
+    """同一运行期确认无 QRC 后, 短期内重复拉取应直接走 LRC."""
+    import base64
+
+    import qqmusic_api.algorithms as algo
+
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
+    requested_qrc_flags: list[int] = []
+
+    async def fake_post(module, method, param, **kw):
+        requested_qrc_flags.append(int(param.get("qrc") or 0))
+        if param.get("qrc") == 1:
+            return {"lyric": "", "trans": "", "crypt": 1}
+        return {
+            "lyric": base64.b64encode("[00:05.00]纯逐行".encode()).decode("ascii"),
+            "trans": "",
+            "crypt": 0,
+        }
+
+    monkeypatch.setattr(svc, "_bypass_post", fake_post)
+    monkeypatch.setattr(algo, "qrc_decrypt", lambda s: "")
+
+    await svc.get_lyric("x")
+    await svc.get_lyric("x")
+
+    assert requested_qrc_flags == [1, 0, 0]
+
+
 # ============================================================== Discover / Home (P2.1)
 
 

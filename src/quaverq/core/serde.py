@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from .models import Singer, Song, UserProfile
+from .models import Lyric, LyricLine, LyricWord, Singer, Song, UserProfile
 
 
 def song_to_dict(song: Song) -> dict:
@@ -56,4 +56,67 @@ def user_profile_from_dict(data: dict) -> UserProfile:
         vip_kind=str(data.get("vip_kind", "") or ""),
         is_year_vip=bool(data.get("is_year_vip", False)),
         vip_icon_url=str(data.get("vip_icon_url", "") or ""),
+    )
+
+
+def lyric_to_dict(lyric: Lyric) -> dict:
+    """Lyric -> JSON 友好 dict，保留逐字 words 与翻译。"""
+    return {
+        "mid": lyric.mid,
+        "has_translation": lyric.has_translation,
+        "has_romanji": lyric.has_romanji,
+        "lines": [
+            {
+                "timestamp_ms": line.timestamp_ms,
+                "text": line.text,
+                "translation": line.translation,
+                "words": [
+                    {
+                        "text": word.text,
+                        "start_ms": word.start_ms,
+                        "duration_ms": word.duration_ms,
+                    }
+                    for word in line.words
+                ],
+            }
+            for line in lyric.lines
+        ],
+    }
+
+
+def lyric_from_dict(data: dict) -> Lyric:
+    """dict -> Lyric; 容忍旧缓存缺字段 / 多字段。"""
+
+    def _int(value: object) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    lines: list[LyricLine] = []
+    for item in data.get("lines") or []:
+        if not isinstance(item, dict):
+            continue
+        words = [
+            LyricWord(
+                text=str(word.get("text", "") or ""),
+                start_ms=_int(word.get("start_ms")),
+                duration_ms=_int(word.get("duration_ms")),
+            )
+            for word in (item.get("words") or [])
+            if isinstance(word, dict)
+        ]
+        lines.append(
+            LyricLine(
+                timestamp_ms=_int(item.get("timestamp_ms")),
+                text=str(item.get("text", "") or ""),
+                translation=str(item.get("translation", "") or ""),
+                words=words,
+            )
+        )
+    return Lyric(
+        mid=str(data.get("mid", "") or ""),
+        lines=lines,
+        has_translation=bool(data.get("has_translation", False)),
+        has_romanji=bool(data.get("has_romanji", False)),
     )
