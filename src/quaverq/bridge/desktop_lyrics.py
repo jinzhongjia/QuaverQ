@@ -76,6 +76,27 @@ _ITALIC_SHEAR = 0.213
 # 同时与字号成比例 (避免小字号下加固定 px 导致过宽 / 大字号下不够).
 _LETTER_SPACING_PERCENT = 110.0
 _VERTICAL_CHAR_GAP_RATIO = 0.25
+# wipe clip 纵向裕量: 值不重要, 只要大于文字实际高度就行
+_CLIP_MARGIN = 2000.0
+
+
+def _has_cjk(text: str) -> bool:
+    """含 CJK 表意字 / 假名 / 谚文 -> 竖排逐字堆叠; 纯拉丁文 -> 旋转 90°.
+
+    只检测实际文字 (汉字 / 平片假名 / 韩文音节), 不计 CJK 标点——
+    避免纯英文歌词里混入一个全角逗号就被误判成 CJK.
+    """
+    for c in text:
+        cp = ord(c)
+        if (
+            0x4E00 <= cp <= 0x9FFF
+            or 0x3400 <= cp <= 0x4DBF
+            or 0x3040 <= cp <= 0x309F
+            or 0x30A0 <= cp <= 0x30FF
+            or 0xAC00 <= cp <= 0xD7AF
+        ):
+            return True
+    return False
 
 
 class _WordInfo(NamedTuple):
@@ -152,6 +173,7 @@ class DesktopLyricsWindow(QWidget):
         self._v_word_char_counts: list[int] = []
         self._v_line_h: float = 0.0
         self._v_total_chars: int = 0
+        self._v_rotated: bool = False
         # 画刷缓存: color/height 变化时重建
         self._cached_brush_base: QBrush | None = None
         self._cached_brush_highlight: QBrush | None = None
@@ -350,6 +372,11 @@ class DesktopLyricsWindow(QWidget):
         self._h_total_w = x
 
     def _build_vertical_cache(self, fm: QFontMetrics) -> None:
+        full_text = "".join(w.text for w in self._display_words)
+        self._v_rotated = not _has_cjk(full_text)
+        if self._v_rotated:
+            self._build_horizontal_cache(fm)
+            return
         char_h = fm.ascent() + fm.descent()
         line_h = char_h + max(4, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
         self._v_line_h = float(line_h)
@@ -577,7 +604,10 @@ class DesktopLyricsWindow(QWidget):
                 painter.restore()
 
     def _paint_vertical(self, painter: QPainter) -> None:
-        """竖向: 缓存路径 + 逐字 wipe clip."""
+        """竖向: CJK 逐字堆叠 / 拉丁文旋转 90° 横排."""
+        if self._v_rotated:
+            self._paint_vertical_rotated(painter)
+            return
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
@@ -622,6 +652,49 @@ class DesktopLyricsWindow(QWidget):
 
             painter.restore()
             char_idx += self._v_word_char_counts[i]
+
+    def _paint_vertical_rotated(self, painter: QPainter) -> None:
+        """拉丁文竖排: 横向文字旋转 90° 顺时针, 从上到下阅读."""
+        if not self._display_words or not self._cached_fm:
+            return
+        fm = self._cached_fm
+
+        painter.save()
+        painter.translate(self.width() / 2.0, self.height() / 2.0)
+        painter.rotate(90)
+
+        x0 = -self._h_total_w / 2.0
+        baseline = (fm.ascent() - fm.descent()) / 2.0
+        painter.translate(x0, baseline)
+
+        painter.setPen(self._outline_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(self._h_outline_path)
+
+        ms = self._effective_ms()
+        base_brush = self._cached_brush_base
+        hi_brush = self._cached_brush_highlight
+        nopen = Qt.PenStyle.NoPen
+
+        for i, w in enumerate(self._display_words):
+            word_path = self._h_word_paths[i]
+            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
+
+            painter.setPen(nopen)
+            painter.setBrush(base_brush)
+            painter.drawPath(word_path)
+
+            if fraction > 0.0:
+                word_x = self._h_word_xs[i]
+                word_w = self._h_word_widths[i]
+                clip_w = max(1.0, word_w * fraction)
+                painter.save()
+                painter.setClipRect(word_x, -_CLIP_MARGIN, clip_w, _CLIP_MARGIN * 2)
+                painter.setBrush(hi_brush)
+                painter.drawPath(word_path)
+                painter.restore()
+
+        painter.restore()
 
     def _fill_brush(self, *, highlight: bool) -> QBrush:
         """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
