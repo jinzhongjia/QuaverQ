@@ -31,8 +31,6 @@ ScrollView {
     signal loginRequested()
     signal searchRequested(string keyword)
     signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
-    signal nowPlayingRequested()
-
     contentWidth: availableWidth
 
     function currentSongMatches(song) {
@@ -49,63 +47,30 @@ ScrollView {
         width: root.availableWidth
         spacing: ThemeTokens.Spacing.s6
 
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.leftMargin: ThemeTokens.Spacing.s6
             Layout.rightMargin: ThemeTokens.Spacing.s6
             Layout.topMargin: ThemeTokens.Spacing.s6
-            spacing: ThemeTokens.Spacing.s4
+            spacing: ThemeTokens.Spacing.s2
 
-            ColumnLayout {
+            Label {
                 Layout.fillWidth: true
-                spacing: ThemeTokens.Spacing.s2
-
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("发现")
-                    color: ThemeTokens.Palette.surfaceText
-                    font.pixelSize: ThemeTokens.TypeScale.h1
-                    font.weight: ThemeTokens.TypeScale.bold
-                    elide: Text.ElideRight
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: root.hasSong
-                        ? qsTr("继续听 %1").arg(root.playerController.currentSong.name)
-                        : qsTr("每日推荐、新歌和排行榜")
-                    color: ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    elide: Text.ElideRight
-                }
+                text: qsTr("发现")
+                color: ThemeTokens.Palette.surfaceText
+                font.pixelSize: ThemeTokens.TypeScale.h1
+                font.weight: ThemeTokens.TypeScale.bold
+                elide: Text.ElideRight
             }
 
-            Button {
-                id: nowPlayingButton
-
-                Layout.preferredWidth: 112
-                Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
-                enabled: root.hasSong
-                text: qsTr("正在播放")
-                Accessible.name: text
-                onClicked: root.nowPlayingRequested()
-
-                contentItem: Label {
-                    text: nowPlayingButton.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: nowPlayingButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.surfaceVariantText
-                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                    font.weight: ThemeTokens.TypeScale.medium
-                }
-
-                background: Rectangle {
-                    radius: ThemeTokens.Spacing.radiusMd
-                    color: nowPlayingButton.down
-                        ? ThemeTokens.Palette.statePressed
-                        : nowPlayingButton.hovered ? ThemeTokens.Palette.stateHover : "transparent"
-                    border.color: ThemeTokens.Palette.outline
-                }
+            Label {
+                Layout.fillWidth: true
+                text: root.hasSong
+                    ? qsTr("继续听 %1").arg(root.playerController.currentSong.name)
+                    : qsTr("每日推荐、新歌和排行榜")
+                color: ThemeTokens.Palette.surfaceVariantText
+                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                elide: Text.ElideRight
             }
         }
 
