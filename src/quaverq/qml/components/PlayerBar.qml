@@ -133,8 +133,8 @@ Rectangle {
         AlbumArt {
             id: coverArt
 
-            Layout.preferredWidth: 56
-            Layout.preferredHeight: 56
+            Layout.preferredWidth: 72
+            Layout.preferredHeight: 72
             active: root.hasSong
             coverUrl: root.hasSong && root.currentSong.coverUrl ? root.currentSong.coverUrl : ""
             coverController: root.coverController
