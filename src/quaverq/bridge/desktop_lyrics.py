@@ -75,6 +75,7 @@ _ITALIC_SHEAR = 0.213
 # 字间距: 默认 advance 太挤 (尤其 CJK 大字号 OSD), 加 10% PercentageSpacing 让字呼吸,
 # 同时与字号成比例 (避免小字号下加固定 px 导致过宽 / 大字号下不够).
 _LETTER_SPACING_PERCENT = 110.0
+_VERTICAL_CHAR_GAP_RATIO = 0.25
 
 
 class _WordInfo(NamedTuple):
@@ -349,7 +350,8 @@ class DesktopLyricsWindow(QWidget):
         self._h_total_w = x
 
     def _build_vertical_cache(self, fm: QFontMetrics) -> None:
-        line_h = fm.ascent() + fm.descent() + 2
+        char_h = fm.ascent() + fm.descent()
+        line_h = char_h + max(4, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
         self._v_line_h = float(line_h)
         paths: list[QPainterPath] = []
         char_counts: list[int] = []
