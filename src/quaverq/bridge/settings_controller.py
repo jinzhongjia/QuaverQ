@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -56,6 +57,24 @@ def _default_download_dir() -> str:
     if not base:
         base = str(Path.home() / "Music")
     return str(Path(base) / "QuaverQ")
+
+
+def _download_directory_from_input(directory: str) -> str:
+    """Normalize plain paths and QML FolderDialog file URLs into local paths."""
+    value = str(directory or "").strip()
+    if not value.startswith("file:"):
+        return value
+
+    # Qt handles canonical file:///C:/... and file:///home/... URLs, but a Windows
+    # Path interpolated into file://C:\... is parsed as host="c". Recover that form
+    # before accepting QUrl.toLocalFile()'s bogus "//c" result.
+    raw = urllib.parse.unquote(value[5:])
+    if raw.startswith("//") and len(raw) >= 4 and raw[2].isalpha() and raw[3] == ":":
+        return str(Path(raw[2:]))
+    if raw.startswith("///") and len(raw) >= 5 and raw[3].isalpha() and raw[4] == ":":
+        return str(Path(raw[3:]))
+
+    return QUrl(value).toLocalFile()
 
 
 def _normalize_hex_color(raw: str | None) -> str | None:
@@ -359,10 +378,7 @@ class SettingsController(QObject):
 
     @Slot(str)
     def setDownloadDirectory(self, directory: str) -> None:
-        value = str(directory or "").strip()
-        if value.startswith("file:"):
-            # QML FolderDialog 给的是 file:// URL, 归一为本地路径
-            value = QUrl(value).toLocalFile()
+        value = _download_directory_from_input(directory)
         if not value:
             return
         if self._download_directory == value:

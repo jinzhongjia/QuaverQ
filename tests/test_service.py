@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -1454,6 +1455,30 @@ async def test_get_followed_singers_extracts_users():
 # ============================================================== 详情拉取
 
 
+class _RequestLike:
+    """qqmusic-api Request-like: awaitable but unhashable."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __init__(self, result, *, started=None, release=None):
+        self._result = result
+        self._started = started
+        self._release = release
+
+    def __eq__(self, other):
+        return self is other
+
+    def __await__(self):
+        async def _run():
+            if self._started is not None:
+                self._started.set()
+            if self._release is not None:
+                await self._release.wait()
+            return self._result
+
+        return _run().__await__()
+
+
 async def test_get_album_detail_combines_basic_info_and_songs():
     svc = QuaverService()
 
@@ -1486,6 +1511,44 @@ async def test_get_album_detail_combines_basic_info_and_songs():
     assert a.singers == [Singer(mid="j", name="周杰伦")]
     assert a.publish_date == "2003-07-29"
     assert len(a.songs) == 2
+
+
+async def test_get_album_detail_fetches_basic_info_and_songs_concurrently():
+    svc = QuaverService()
+    detail_started = asyncio.Event()
+    songs_started = asyncio.Event()
+    release = asyncio.Event()
+
+    def fake_detail(value):
+        return _RequestLike(
+            SimpleNamespace(
+                album=SimpleNamespace(mid="alb1", name="叶惠美", total_num=1),
+                singers=[],
+            ),
+            started=detail_started,
+            release=release,
+        )
+
+    def fake_song(value, num, page):
+        return _RequestLike(
+            SimpleNamespace(song_list=[_raw_song(mid="t1", name="夜曲")]),
+            started=songs_started,
+            release=release,
+        )
+
+    svc._client = SimpleNamespace(
+        album=SimpleNamespace(get_detail=fake_detail, get_song=fake_song),
+        credential=None,
+    )
+
+    task = asyncio.create_task(svc.get_album_detail("alb1"))
+    await asyncio.wait_for(detail_started.wait(), timeout=1)
+    await asyncio.sleep(0)
+    try:
+        assert songs_started.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
 
 
 async def test_get_playlist_detail_extracts_info_and_songs():
@@ -1546,6 +1609,41 @@ async def test_get_artist_detail_combines_info_and_hot_songs():
     assert ad.singer.mid == "j"
     assert ad.singer.name == "周杰伦"
     assert len(ad.hot_songs) == 2
+
+
+async def test_get_artist_detail_fetches_info_and_hot_songs_concurrently():
+    svc = QuaverService()
+    info_started = asyncio.Event()
+    tab_started = asyncio.Event()
+    release = asyncio.Event()
+
+    def fake_info(mid):
+        return _RequestLike(
+            SimpleNamespace(singer=SimpleNamespace(name="周杰伦", singer_pic="")),
+            started=info_started,
+            release=release,
+        )
+
+    def fake_tab_detail(mid, tab_type, page, num):
+        return _RequestLike(
+            SimpleNamespace(song_tab=SimpleNamespace(list=[_raw_song(mid="hot1", name="晴天")])),
+            started=tab_started,
+            release=release,
+        )
+
+    svc._client = SimpleNamespace(
+        singer=SimpleNamespace(get_info=fake_info, get_tab_detail=fake_tab_detail),
+        credential=None,
+    )
+
+    task = asyncio.create_task(svc.get_artist_detail("j"))
+    await asyncio.wait_for(info_started.wait(), timeout=1)
+    await asyncio.sleep(0)
+    try:
+        assert tab_started.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
 
 
 async def test_get_artist_detail_falls_back_to_cdn_avatar_when_pic_missing():

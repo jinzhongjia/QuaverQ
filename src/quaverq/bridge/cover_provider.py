@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import urllib.parse
+from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRectF, QSize, Qt, Signal, Slot
@@ -18,14 +19,23 @@ logger = logging.getLogger(__name__)
 # 封面下载并发上限: 配合 CoverCache 的 keep-alive session, 复用 ~N 条到 CDN 的长连接,
 # 避免一屏几十张封面瞬间开几十个线程/连接被 CDN 限流.
 _MAX_CONCURRENT_DOWNLOADS = 6
+_DEFAULT_IMAGE_CACHE_ENTRIES = 128
+
+_ImageCacheKey = tuple[str, int, int, int, int]
 
 
 class CoverImageProvider(QQuickImageProvider):
     """Serve cached cover files through image://covers/<url>|<size>|<radius>."""
 
-    def __init__(self, cover_cache: CoverCache) -> None:
+    def __init__(
+        self,
+        cover_cache: CoverCache,
+        max_cache_entries: int = _DEFAULT_IMAGE_CACHE_ENTRIES,
+    ) -> None:
         super().__init__(QQuickImageProvider.ImageType.Image)
         self._cover_cache = cover_cache
+        self._max_cache_entries = max(0, max_cache_entries)
+        self._image_cache: OrderedDict[_ImageCacheKey, QImage] = OrderedDict()
 
     def requestImage(  # noqa: N802 - Qt virtual method name
         self,
@@ -37,8 +47,17 @@ class CoverImageProvider(QQuickImageProvider):
         path = self._cover_cache.get_path(url)
         if path is None:
             return QImage()
+        target = self._target_size(requested_size, size_hint)
+        cache_key = self._cache_key(path, target, radius_hint)
+        if cache_key is not None:
+            cached = self._image_cache_get(cache_key)
+            if cached is not None:
+                return cached
         image = self._read_image(path, requested_size, size_hint)
-        return self._rounded_image(image, radius_hint)
+        rounded = self._rounded_image(image, radius_hint)
+        if cache_key is not None and not rounded.isNull():
+            self._image_cache_put(cache_key, rounded)
+        return rounded
 
     @staticmethod
     def _parse_image_id(image_id: str) -> tuple[str, int, int]:
@@ -72,10 +91,37 @@ class CoverImageProvider(QQuickImageProvider):
             return None
 
     @staticmethod
-    def _read_image(path: Path, requested_size: QSize, size_hint: int) -> QImage:
+    def _target_size(requested_size: QSize, size_hint: int) -> int:
         target_width = requested_size.width() if requested_size.isValid() else 0
         target_height = requested_size.height() if requested_size.isValid() else 0
-        target = max(target_width, target_height, size_hint)
+        return max(target_width, target_height, size_hint)
+
+    @staticmethod
+    def _cache_key(path: Path, target: int, radius: int) -> _ImageCacheKey | None:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return (str(path), stat.st_mtime_ns, stat.st_size, target, radius)
+
+    def _image_cache_get(self, key: _ImageCacheKey) -> QImage | None:
+        image = self._image_cache.get(key)
+        if image is None:
+            return None
+        self._image_cache.move_to_end(key)
+        return QImage(image)
+
+    def _image_cache_put(self, key: _ImageCacheKey, image: QImage) -> None:
+        if self._max_cache_entries <= 0:
+            return
+        self._image_cache[key] = QImage(image)
+        self._image_cache.move_to_end(key)
+        while len(self._image_cache) > self._max_cache_entries:
+            self._image_cache.popitem(last=False)
+
+    @staticmethod
+    def _read_image(path: Path, requested_size: QSize, size_hint: int) -> QImage:
+        target = CoverImageProvider._target_size(requested_size, size_hint)
 
         reader = QImageReader(str(path))
         if target > 0:
