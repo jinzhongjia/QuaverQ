@@ -208,8 +208,7 @@ Rectangle {
 
                 ColumnLayout {
                     id: infoColumn
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
+                    anchors.fill: parent
                     spacing: ThemeTokens.Spacing.s2
 
                     MarqueeLabel {
@@ -260,7 +259,7 @@ Rectangle {
                     iconSource: "../icons/more-horizontal.svg"
                     iconSize: 16
                     iconColor: ThemeTokens.Palette.surfaceVariantText
-                    enabled: root.hasSong && !!root.songDetailController
+                    enabled: root.hasSong && !!root.songDetailController && !!root.currentSong.mid && !!root.currentSong.id
                     onClicked: root.songDetailController.open(root.currentSong)
                 }
 
