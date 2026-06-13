@@ -121,11 +121,11 @@ def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
     """将文本拆分为 (段文字, 是否竖排) 对, 用于混排竖向布局.
 
     CJK + 全角标点 → is_vertical=True (逐字堆叠)
-    Latin/ASCII → is_vertical=False (整段旋转 90°)
+    Latin/ASCII → is_vertical=False, 按单词拆分 (每个词独立旋转 90°)
     """
     if not text:
         return []
-    segs: list[tuple[str, bool]] = []
+    raw: list[tuple[str, bool]] = []
     buf = text[0]
     buf_vert = _is_vertical_char(text[0])
     for c in text[1:]:
@@ -133,11 +133,18 @@ def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
         if vert == buf_vert:
             buf += c
         else:
-            segs.append((buf, buf_vert))
+            raw.append((buf, buf_vert))
             buf = c
             buf_vert = vert
-    segs.append((buf, buf_vert))
-    return segs
+    raw.append((buf, buf_vert))
+    result: list[tuple[str, bool]] = []
+    for seg_text, is_vert in raw:
+        if is_vert:
+            result.append((seg_text, True))
+        else:
+            for word in seg_text.split():
+                result.append((word, False))
+    return result
 
 
 class _WordInfo(NamedTuple):

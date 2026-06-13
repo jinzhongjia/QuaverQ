@@ -858,12 +858,11 @@ def test_segment_for_vertical_pure_cjk():
 
 
 def test_segment_for_vertical_pure_latin():
-    """纯 Latin 文本只有一个横排段."""
+    """纯 Latin 文本按单词拆分, 每个词独立旋转."""
     from quaverq.bridge.desktop_lyrics import _segment_for_vertical
 
     segs = _segment_for_vertical("Hello World")
-    assert len(segs) == 1
-    assert segs[0] == ("Hello World", False)
+    assert segs == [("Hello", False), ("World", False)]
 
 
 def test_segment_for_vertical_interleaved():
@@ -872,6 +871,27 @@ def test_segment_for_vertical_interleaved():
 
     segs = _segment_for_vertical("我爱你baby再见")
     assert segs == [("我爱你", True), ("baby", False), ("再见", True)]
+
+
+def test_segment_for_vertical_latin_multi_word():
+    """Latin 多词拆分: 翻译行 "Can't read my" 按单词拆."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("Can't read my 读不懂我")
+    assert segs == [
+        ("Can't", False),
+        ("read", False),
+        ("my", False),
+        ("读不懂我", True),
+    ]
+
+
+def test_segment_for_vertical_latin_with_trailing_space():
+    """QRC 逐字常带尾部空格, 拆分后应去掉."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("Fold ")
+    assert segs == [("Fold", False)]
 
 
 def test_vertical_mixed_mode_detected(qapp):

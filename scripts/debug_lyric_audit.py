@@ -11,11 +11,9 @@ import asyncio
 import os
 import re
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from quaverq.core.lyric import parse_lrc, parse_qrc
 from quaverq.core.service import QuaverService
 
 DELAY_SEC = 1.5
@@ -26,7 +24,7 @@ _SPECIAL_CHAR_RE = re.compile(r"[<>&\x00-\x08\x0b\x0c\x0e-\x1f]")
 # 检测 HTML 残留
 _HTML_RE = re.compile(r"<[^>]+>")
 # 检测 QRC XML 残留
-_XML_RE = re.compile(r'<\?xml|<QrcInfos|<Lyric_\d|LyricContent=')
+_XML_RE = re.compile(r"<\?xml|<QrcInfos|<Lyric_\d|LyricContent=")
 # 检测 "//" 分隔符残留
 _DOUBLE_SLASH_RE = re.compile(r"^//\s*$")
 
@@ -85,7 +83,7 @@ async def main() -> None:
 
     for i, (mid, title) in enumerate(song_mids):
         total += 1
-        prefix = f"[{i+1:3d}/{len(song_mids)}]"
+        prefix = f"[{i + 1:3d}/{len(song_mids)}]"
 
         try:
             ly = await svc.get_lyric(mid, with_translation=True)
@@ -114,7 +112,9 @@ async def main() -> None:
 
         # 1. 翻译标记 vs 实际翻译行数
         if ly.has_translation and trans_lines == 0:
-            issues.append(f"{prefix} {title} | TRANS_FLAG_MISMATCH: has_translation=True 但 0 行有翻译")
+            issues.append(
+                f"{prefix} {title} | TRANS_FLAG_MISMATCH: has_translation=True 但 0 行有翻译"
+            )
 
         if ly.has_translation and trans_lines > 0:
             match_rate = trans_lines / line_count * 100
@@ -133,10 +133,7 @@ async def main() -> None:
                 issues.append(f"{prefix} {title} | XML_IN_TEXT L{j}: {ln.text[:60]}")
                 break
             if _SPECIAL_CHAR_RE.search(ln.text):
-                issues.append(
-                    f"{prefix} {title} | SPECIAL_CHAR L{j}: "
-                    f"{repr(ln.text[:60])}"
-                )
+                issues.append(f"{prefix} {title} | SPECIAL_CHAR L{j}: {repr(ln.text[:60])}")
                 break
             if _DOUBLE_SLASH_RE.match(ln.text):
                 issues.append(f"{prefix} {title} | DOUBLE_SLASH L{j}: '//' 未被过滤")
@@ -150,8 +147,7 @@ async def main() -> None:
                     break
                 if _SPECIAL_CHAR_RE.search(ln.translation):
                     issues.append(
-                        f"{prefix} {title} | SPECIAL_CHAR_TRANS L{j}: "
-                        f"{repr(ln.translation[:60])}"
+                        f"{prefix} {title} | SPECIAL_CHAR_TRANS L{j}: {repr(ln.translation[:60])}"
                     )
                     break
 
@@ -171,7 +167,7 @@ async def main() -> None:
             if ly.lines[j].timestamp_ms < ly.lines[j - 1].timestamp_ms:
                 issues.append(
                     f"{prefix} {title} | TS_NOT_MONOTONIC L{j}: "
-                    f"{ly.lines[j-1].timestamp_ms} -> {ly.lines[j].timestamp_ms}"
+                    f"{ly.lines[j - 1].timestamp_ms} -> {ly.lines[j].timestamp_ms}"
                 )
                 break
 
