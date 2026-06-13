@@ -29,9 +29,10 @@ Qt 实现要点:
 
 from __future__ import annotations
 
+import bisect
 import logging
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QTimer, Slot
 from PySide6.QtGui import (
@@ -47,6 +48,7 @@ from PySide6.QtGui import (
     QPainterPath,
     QPaintEvent,
     QPen,
+    QResizeEvent,
     QShowEvent,
 )
 from PySide6.QtWidgets import QWidget
@@ -75,6 +77,27 @@ _ITALIC_SHEAR = 0.213
 _LETTER_SPACING_PERCENT = 110.0
 
 
+class _WordInfo(NamedTuple):
+    """预处理后的逐字信息, 消除热路径 dict.get() 开销."""
+
+    text: str
+    start_ms: int
+    duration_ms: int
+    end_ms: int
+
+
+def _make_word_infos(words: list[dict[str, Any]]) -> list[_WordInfo]:
+    return [
+        _WordInfo(
+            text=str(w.get("text", "")),
+            start_ms=int(w.get("startMs", 0)),
+            duration_ms=max(0, int(w.get("durationMs", 0))),
+            end_ms=int(w.get("startMs", 0)) + max(0, int(w.get("durationMs", 0))),
+        )
+        for w in words
+    ]
+
+
 class DesktopLyricsWindow(QWidget):
     """无边框 + 透明 + 可锁定 + 逐字高亮的桌面歌词窗口."""
 
@@ -101,17 +124,41 @@ class DesktopLyricsWindow(QWidget):
         self._color_highlight = QColor(_DEFAULT_COLOR_HIGHLIGHT)
         self._drag_origin: QPoint | None = None
 
+        # 预处理: 消除热路径 dict.get / int() 开销
+        self._word_infos: list[_WordInfo] = []
+        self._word_starts: list[int] = []
+        self._display_words: list[_WordInfo] = []
+
         # 平滑动画: 外部 set_progress_ms 设 anchor, 定时器 30fps 插值
-        # _effective_ms() = anchor + (perf_counter - anchor_perf) * 1000
-        # 当无 active wipe (无 word 正在 0<f<1) 时定时器停, 不浪费 CPU
-        # _is_playing: 仅在播放中允许插值, 否则即便 ms 落在 active word 范围内, timer 也不启动 ——
-        # 修启动期 / 暂停态歌没播 wipe 却自己往前跑 (wall-clock 推进) 的 bug.
         self._anchor_ms = 0
         self._anchor_perf = time.perf_counter()
         self._is_playing = False
         self._wipe_timer = QTimer(self)
         self._wipe_timer.setInterval(_WIPE_TIMER_INTERVAL_MS)
         self._wipe_timer.timeout.connect(self._on_wipe_tick)
+
+        # ---- 绘制缓存 ----
+        # 路径缓存: text/font/orientation 变化时重建, paintEvent 只 drawPath
+        self._cached_fm: QFontMetrics | None = None
+        # 横向
+        self._h_outline_path = QPainterPath()
+        self._h_word_paths: list[QPainterPath] = []
+        self._h_word_xs: list[float] = []
+        self._h_word_widths: list[float] = []
+        self._h_total_w: float = 0.0
+        # 竖向
+        self._v_word_paths: list[QPainterPath] = []
+        self._v_word_char_counts: list[int] = []
+        self._v_line_h: float = 0.0
+        self._v_total_chars: int = 0
+        # 画刷缓存: color/height 变化时重建
+        self._cached_brush_base: QBrush | None = None
+        self._cached_brush_highlight: QBrush | None = None
+        self._brush_cache_height: int = -1
+        # 描边画笔: 常量, 构建一次
+        self._outline_pen = QPen(_OUTLINE_COLOR, _OUTLINE_WIDTH)
+        self._outline_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        self._outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
         self._apply_window_flags()
         self._set_default_geometry()
@@ -141,8 +188,11 @@ class DesktopLyricsWindow(QWidget):
             return
         self._text = text
         self._words = []
+        self._word_infos = []
+        self._word_starts = []
         self._sung_count = 0
         self._wipe_timer.stop()
+        self._rebuild_paint_cache()
         self.update()
 
     def set_line(self, text: str, words: list[dict[str, Any]] | None) -> None:
@@ -153,10 +203,13 @@ class DesktopLyricsWindow(QWidget):
             return
         self._text = text
         self._words = words
+        self._word_infos = _make_word_infos(words)
+        self._word_starts = [w.start_ms for w in self._word_infos]
         self._sung_count = 0  # 新行重算; 接着会有 set_progress_ms 推上来
         self._anchor_ms = 0
         self._anchor_perf = time.perf_counter()
         self._wipe_timer.stop()
+        self._rebuild_paint_cache()
         self.update()
 
     def set_progress_ms(self, position_ms: int) -> None:
@@ -165,22 +218,15 @@ class DesktopLyricsWindow(QWidget):
             ms = int(position_ms)
         except (TypeError, ValueError):
             return
-        if not self._words:
+        if not self._word_infos:
             return
-        # anchor 用于 wipe 插值; 每次外部 update 都重设
+        old_count = self._sung_count
         self._anchor_ms = ms
         self._anchor_perf = time.perf_counter()
-        # _sung_count 用 ms (binary "started count" 给 controller / 测试看)
-        new_count = 0
-        for w in self._words:
-            start = w.get("startMs", 0)
-            if ms >= start:
-                new_count += 1
-            else:
-                break  # words 已按 startMs 升序
-        self._sung_count = new_count
+        self._sung_count = bisect.bisect_right(self._word_starts, ms)
         self._toggle_wipe_timer()
-        self.update()
+        if self._sung_count != old_count or self._wipe_timer.isActive():
+            self.update()
 
     def set_playing(self, playing: bool) -> None:
         """切播放态. 暂停 / 停止时 -> 停 timer + 不再插值 (effective_ms = anchor_ms).
@@ -209,6 +255,7 @@ class DesktopLyricsWindow(QWidget):
             return
         self._color_base = QColor(base)
         self._color_highlight = QColor(highlight)
+        self._brush_cache_height = -1
         self.update()
 
     def set_locked(self, locked: bool) -> None:
@@ -247,6 +294,7 @@ class DesktopLyricsWindow(QWidget):
         if italic is not None:
             font.setItalic(bool(italic))
         self._font = font
+        self._rebuild_paint_cache()
         self.update()
 
     def set_orientation(self, orientation: str) -> None:
@@ -258,7 +306,79 @@ class DesktopLyricsWindow(QWidget):
         self._orientation = orientation
         # 切换方向后默认几何不再合适, 重新计算
         self._set_default_geometry()
+        self._rebuild_paint_cache()
         self.update()
+
+    # ------------------------------------------------------------------ 缓存
+    def _rebuild_paint_cache(self) -> None:
+        """重建文字路径 + 测量缓存. set_line/set_text/set_font_config/set_orientation 调用."""
+        fm = QFontMetrics(self._font)
+        self._cached_fm = fm
+
+        if self._word_infos:
+            self._display_words = [w for w in self._word_infos if w.text]
+        elif self._text:
+            self._display_words = [_WordInfo(self._text, 0, 0, 0)]
+        else:
+            self._display_words = []
+
+        if self._orientation == "vertical":
+            self._build_vertical_cache(fm)
+        else:
+            self._build_horizontal_cache(fm)
+
+    def _build_horizontal_cache(self, fm: QFontMetrics) -> None:
+        outline = QPainterPath()
+        paths: list[QPainterPath] = []
+        xs: list[float] = []
+        widths: list[float] = []
+        x = 0.0
+        for w in self._display_words:
+            word_w = fm.horizontalAdvance(w.text)
+            path = QPainterPath()
+            path.addText(x, 0.0, self._font, w.text)
+            outline.addPath(path)
+            paths.append(path)
+            xs.append(x)
+            widths.append(float(word_w))
+            x += word_w
+        self._h_outline_path = outline
+        self._h_word_paths = paths
+        self._h_word_xs = xs
+        self._h_word_widths = widths
+        self._h_total_w = x
+
+    def _build_vertical_cache(self, fm: QFontMetrics) -> None:
+        line_h = fm.ascent() + fm.descent() + 2
+        self._v_line_h = float(line_h)
+        paths: list[QPainterPath] = []
+        char_counts: list[int] = []
+        total_chars = 0
+        for w in self._display_words:
+            path = QPainterPath()
+            for i, ch in enumerate(w.text):
+                char_w = fm.horizontalAdvance(ch)
+                path.addText(-char_w / 2.0, float(i * line_h), self._font, ch)
+            paths.append(path)
+            char_counts.append(len(w.text))
+            total_chars += len(w.text)
+        self._v_word_paths = paths
+        self._v_word_char_counts = char_counts
+        self._v_total_chars = total_chars
+
+    def _ensure_brush_cache(self) -> None:
+        h = max(1, self.height())
+        if h == self._brush_cache_height:
+            return
+        self._brush_cache_height = h
+        for color, attr in (
+            (self._color_base, "_cached_brush_base"),
+            (self._color_highlight, "_cached_brush_highlight"),
+        ):
+            gradient = QLinearGradient(0.0, 0.0, 0.0, float(h))
+            gradient.setColorAt(0.0, color)
+            gradient.setColorAt(1.0, color.darker(_FILL_GRADIENT_DARKEN))
+            setattr(self, attr, QBrush(gradient))
 
     # ------------------------------------------------------------------ 内部
     def _apply_window_flags(self) -> None:
@@ -289,7 +409,7 @@ class DesktopLyricsWindow(QWidget):
 
     def _is_word_sung(self, word_idx: int) -> bool:
         """无 word 数据 -> 整句视为已唱; 否则按 sung_count 判定."""
-        if not self._words:
+        if not self._word_infos:
             return True
         return word_idx < self._sung_count
 
@@ -307,40 +427,34 @@ class DesktopLyricsWindow(QWidget):
             return self._anchor_ms
         return int(self._anchor_ms + delta_ms)
 
+    @staticmethod
+    def _fraction_at(w: _WordInfo, ms: int) -> float:
+        if ms < w.start_ms:
+            return 0.0
+        if w.duration_ms <= 0 or ms >= w.end_ms:
+            return 1.0
+        return (ms - w.start_ms) / w.duration_ms
+
     def _word_fractions(self) -> list[tuple[str, float]]:
         """当前帧每个 word 的 (text, fill_fraction).
 
         无 ``words`` 数据 -> 整句作单段 fraction=1.0 (整体高亮色).
         有 ``words`` -> 每段按 ``elapsed/durationMs`` 算 0..1.
         """
-        if not self._words:
+        if not self._word_infos:
             return [(self._text, 1.0)] if self._text else []
         ms = self._effective_ms()
-        out: list[tuple[str, float]] = []
-        for w in self._words:
-            text = str(w.get("text", ""))
-            if not text:
-                continue
-            start = int(w.get("startMs", 0))
-            dur = max(1, int(w.get("durationMs", 0)))
-            if ms < start:
-                f = 0.0
-            elif ms >= start + dur:
-                f = 1.0
-            else:
-                f = (ms - start) / dur
-            out.append((text, f))
-        return out
+        return [(w.text, self._fraction_at(w, ms)) for w in self._display_words]
 
     def _has_active_wipe(self) -> bool:
         """是否有 word 正在 0<f<1 范围 (需要定时器持续插值)."""
-        if not self._words:
+        if not self._word_infos:
             return False
         ms = self._effective_ms()
-        for w in self._words:
-            start = int(w.get("startMs", 0))
-            dur = int(w.get("durationMs", 0))
-            if start <= ms < start + dur:
+        for w in self._word_infos:
+            if w.start_ms > ms:
+                break
+            if ms < w.end_ms:
                 return True
         return False
 
@@ -390,7 +504,7 @@ class DesktopLyricsWindow(QWidget):
             self._drag_origin = None
         super().mouseReleaseEvent(event)
 
-    # ------------------------------------------------------------------ 显隐
+    # ------------------------------------------------------------------ 显隐 + resize
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._toggle_wipe_timer()
@@ -400,14 +514,21 @@ class DesktopLyricsWindow(QWidget):
         self._wipe_timer.stop()
         super().hideEvent(event)
 
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if event.oldSize().height() != event.size().height():
+            self._brush_cache_height = -1
+
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, _event: QPaintEvent) -> None:
+        if not self._text:
+            return
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-        if not self._text:
-            return
+        self._ensure_brush_cache()
 
         if self._orientation == "vertical":
             self._paint_vertical(painter)
@@ -415,94 +536,90 @@ class DesktopLyricsWindow(QWidget):
             self._paint_horizontal(painter)
 
     def _paint_horizontal(self, painter: QPainter) -> None:
-        """横向: 按 word 切, 整句单次描边; 每段先画 base 色, 再按 fraction 用 clipRect
-        wipe 出高亮色 (QQ Music 风格"从左到右一字一字亮起")."""
-        fm = QFontMetrics(self._font)
-        fractions = self._word_fractions()
-        if not fractions:
+        """横向: 缓存路径 + 逐字 wipe clip."""
+        if not self._display_words or not self._cached_fm:
             return
-        total_w = sum(fm.horizontalAdvance(t) for t, _ in fractions)
-        x0 = (self.width() - total_w) // 2
-        baseline = (self.height() + fm.ascent() - fm.descent()) // 2
+        fm = self._cached_fm
 
-        # 整句单次描边 (跨段 round join 不豁口)
-        full_path = QPainterPath()
-        x = float(x0)
-        for text, _ in fractions:
-            full_path.addText(x, float(baseline), self._font, text)
-            x += fm.horizontalAdvance(text)
-        self._draw_outline(painter, full_path)
+        x0 = (self.width() - self._h_total_w) / 2.0
+        baseline = (self.height() + fm.ascent() - fm.descent()) / 2.0
+        painter.translate(x0, baseline)
+
+        # 整句单次描边 (缓存路径)
+        painter.setPen(self._outline_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(self._h_outline_path)
 
         # 分段填色 + wipe
-        x = float(x0)
-        for text, fraction in fractions:
-            word_w = fm.horizontalAdvance(text)
-            word_path = QPainterPath()
-            word_path.addText(x, float(baseline), self._font, text)
+        ms = self._effective_ms()
+        base_brush = self._cached_brush_base
+        hi_brush = self._cached_brush_highlight
+        nopen = Qt.PenStyle.NoPen
+        for i, w in enumerate(self._display_words):
+            word_path = self._h_word_paths[i]
+            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
 
-            # base 色铺底
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._fill_brush(highlight=False))
+            painter.setPen(nopen)
+            painter.setBrush(base_brush)
             painter.drawPath(word_path)
 
-            # 高亮色 wipe (斜体时 clip 跟着 shear, 避免楔形伪影)
             if fraction > 0.0:
-                painter.save()
+                word_x = self._h_word_xs[i]
+                word_w = self._h_word_widths[i]
                 clip_w = max(1.0, word_w * fraction)
-                clip_path = self._make_horizontal_wipe_clip(x, clip_w, float(baseline))
+                painter.save()
+                clip_path = self._make_horizontal_wipe_clip(word_x, clip_w, baseline)
                 painter.setClipPath(clip_path)
-                painter.setBrush(self._fill_brush(highlight=True))
+                painter.setBrush(hi_brush)
                 painter.drawPath(word_path)
                 painter.restore()
 
-            x += word_w
-
     def _paint_vertical(self, painter: QPainter) -> None:
-        """竖向: 按 word 切, 每 word 内多字按 fraction 自上而下 wipe.
-        word 之间字符顺序排列 (新行)."""
-        fm = QFontMetrics(self._font)
-        line_h = fm.ascent() + fm.descent() + 2
-        fractions = self._word_fractions()
-        if not fractions:
+        """竖向: 缓存路径 + 逐字 wipe clip."""
+        if not self._display_words or not self._cached_fm:
             return
-        total_chars = sum(len(t) for t, _ in fractions)
-        if total_chars == 0:
-            return
-        total_h = line_h * total_chars
-        start_y = max(fm.ascent(), (self.height() - total_h) // 2 + fm.ascent())
-        cx = self.width() // 2
+        fm = self._cached_fm
+        line_h = self._v_line_h
+
+        total_h = line_h * self._v_total_chars
+        start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
+        cx = self.width() / 2.0
+
+        ms = self._effective_ms()
+        base_brush = self._cached_brush_base
+        hi_brush = self._cached_brush_highlight
+        nopen = Qt.PenStyle.NoPen
 
         char_idx = 0
-        for text, fraction in fractions:
-            # 字符 path (整个 word 一起, wipe clipRect 一次性应用)
-            word_path = QPainterPath()
+        for i, w in enumerate(self._display_words):
+            word_path = self._v_word_paths[i]
+            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
             first_y = start_y + char_idx * line_h
-            for i, ch in enumerate(text):
-                char_w = fm.horizontalAdvance(ch)
-                x = cx - char_w // 2
-                y = start_y + (char_idx + i) * line_h
-                if y - fm.ascent() > self.height():
-                    break
-                word_path.addText(float(x), float(y), self._font, ch)
+
+            painter.save()
+            painter.translate(cx, first_y)
 
             # 描边 + base 色
-            self._draw_outline(painter, word_path)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._fill_brush(highlight=False))
+            painter.setPen(self._outline_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(word_path)
+            painter.setPen(nopen)
+            painter.setBrush(base_brush)
             painter.drawPath(word_path)
 
             # 高亮 wipe (top-down)
             if fraction > 0.0:
-                top_y = first_y - fm.ascent()
-                word_h = line_h * len(text)
+                n_chars = self._v_word_char_counts[i]
+                word_h = line_h * n_chars
                 clip_h = max(1, int(round(word_h * fraction)))
                 painter.save()
-                painter.setClipRect(0, top_y, self.width(), clip_h)
-                painter.setBrush(self._fill_brush(highlight=True))
+                painter.setClipRect(-self.width(), -fm.ascent(), self.width() * 2, clip_h)
+                painter.setBrush(hi_brush)
                 painter.drawPath(word_path)
                 painter.restore()
 
-            char_idx += len(text)
+            painter.restore()
+            char_idx += self._v_word_char_counts[i]
 
     def _fill_brush(self, *, highlight: bool) -> QBrush:
         """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
@@ -510,18 +627,11 @@ class DesktopLyricsWindow(QWidget):
         效果类似 QQ Music 的"舞台灯": 字体上半明下半略沉, 立体感强于纯色.
         渐变跨窗口高度而非字形 bbox -> 文字越大 / 行越靠中, 渐变越平滑.
         """
-        color = self._color_highlight if highlight else self._color_base
-        h = max(1, self.height())
-        gradient = QLinearGradient(0.0, 0.0, 0.0, float(h))
-        gradient.setColorAt(0.0, color)
-        gradient.setColorAt(1.0, color.darker(_FILL_GRADIENT_DARKEN))
-        return QBrush(gradient)
+        self._ensure_brush_cache()
+        return self._cached_brush_highlight if highlight else self._cached_brush_base  # type: ignore[return-value]
 
     def _draw_outline(self, painter: QPainter, path: QPainterPath) -> None:
-        pen = QPen(_OUTLINE_COLOR, _OUTLINE_WIDTH)
-        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
+        painter.setPen(self._outline_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 
@@ -536,20 +646,21 @@ class DesktopLyricsWindow(QWidget):
 
         斜体字形在基线上方右移 shear*Δy, 下方左移; clip 边沿必须同向 shear, 否则
         垂直切线会把字劈成楔形 (上半 / 下半各被剪掉一刀, 视觉极差).
+
+        坐标系: painter 已 translate 到 (x0, baseline), 路径以 (0,0) 为文字原点.
+        clip 必须覆盖 widget 全高, 用 y=[-baseline, h-baseline] (translate 后).
         """
         path = QPainterPath()
         h = float(self.height())
         if not self._is_slanted_font():
-            path.addRect(x_left, 0.0, width_px, h)
+            path.addRect(x_left, -baseline, width_px, h)
             return path
-        # 基线到上 / 下边各 shear 一段距离;
-        # 上半 (y < baseline) 右偏 (baseline - y) * shear, 下半 (y > baseline) 左偏 (y - baseline) * shear.
         top_dx = baseline * _ITALIC_SHEAR
         bot_dx = -(h - baseline) * _ITALIC_SHEAR
-        path.moveTo(QPointF(x_left + top_dx, 0.0))
-        path.lineTo(QPointF(x_left + width_px + top_dx, 0.0))
-        path.lineTo(QPointF(x_left + width_px + bot_dx, h))
-        path.lineTo(QPointF(x_left + bot_dx, h))
+        path.moveTo(QPointF(x_left + top_dx, -baseline))
+        path.lineTo(QPointF(x_left + width_px + top_dx, -baseline))
+        path.lineTo(QPointF(x_left + width_px + bot_dx, h - baseline))
+        path.lineTo(QPointF(x_left + bot_dx, h - baseline))
         path.closeSubpath()
         return path
 
