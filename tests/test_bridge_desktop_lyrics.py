@@ -832,3 +832,144 @@ def test_translation_font_is_smaller(qapp):
     main_size = w._font.pointSize()
     trans_size = w._trans_font.pointSize()
     assert trans_size == max(12, int(main_size * 0.6))
+
+
+# ============================================================== 竖向混排 (CJK + Latin)
+
+
+def test_segment_for_vertical_mixed():
+    """验证文本分段: CJK 字符竖排堆叠, Latin 连续段成组旋转."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("曲：Douji-T")
+    # "曲" CJK, "：" fullwidth punct → vertical; "Douji-T" Latin → rotated
+    assert len(segs) >= 2
+    assert all(s[1] is True for s in segs if all(_is_v(c) for c in s[0]))
+    assert segs[-1] == ("Douji-T", False)
+
+
+def test_segment_for_vertical_pure_cjk():
+    """纯 CJK 文本只有一个竖排段."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("离别的眼泪")
+    assert len(segs) == 1
+    assert segs[0] == ("离别的眼泪", True)
+
+
+def test_segment_for_vertical_pure_latin():
+    """纯 Latin 文本只有一个横排段."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("Hello World")
+    assert len(segs) == 1
+    assert segs[0] == ("Hello World", False)
+
+
+def test_segment_for_vertical_interleaved():
+    """中英交替: '我爱你baby再见'."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("我爱你baby再见")
+    assert segs == [("我爱你", True), ("baby", False), ("再见", True)]
+
+
+def test_vertical_mixed_mode_detected(qapp):
+    """包含 CJK 和 Latin 的文本应使用混排模式."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("曲：Douji-T")
+    assert w._v_mixed is True
+    assert w._v_rotated is False
+
+
+def test_vertical_pure_cjk_not_mixed(qapp):
+    """纯 CJK 文本不使用混排模式."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("离别的眼泪")
+    assert w._v_mixed is False
+    assert w._v_rotated is False
+
+
+def test_vertical_pure_latin_uses_rotated(qapp):
+    """纯拉丁文本使用旋转模式."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("Hello World")
+    assert w._v_mixed is False
+    assert w._v_rotated is True
+
+
+def test_paint_vertical_mixed_no_crash(qapp):
+    """竖向混合中英文 (如 '曲：Douji-T') paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("曲：Douji-T")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_mixed_with_words_no_crash(qapp):
+    """竖向混合中英文 + 逐字数据 + wipe 动画不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "我爱你baby",
+        [
+            {"text": "我", "startMs": 0, "durationMs": 200},
+            {"text": "爱", "startMs": 200, "durationMs": 200},
+            {"text": "你", "startMs": 400, "durationMs": 200},
+            {"text": "baby", "startMs": 600, "durationMs": 400},
+        ],
+    )
+    w.set_progress_ms(500)
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_mixed_with_translation_no_crash(qapp):
+    """竖向混排 + 翻译不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("词：Douji-T/一只然", [], translation="Lyrics by Douji-T")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_mixed_credit_line_no_crash(qapp):
+    """制作信息行 '曲：Douji-T' 竖向渲染不抛, Latin 段旋转显示."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("词：Douji-T/一只然/1E")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def _is_v(c):
+    """test helper: inline CJK/fullwidth char check."""
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF
+        or 0x3400 <= cp <= 0x4DBF
+        or 0x3040 <= cp <= 0x309F
+        or 0x30A0 <= cp <= 0x30FF
+        or 0xAC00 <= cp <= 0xD7AF
+        or 0x3000 <= cp <= 0x303F
+        or 0xFF00 <= cp <= 0xFF60
+        or 0xFE30 <= cp <= 0xFE4F
+    )
