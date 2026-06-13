@@ -13,6 +13,7 @@ from qasync import asyncSlot
 
 from quaverq.core.home_cache import HomeCache
 from quaverq.core.models import Playlist, Song, TopList
+from quaverq.perf import log_elapsed
 
 from .error_utils import log_bridge_error
 from .models import (
@@ -213,12 +214,13 @@ class HomeController(QObject):
         await self.refresh_home_async(force=True)
 
     async def refresh_home_async(self, *, force: bool = False) -> None:
-        await asyncio.gather(
-            self.refresh_daily_thirty_async(force=force),
-            self.refresh_playlists_async(),
-            self.refresh_new_songs_async(),
-            self.refresh_top_lists_async(),
-        )
+        with log_elapsed(logger, "home.refresh_all", force=force):
+            await asyncio.gather(
+                self.refresh_daily_thirty_async(force=force),
+                self.refresh_playlists_async(),
+                self.refresh_new_songs_async(),
+                self.refresh_top_lists_async(),
+            )
 
     @asyncSlot()
     async def refreshDailyThirty(self) -> None:
@@ -340,18 +342,19 @@ class HomeController(QObject):
         section: str,
         loader: Callable[[], Awaitable[T]],
     ) -> T | None:
-        self._set_section_loading(section, True)
-        self._clear_section_error(section)
-        try:
-            return await loader()
-        except Exception as exc:
-            message = log_bridge_error(logger, f"home section failed: {section}", exc)
-            self._set_section_error(section, message)
-            self._set_error_message(message)
-            self.errorRaised.emit(message)
-            return None
-        finally:
-            self._set_section_loading(section, False)
+        with log_elapsed(logger, "home.refresh_section", section=section):
+            self._set_section_loading(section, True)
+            self._clear_section_error(section)
+            try:
+                return await loader()
+            except Exception as exc:
+                message = log_bridge_error(logger, f"home section failed: {section}", exc)
+                self._set_section_error(section, message)
+                self._set_error_message(message)
+                self.errorRaised.emit(message)
+                return None
+            finally:
+                self._set_section_loading(section, False)
 
     def _handle_auth_state_changed(self) -> None:
         if self._service_controller.authed:

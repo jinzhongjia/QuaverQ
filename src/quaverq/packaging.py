@@ -494,6 +494,15 @@ def portable_archive_name(version: str, *, platform: str = sys.platform) -> str:
     return f"QuaverQ-{version}-portable.{suffix}"
 
 
+def _portable_dist_platform(dist_dir: Path) -> str | None:
+    """Infer bundled platform from the executable already present in a Nuitka dist."""
+    if (dist_dir / "QuaverQ.exe").is_file():
+        return "win32"
+    if (dist_dir / "QuaverQ").is_file():
+        return "linux"
+    return None
+
+
 def build_portable(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     """Nuitka standalone 产物 -> ``dist/QuaverQ-{version}-portable.{zip|tar.gz}``.
 
@@ -510,19 +519,23 @@ def build_portable(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     root = resources.project_root()
     version = project_version()
     dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
-    exe_name = "QuaverQ.exe" if sys.platform == "win32" else "QuaverQ"
+    dist_platform = _portable_dist_platform(dist_dir)
+    expected_exe = "QuaverQ.exe" if sys.platform == "win32" else "QuaverQ"
 
-    if rebuild or not (dist_dir / exe_name).exists():
+    if rebuild or (dist_platform is None and not (dist_dir / expected_exe).exists()):
         rc = build("standalone", output_dir=output_dir)
         if rc != 0:
             return rc
+        dist_platform = sys.platform
     else:
         print(f"[portable] 复用已有 Nuitka 产物: {dist_dir} (--no-rebuild)")
     if not dist_dir.is_dir():
         print(f"[portable] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
         return 1
 
-    archive_path = root / output_dir / portable_archive_name(version)
+    archive_path = (
+        root / output_dir / portable_archive_name(version, platform=dist_platform or sys.platform)
+    )
     top_dir = f"QuaverQ-{version}"  # 归档内顶层目录名
     print(f"[portable] 打包 {dist_dir} -> {archive_path}")
     if archive_path.name.endswith(".tar.gz"):
@@ -532,8 +545,13 @@ def build_portable(output_dir: str = "dist", *, rebuild: bool = True) -> int:
         with tarfile.open(archive_path, "w:gz", compresslevel=6) as tf:
             for path in sorted(dist_dir.rglob("*")):
                 if path.is_file():
-                    arcname = f"{top_dir}/{path.relative_to(dist_dir).as_posix()}"
-                    tf.add(path, arcname=arcname)
+                    relative = path.relative_to(dist_dir).as_posix()
+                    arcname = f"{top_dir}/{relative}"
+                    info = tf.gettarinfo(path, arcname=arcname)
+                    if dist_platform != "win32" and relative == "QuaverQ":
+                        info.mode |= 0o755
+                    with open(path, "rb") as f:
+                        tf.addfile(info, f)
     else:
         import zipfile
 

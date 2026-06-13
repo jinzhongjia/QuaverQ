@@ -503,10 +503,15 @@ class QuaverService:
     # ------------------------------------------------------------------
 
     async def get_album_detail(self, album_mid: str, *, song_limit: int = 100) -> Album:
-        # 0.6.1 client method 返回 Request 对象, 不是直接的 awaitable
-        # asyncio.gather 不能用; 顺序 await
-        detail_resp = await self.client.album.get_detail(album_mid)
-        songs_resp = await self.client.album.get_song(album_mid, num=song_limit, page=1)
+        # 0.6.1 client method 返回 awaitable 但 unhashable 的 Request 对象; 直接塞
+        # gather 会在内部去重 dict 时报 TypeError。包成本地 coroutine 后可安全并发。
+        async def _fetch_detail() -> Any:
+            return await self.client.album.get_detail(album_mid)
+
+        async def _fetch_songs() -> Any:
+            return await self.client.album.get_song(album_mid, num=song_limit, page=1)
+
+        detail_resp, songs_resp = await asyncio.gather(_fetch_detail(), _fetch_songs())
 
         bi = getattr(detail_resp, "album", None)
         company_singers = getattr(detail_resp, "singers", None) or []
@@ -644,10 +649,16 @@ class QuaverService:
         return out
 
     async def get_artist_detail(self, singer_mid: str, *, hot_song_limit: int = 50) -> ArtistDetail:
-        info_resp = await self.client.singer.get_info(singer_mid)
-        tab_resp = await self.client.singer.get_tab_detail(
-            singer_mid, TabType.SONG, 1, hot_song_limit
-        )
+        # 同 get_album_detail: 上游 Request-like 对象需包成本地 coroutine 再 gather。
+        async def _fetch_info() -> Any:
+            return await self.client.singer.get_info(singer_mid)
+
+        async def _fetch_hot_songs() -> Any:
+            return await self.client.singer.get_tab_detail(
+                singer_mid, TabType.SONG, 1, hot_song_limit
+            )
+
+        info_resp, tab_resp = await asyncio.gather(_fetch_info(), _fetch_hot_songs())
         # 0.6 HomepageHeaderResponse 含 singer (HomepageSinger), base_info
         singer_obj = getattr(info_resp, "singer", None) or getattr(info_resp, "base_info", None)
         name = getattr(singer_obj, "name", "") if singer_obj else ""
