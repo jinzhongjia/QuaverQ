@@ -81,6 +81,7 @@ _CLIP_MARGIN = 2000.0
 _TRANS_SIZE_RATIO = 0.6
 _TRANS_OUTLINE_WIDTH = 2
 _TRANS_GAP = 6
+_VCOL_GAP = 12  # 竖排双列间距 (歌词右列 + 翻译左列)
 
 
 def _has_cjk(text: str) -> bool:
@@ -623,8 +624,8 @@ class DesktopLyricsWindow(QWidget):
             return
         geo = screen.availableGeometry()
         if self._orientation == "vertical":
-            # 竖向: 窄列, 高度 ~70% 屏高, 默认右侧距边 80px
-            width = 120
+            # 竖向: 双列 (歌词右 + 翻译左), 高度 ~70% 屏高, 默认右侧距边 80px
+            width = 200
             height = max(300, int(geo.height() * 0.7))
             x = geo.x() + geo.width() - width - 80
             y = geo.y() + (geo.height() - height) // 2
@@ -826,6 +827,19 @@ class DesktopLyricsWindow(QWidget):
             painter.drawPath(self._trans_path)
             painter.restore()
 
+    def _vcol_positions(self) -> tuple[float, float]:
+        """竖排双列中心 X: (main_cx, trans_cx). 歌词右列, 翻译左列."""
+        fm = self._cached_fm
+        main_w = float(fm.ascent() + fm.descent())
+        if not self._has_trans or not self._trans_fm:
+            return self.width() / 2.0, 0.0
+        trans_w = float(self._trans_fm.ascent() + self._trans_fm.descent())
+        total = main_w + _VCOL_GAP + trans_w
+        left_edge = (self.width() - total) / 2.0
+        trans_cx = left_edge + trans_w / 2.0
+        main_cx = left_edge + trans_w + _VCOL_GAP + main_w / 2.0
+        return main_cx, trans_cx
+
     def _paint_vertical(self, painter: QPainter) -> None:
         """竖向: CJK 逐字堆叠 / 拉丁文旋转 90° 横排 + 翻译."""
         if self._v_rotated:
@@ -841,14 +855,14 @@ class DesktopLyricsWindow(QWidget):
 
         main_h = line_h * self._v_total_chars
         has_trans = self._has_trans
+
+        main_cx, trans_cx = self._vcol_positions()
+        total_h = main_h
         if has_trans:
             trans_h = self._v_trans_line_h * self._v_trans_total_chars
-            total_h = main_h + _TRANS_GAP + trans_h
-        else:
-            total_h = main_h
+            total_h = max(main_h, trans_h)
 
         start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
-        cx = self.width() / 2.0
 
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
@@ -862,7 +876,7 @@ class DesktopLyricsWindow(QWidget):
             first_y = start_y + char_idx * line_h
 
             painter.save()
-            painter.translate(cx, first_y)
+            painter.translate(main_cx, first_y)
 
             painter.setPen(self._outline_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -886,9 +900,12 @@ class DesktopLyricsWindow(QWidget):
 
         if has_trans:
             trans_fm = self._trans_fm
-            trans_start_y = start_y - fm.ascent() + main_h + _TRANS_GAP + trans_fm.ascent()
+            trans_start_y = max(
+                trans_fm.ascent(),
+                (self.height() - total_h) / 2.0 + trans_fm.ascent(),
+            )
             painter.save()
-            painter.translate(cx, trans_start_y)
+            painter.translate(trans_cx, trans_start_y)
             painter.setPen(self._trans_outline_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self._v_trans_path)
@@ -898,22 +915,20 @@ class DesktopLyricsWindow(QWidget):
             painter.restore()
 
     def _paint_vertical_rotated(self, painter: QPainter) -> None:
-        """拉丁文竖排: 横向文字旋转 90° 顺时针 + 翻译."""
+        """拉丁文竖排: 横向文字旋转 90° 顺时针 + 翻译 (左列)."""
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
         has_trans = self._has_trans
 
-        if has_trans:
-            total_content_w = self._h_total_w + _TRANS_GAP + self._trans_total_w
-        else:
-            total_content_w = self._h_total_w
+        main_cx, trans_cx = self._vcol_positions()
 
+        # 主歌词: 旋转 90° 居中于右列
         painter.save()
-        painter.translate(self.width() / 2.0, self.height() / 2.0)
+        painter.translate(main_cx, self.height() / 2.0)
         painter.rotate(90)
 
-        x0 = -total_content_w / 2.0
+        x0 = -self._h_total_w / 2.0
         baseline = (fm.ascent() - fm.descent()) / 2.0
         painter.translate(x0, baseline)
 
@@ -944,22 +959,28 @@ class DesktopLyricsWindow(QWidget):
                 painter.drawPath(word_path)
                 painter.restore()
 
+        painter.restore()
+
         if has_trans:
             trans_fm = self._trans_fm
-            trans_x = self._h_total_w + _TRANS_GAP
-            trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0 - baseline
-            painter.translate(trans_x, trans_baseline)
+            trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
+
+            painter.save()
+            painter.translate(trans_cx, self.height() / 2.0)
+            painter.rotate(90)
+
+            trans_x0 = -self._trans_total_w / 2.0
+            painter.translate(trans_x0, trans_baseline)
             painter.setPen(self._trans_outline_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self._v_trans_path)
             painter.setPen(nopen)
             painter.setBrush(base_brush)
             painter.drawPath(self._v_trans_path)
-
-        painter.restore()
+            painter.restore()
 
     def _paint_vertical_mixed(self, painter: QPainter) -> None:
-        """竖向混排: CJK 直立堆叠 + Latin 段旋转 90°."""
+        """竖向混排: CJK 直立堆叠 + Latin 段旋转 90°. 翻译左列."""
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
@@ -967,14 +988,13 @@ class DesktopLyricsWindow(QWidget):
 
         main_h = self._v_total_v_height
         has_trans = self._has_trans
+        total_h = main_h
         if has_trans:
             trans_h = self._v_trans_v_height
-            total_h = main_h + _TRANS_GAP + trans_h
-        else:
-            total_h = main_h
+            total_h = max(main_h, trans_h)
 
+        main_cx, trans_cx = self._vcol_positions()
         start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
-        cx = self.width() / 2.0
 
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
@@ -991,7 +1011,7 @@ class DesktopLyricsWindow(QWidget):
             for blk in blocks:
                 if blk.rotated:
                     painter.save()
-                    painter.translate(cx, block_y + blk.content_h / 2.0)
+                    painter.translate(main_cx, block_y + blk.content_h / 2.0)
                     painter.rotate(90)
                     painter.translate(-blk.content_h / 2.0, baseline_off)
                     painter.setPen(self._outline_pen)
@@ -1003,7 +1023,7 @@ class DesktopLyricsWindow(QWidget):
                     painter.restore()
                 else:
                     painter.save()
-                    painter.translate(cx, block_y)
+                    painter.translate(main_cx, block_y)
                     painter.setPen(self._outline_pen)
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPath(blk.path)
@@ -1021,7 +1041,7 @@ class DesktopLyricsWindow(QWidget):
                 for blk in blocks:
                     if blk.rotated:
                         painter.save()
-                        painter.translate(cx, block_y + blk.content_h / 2.0)
+                        painter.translate(main_cx, block_y + blk.content_h / 2.0)
                         painter.rotate(90)
                         painter.translate(-blk.content_h / 2.0, baseline_off)
                         painter.setPen(nopen)
@@ -1030,7 +1050,7 @@ class DesktopLyricsWindow(QWidget):
                         painter.restore()
                     else:
                         painter.save()
-                        painter.translate(cx, block_y)
+                        painter.translate(main_cx, block_y)
                         painter.setPen(nopen)
                         painter.setBrush(hi_brush)
                         painter.drawPath(blk.path)
@@ -1041,14 +1061,17 @@ class DesktopLyricsWindow(QWidget):
             word_y += word_h
 
         if has_trans:
-            trans_start_y = start_y - fm.ascent() + main_h + _TRANS_GAP
             trans_fm = self._trans_fm
             trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
-            block_y = trans_start_y + trans_fm.ascent()
+            trans_start_y = max(
+                trans_fm.ascent(),
+                (self.height() - total_h) / 2.0 + trans_fm.ascent(),
+            )
+            block_y = trans_start_y
             for blk in self._v_trans_blocks:
                 if blk.rotated:
                     painter.save()
-                    painter.translate(cx, block_y + blk.content_h / 2.0)
+                    painter.translate(trans_cx, block_y + blk.content_h / 2.0)
                     painter.rotate(90)
                     painter.translate(-blk.content_h / 2.0, trans_baseline)
                     painter.setPen(self._trans_outline_pen)
@@ -1060,7 +1083,7 @@ class DesktopLyricsWindow(QWidget):
                     painter.restore()
                 else:
                     painter.save()
-                    painter.translate(cx, block_y)
+                    painter.translate(trans_cx, block_y)
                     painter.setPen(self._trans_outline_pen)
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawPath(blk.path)
