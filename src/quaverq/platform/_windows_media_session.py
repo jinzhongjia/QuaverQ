@@ -821,7 +821,7 @@ class WindowsMediaSession(QObject):
         local = self._cover_cache.get_path(cover_url)
         if local is None:
             return None
-        return self._stream_proxy.local_file_url(local.name)
+        return self._local_file_url(local.name)
 
     async def _fetch_and_push_thumbnail(self, url: str) -> None:
         try:
@@ -835,13 +835,30 @@ class WindowsMediaSession(QObject):
         song = self._player.currentSong
         if not isinstance(song, dict) or str(song.get("coverUrl") or "") != url:
             return
-        uri = self._stream_proxy.local_file_url(local.name) if self._stream_proxy else None
+        uri = self._local_file_url(local.name)
         if uri is None:
             return
         try:
             self._session.push_thumbnail_from_uri(uri)
         except Exception:
             logger.exception("SMTC: 后台拉到封面后推送失败")
+
+    def _local_file_url(self, filename: str) -> str | None:
+        """按需启动 StreamProxy 后返回本机封面 URI；失败时不影响 SMTC 元数据。"""
+        if self._stream_proxy is None:
+            return None
+        if not bool(getattr(self._stream_proxy, "running", False)):
+            start = getattr(self._stream_proxy, "start", None)
+            if callable(start):
+                try:
+                    start()
+                except Exception as exc:
+                    logger.warning("SMTC: StreamProxy 懒启动失败, 跳过封面: %s", exc)
+                    return None
+        local_file_url = getattr(self._stream_proxy, "local_file_url", None)
+        if not callable(local_file_url):
+            return None
+        return local_file_url(filename)
 
     def _push_playback_status(self) -> None:
         if not self._started or self._session is None:

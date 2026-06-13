@@ -1,10 +1,14 @@
 """Windows 平台适配器.
 
 已实现:
-- single_instance: 命名 Mutex (ctypes CreateMutexW, 见 _windows_single_instance.py)
-- system_theme: 注册表 AppsUseLightTheme + QTimer 2s 轮询 (见 _windows_system_theme.py)
+- single_instance: LockFileEx byte-range lock (见 _windows_single_instance.py)
+- system_theme: Qt colorSchemeChanged 信号触发后重读注册表 AppsUseLightTheme
+  (见 _windows_system_theme.py)
 - media_session: SMTC (ctypes COM via ISystemMediaTransportControlsInterop, 见
   _windows_media_session.py)
+- power_saver: SetThreadExecutionState 播放期阻止待机
+- taskbar: ITaskbarList3/DWM 任务栏进度与缩略图
+- desktop_lyrics: Qt frameless 桌面悬浮歌词
 
 待实现:
 - lyric_publisher: 暂无对应机制 (Linux D-Bus 的等价物在 Windows 上没有标准, 长尾)

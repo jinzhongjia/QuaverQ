@@ -92,6 +92,40 @@ async def test_source_url_routed_through_stream_proxy():
     assert controller.sourceUrl == "http://127.0.0.1:9000/tok?u=https://audio.example.test/m1.mp3"
 
 
+async def test_remote_play_starts_stream_proxy_lazily_before_routing():
+    """启动期不预热代理；第一次在线挂源前再启动, 省掉空闲线程/Session。"""
+
+    class _LazyProxy:
+        def __init__(self) -> None:
+            self.started = False
+            self.start_calls = 0
+
+        def start(self) -> None:
+            self.started = True
+            self.start_calls += 1
+
+        def local_url(self, real: str) -> str:
+            assert self.started is True
+            return f"http://127.0.0.1:9000/tok?u={real}"
+
+    service = _FakeServiceController()
+    proxy = _LazyProxy()
+    controller = PlayerController(service, stream_proxy=proxy)  # type: ignore[arg-type]
+
+    await controller.push_and_play_async(
+        {
+            "mid": "m1",
+            "name": "晴天",
+            "singers": [{"mid": "s1", "name": "周杰伦"}],
+            "albumName": "叶惠美",
+            "duration": 269,
+        }
+    )
+
+    assert proxy.start_calls == 1
+    assert controller.sourceUrl == "http://127.0.0.1:9000/tok?u=https://audio.example.test/m1.mp3"
+
+
 async def test_push_and_play_uses_settings_quality_preference():
     service = _FakeServiceController()
     controller = PlayerController(

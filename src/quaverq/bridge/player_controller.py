@@ -723,6 +723,7 @@ class PlayerController(QObject):
             playback_url = song_url.url
             if self._stream_proxy is not None:
                 # 反风控 U2: 经本机回环代理拉流（出网走 curl_cffi 官方指纹 https）
+                self._start_stream_proxy_if_available()
                 playback_url = self._stream_proxy.local_url(playback_url)
         self._loaded_mid = song.mid
         self._set_source_url(playback_url)
@@ -735,6 +736,18 @@ class PlayerController(QObject):
             self._set_playback_state("paused")
 
     # ------------------------------------------------------------------ 预取下一首 (issue #11)
+
+    def _start_stream_proxy_if_available(self) -> None:
+        """按需启动 StreamProxy；失败时保留 local_url 的直连降级语义。"""
+        if self._stream_proxy is None or bool(getattr(self._stream_proxy, "running", False)):
+            return
+        start = getattr(self._stream_proxy, "start", None)
+        if not callable(start):
+            return
+        try:
+            start()
+        except Exception as exc:
+            logger.warning("StreamProxy 懒启动失败, 将降级为直连: %s", exc)
 
     def _schedule_prefetch_next(self) -> None:
         """起播稳定后预取下一首链接 (best-effort); 重复触发时重置延迟."""
