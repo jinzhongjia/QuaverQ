@@ -838,11 +838,11 @@ def test_translation_font_is_smaller(qapp):
 
 
 def test_segment_for_vertical_mixed():
-    """验证文本分段: CJK 字符竖排堆叠, Latin 连续段成组旋转."""
+    """验证文本分段: CJK 字符竖排堆叠, 长 Latin 连续段成组旋转."""
     from quaverq.bridge.desktop_lyrics import _segment_for_vertical
 
     segs = _segment_for_vertical("曲：Douji-T")
-    # "曲" CJK, "：" fullwidth punct → vertical; "Douji-T" Latin → rotated
+    # "曲" CJK, "：" fullwidth punct → vertical; "Douji-T" 长 Latin → rotated
     assert len(segs) >= 2
     assert all(s[1] is True for s in segs if all(_is_v(c) for c in s[0]))
     assert segs[-1] == ("Douji-T", False)
@@ -894,6 +894,22 @@ def test_segment_for_vertical_latin_with_trailing_space():
     assert segs == [("Fold", False)]
 
 
+def test_segment_for_vertical_short_uppercase_acronym_stacks():
+    """CJK 竖排里的短大写缩写应逐字符直立, 不旋转成横块."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("如果我是 DJ")
+    assert segs == [("如果我是", True), ("DJ", True)]
+
+
+def test_segment_for_vertical_lowercase_word_still_rotates():
+    """普通英文短词仍旋转, 避免把翻译词 'my' 拆成 m/y 竖排."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("读不懂 my")
+    assert segs == [("读不懂", True), ("my", False)]
+
+
 def test_vertical_mixed_mode_detected(qapp):
     """包含 CJK 和 Latin 的文本应使用混排模式."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
@@ -903,6 +919,36 @@ def test_vertical_mixed_mode_detected(qapp):
     w.set_text("曲：Douji-T")
     assert w._v_mixed is True
     assert w._v_rotated is False
+
+
+def test_vertical_mixed_short_uppercase_acronym_not_rotated(qapp):
+    """竖排混排中 'DJ' 应按 D/J 直立堆叠, 避免右侧悬浮歌词出现横向/重叠字块."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "如果我是 DJ 是 DJ",
+        [
+            {"text": "如果我是 ", "startMs": 0, "durationMs": 500},
+            {"text": "DJ ", "startMs": 500, "durationMs": 300},
+            {"text": "是 ", "startMs": 800, "durationMs": 300},
+            {"text": "DJ", "startMs": 1100, "durationMs": 300},
+        ],
+    )
+
+    assert w._v_mixed is True
+    dj_word_blocks = [
+        blocks
+        for word, blocks in zip(w._display_words, w._v_word_blocks, strict=True)
+        if word.text.strip() == "DJ"
+    ]
+    assert len(dj_word_blocks) == 2
+    for blocks in dj_word_blocks:
+        assert len(blocks) == 1
+        block = blocks[0]
+        assert block.rotated is False
+        assert block.v_height == 2 * w._v_line_h
 
 
 def test_vertical_pure_cjk_not_mixed(qapp):
