@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "../components" as Components
 import "../Theme" as ThemeTokens
 
 Rectangle {
@@ -48,24 +49,8 @@ Rectangle {
     readonly property color creditLineColor: ThemeTokens.Palette.lyricCredit
     readonly property color creditActiveColor: ThemeTokens.Palette.lyricCreditActive
     property int lastRevealedIndex: -1
-    // 逐字高亮: 当前播放位置 + 已唱/未唱字色 (hex, 供 RichText <font>)
+    // 逐字高亮: 当前播放位置 (ms), KaraokeLine 据此推进字内 wipe
     readonly property int positionMs: root.lyricController ? root.lyricController.positionMs : 0
-    readonly property string sungHex: String(ThemeTokens.Palette.primaryFg)
-    readonly property string mutedHex: String(root.mutedLineColor)
-
-    function escapeHtml(value) {
-        return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    }
-
-    // words[0..sungCount-1] 用已唱色, 其余未唱色; sungCount 只在跨字时变 -> 不每帧重排
-    function karaokeHtml(words, sungCount) {
-        let html = ""
-        for (let i = 0; i < words.length; ++i) {
-            const color = i < sungCount ? root.sungHex : root.mutedHex
-            html += '<font color="' + color + '">' + root.escapeHtml(words[i].text) + '</font>'
-        }
-        return html
-    }
 
     radius: root.compact ? ThemeTokens.Spacing.radiusMd : 0
     color: root.compact ? ThemeTokens.Palette.surfaceElevated : "transparent"
@@ -236,17 +221,6 @@ Rectangle {
                         && lyricDelegate.activeLine
                         && lyricDelegate.words.length > 0
                         && !lyricDelegate.creditLine
-                    readonly property int sungCount: {
-                        if (!lyricDelegate.karaoke)
-                            return 0
-                        let count = 0
-                        const pos = root.positionMs
-                        for (let i = 0; i < lyricDelegate.words.length; ++i) {
-                            if (pos >= lyricDelegate.words[i].startMs)
-                                count += 1
-                        }
-                        return count
-                    }
                     readonly property int minimumRowHeight: root.compact
                         ? (lyricDelegate.strongActive ? 44 : 32)
                         : (lyricDelegate.strongActive ? 58 : 38)
@@ -317,24 +291,20 @@ Rectangle {
                             elide: Text.ElideRight
                         }
 
-                        // 逐字高亮: 当前行用 RichText 按字着色 (已唱绿/未唱灰)
-                        Label {
-                            id: karaokeText
-
+                        // 逐字高亮: 当前行逐词双层渲染, 字内从左到右渐进 wipe (已唱绿/未唱灰);
+                        // wipe 在 position tick 之间由 Behavior 线性追赶, reduceMotion 时瞬时
+                        Components.KaraokeLine {
                             Layout.fillWidth: true
                             visible: lyricDelegate.karaoke
-                            text: lyricDelegate.karaoke
-                                ? root.karaokeHtml(lyricDelegate.words, lyricDelegate.sungCount)
-                                : ""
-                            textFormat: Text.RichText
-                            horizontalAlignment: Text.AlignHCenter
-                            font.family: root.lyricFontFamily.length > 0 ? root.lyricFontFamily : karaokeText.font.family
-                            font.italic: root.lyricFontItalic
-                            font.pixelSize: root.compact ? root.lyricCompactActiveSize : root.lyricActiveSize
-                            font.weight: root.lyricStrongWeight
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 3
-                            elide: Text.ElideRight
+                            words: lyricDelegate.karaoke ? lyricDelegate.words : []
+                            positionMs: lyricDelegate.karaoke ? root.positionMs : 0
+                            sungColor: ThemeTokens.Palette.primaryFg
+                            unsungColor: root.mutedLineColor
+                            fontFamily: root.lyricFontFamily
+                            fontPixelSize: root.compact ? root.lyricCompactActiveSize : root.lyricActiveSize
+                            fontWeight: root.lyricStrongWeight
+                            fontItalic: root.lyricFontItalic
+                            wipeDurationMs: ThemeTokens.Motion.durFast
                         }
 
                         Label {
