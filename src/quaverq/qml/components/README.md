@@ -34,6 +34,7 @@
 | `Snackbar.qml` | **轻量状态提示**。`show()` 触发，`autoHideMs` 后自动收起；`kind` ∈ `info` / `error` / `warning` / `success`。 |
 | `Banner.qml` | **持久提示**：带恢复动作（`actionText`）、不自动关闭；`message` 非空即显示。用于"凭据过期，点此重登"这类场景。 |
 | `MarqueeLabel.qml` | 单行文字标签：超出容器宽度时无缝横向滚动（双拷贝 + Repeater 平移），未溢出时回退为 `elide: ElideRight`，配合固定宽度容器防止布局抖动。**悬停暂停**（`paused` 而非 stop，移开从当前位置继续）；`Motion.reduceMotion` 开启时横滚整体停用、回退静态省略号。用于底部播放栏歌曲名 / 歌手。 |
+| `KaraokeLine.qml` | **逐字渐进高亮歌词行**（karaoke wipe）。输入 `words`（`[{text, startMs, durationMs}]`，与 `LyricLineListModel` 的 words 角色同构）+ `positionMs`：每词双层 Text（底层未唱色 + 顶层 `clip` 容器内已唱色），clip 宽度 = `fraction × 词宽` 从左到右扫亮；`fraction = (positionMs−startMs)/durationMs`，与桌面歌词 `DesktopLyricsWindow._word_fractions` 同构（`durationMs ≤ 0` 视为瞬时词，到点即满格）。position tick（~100ms）之间由 `Behavior on width`（Linear，时长 `wipeDurationMs`）线性追赶——视觉连续推进，暂停时 tick 停、动画自然静止；`wipeDurationMs = 0` 退化为瞬时（调用方传 `Motion.durFast`，reduceMotion 自动归零）。`FontMetrics.advanceWidth` 贪心分行（词为原子不拆）、每行居中。颜色 / 字体全显式注入不绑 Theme，可独立预览。契约测试见 `tests/test_qml_karaoke_line.py`。 |
 | `SkeletonRect.qml` | 骨架屏基件：轻脉动灰块（700ms×2 透明度往返），全应用加载占位的统一形态；`reduceMotion` 时脉动停用、静态灰块仍占位。 |
 | `SongRowSkeleton.qml` | 歌曲行骨架（64px，几何对齐 `SongRow`）：封面块 + 标题/副标题条 + 时长条；`titleRatio` 按 index 错开宽度防"假"感。用于首页/详情/资料库/搜索的冷启动占位。 |
 | `CardSkeleton.qml` | 卡片骨架（几何对齐 `Card`）：方形封面块 + 标题/副标题条。 |
