@@ -28,9 +28,9 @@ Item {
         const maxW = root.width
         if (!source || source.length === 0 || maxW <= 0)
             return []
-        // advanceWidth 是方法调用, 不会自动建立字体依赖; 读 metrics.font 子属性
-        // 挂上 fontChanged —— 字体设置变化时 metrics 先更新, 本绑定随后用新字体重排
-        const _fontDep = metrics.font.pixelSize
+        // advanceWidth 是方法调用, 不会自动建立字体依赖; 读 metrics.font 全部子属性
+        // 挂上依赖 —— 字体任一属性变化时 metrics 先更新, 本绑定随后用新字体重排
+        const _fontDep = [metrics.font.family, metrics.font.pixelSize, metrics.font.weight, metrics.font.italic]
         const lines = []
         let line = []
         let lineW = 0
@@ -61,7 +61,7 @@ Item {
     FontMetrics {
         id: metrics
 
-        font.family: root.fontFamily.length > 0 ? root.fontFamily : metrics.font.family
+        font.family: root.fontFamily
         font.pixelSize: root.fontPixelSize
         font.weight: root.fontWeight
         font.italic: root.fontItalic
@@ -113,7 +113,7 @@ Item {
 
                             text: wordItem.modelData.text
                             color: root.unsungColor
-                            font.family: root.fontFamily.length > 0 ? root.fontFamily : baseText.font.family
+                            font.family: root.fontFamily
                             font.pixelSize: root.fontPixelSize
                             font.weight: root.fontWeight
                             font.italic: root.fontItalic
@@ -128,6 +128,7 @@ Item {
                             visible: width > 0
 
                             Behavior on width {
+                                enabled: root.wipeDurationMs > 0
                                 NumberAnimation {
                                     duration: root.wipeDurationMs
                                     easing.type: Easing.Linear
@@ -137,7 +138,7 @@ Item {
                             Text {
                                 text: wordItem.modelData.text
                                 color: root.sungColor
-                                font.family: baseText.font.family
+                                font.family: root.fontFamily
                                 font.pixelSize: root.fontPixelSize
                                 font.weight: root.fontWeight
                                 font.italic: root.fontItalic
