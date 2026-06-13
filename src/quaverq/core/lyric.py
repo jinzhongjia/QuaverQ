@@ -9,6 +9,7 @@ LRC 格式:
 
 from __future__ import annotations
 
+import bisect
 import re
 from dataclasses import dataclass, field
 
@@ -159,20 +160,18 @@ class LyricSync:
 
     _lines: list[LyricLine] = field(default_factory=list, init=False)
 
+    _timestamps: list[int] = field(default_factory=list, init=False)
+
     def set_lyric(self, lyric: Lyric | None) -> None:
         self._lines = list(lyric.lines) if lyric else []
+        self._timestamps = [ln.timestamp_ms for ln in self._lines]
 
     def line_at(self, position_ms: int) -> int:
         """返回当前 position 对应的行索引; -1 表示在第一行之前; 末行之后返回末行."""
-        if not self._lines:
+        if not self._timestamps:
             return -1
-        if position_ms < self._lines[0].timestamp_ms:
-            return -1
-        # 线性扫描足够 (歌词通常 <300 行)
-        for i in range(len(self._lines) - 1):
-            if position_ms < self._lines[i + 1].timestamp_ms:
-                return i
-        return len(self._lines) - 1
+        idx = bisect.bisect_right(self._timestamps, position_ms)
+        return idx - 1
 
     def window(
         self,
