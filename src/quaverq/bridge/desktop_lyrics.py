@@ -79,6 +79,7 @@ _VERTICAL_CHAR_GAP_RATIO = 0.25
 # wipe clip 纵向裕量: 值不重要, 只要大于文字实际高度就行
 _CLIP_MARGIN = 2000.0
 _TRANS_SIZE_RATIO = 0.6
+_VTRANS_SIZE_RATIO = 0.75  # 竖排翻译字号比例 (竖排本身字不大, 0.6 太小)
 _TRANS_OUTLINE_WIDTH = 2
 _TRANS_GAP = 6
 _VCOL_GAP = 12  # 竖排双列间距 (歌词右列 + 翻译左列)
@@ -430,7 +431,8 @@ class DesktopLyricsWindow(QWidget):
 
         if self._translation:
             trans_font = QFont(self._font)
-            trans_font.setPointSize(max(12, int(self._font.pointSize() * _TRANS_SIZE_RATIO)))
+            ratio = _VTRANS_SIZE_RATIO if self._orientation == "vertical" else _TRANS_SIZE_RATIO
+            trans_font.setPointSize(max(12, int(self._font.pointSize() * ratio)))
             trans_font.setWeight(QFont.Weight.Bold)
             self._trans_fm = QFontMetrics(trans_font)
             self._trans_font = trans_font

@@ -965,8 +965,42 @@ def test_paint_vertical_mixed_with_translation_no_crash(qapp):
     w = DesktopLyricsWindow()
     w.set_orientation("vertical")
     w.set_line("词：Douji-T/一只然", [], translation="Lyrics by Douji-T")
-    w.resize(120, 600)
+    w.resize(200, 600)
     assert not w.grab().isNull()
+
+
+def test_vertical_trans_cjk_blocks_not_rotated(qapp):
+    """翻译 CJK 块必须 rotated=False (正着堆叠, 不旋转)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "Fold 'em 让他们",
+        [
+            {"text": "Fold ", "startMs": 0, "durationMs": 500},
+            {"text": "'em ", "startMs": 500, "durationMs": 500},
+            {"text": "让他们", "startMs": 1000, "durationMs": 500},
+        ],
+        translation="Can't read my 读不懂我",
+    )
+    assert w._v_mixed is True
+    assert w._has_trans is True
+    for blk in w._v_trans_blocks:
+        if not blk.rotated:
+            assert blk.v_height > 0
+
+
+def test_vertical_dual_column_layout(qapp):
+    """竖排有翻译时, 歌词右列 + 翻译左列, main_cx > trans_cx."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("你好世界", [], translation="Hello World")
+    w.resize(200, 600)
+    main_cx, trans_cx = w._vcol_positions()
+    assert main_cx > trans_cx
 
 
 def test_paint_vertical_mixed_credit_line_no_crash(qapp):
