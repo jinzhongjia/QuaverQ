@@ -416,6 +416,26 @@ def test_controller_pushes_line_with_words(qapp):
     assert ctrl.window._sung_count == 2
 
 
+def test_controller_pushes_line_timing_for_unworded_lines(qapp):
+    """无逐字行也要把当前行 / 下一行 timestamp 传给桌面歌词滚动."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    fake.activeIndex = 0
+    fake.lyric_lines = [
+        {"timestampMs": 1000, "lineText": "OP: 五十环音乐 Straight To Music", "words": []},
+        {"timestampMs": 5000, "lineText": "下一行", "words": []},
+    ]
+    fake.currentLineText = "OP: 五十环音乐 Straight To Music"
+
+    ctrl = DesktopLyricsController(fake)
+    fake.currentLineChanged.emit()
+    qapp.processEvents()
+
+    assert ctrl.window._line_start_ms == 1000
+    assert ctrl.window._line_end_ms == 5000
+
+
 def test_word_fractions_no_words(qapp):
     """无 word -> 整句作为单段, fraction=1.0 (始终高亮色填充)."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
@@ -797,6 +817,32 @@ def test_paint_horizontal_mixed_translation_no_crash(qapp):
     assert not w.grab().isNull()
 
 
+def test_horizontal_long_lyric_scrolls_with_progress(qapp):
+    """横向超长歌词保持字号不缩放, 按逐字进度向左滚动."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    words = [
+        {"text": "I need to ", "startMs": 0, "durationMs": 1000},
+        {"text": "shoot right up ", "startMs": 1000, "durationMs": 1000},
+        {"text": "into the night ", "startMs": 2000, "durationMs": 1000},
+        {"text": "and keep running forever", "startMs": 3000, "durationMs": 1000},
+    ]
+    w.set_line("".join(word["text"] for word in words), words)
+    w.resize(360, 130)
+
+    w.set_progress_ms(0)
+    early = w._horizontal_layout()
+    w.set_progress_ms(3800)
+    late = w._horizontal_layout()
+
+    assert early.scale == 1.0
+    assert late.scale == 1.0
+    assert w._h_total_w > w.width()
+    assert late.main_x < early.main_x
+    assert late.main_x < 0
+
+
 def test_controller_syncs_translation(qapp):
     """controller 从 LyricController 拉 currentLineTranslation."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsController
@@ -911,14 +957,28 @@ def test_segment_for_vertical_lowercase_word_still_rotates():
 
 
 def test_vertical_mixed_mode_detected(qapp):
-    """包含 CJK 和 Latin 的文本应使用混排模式."""
+    """普通歌词包含 CJK 和 Latin 时应使用混排模式."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
     w.set_orientation("vertical")
-    w.set_text("曲：Douji-T")
+    w.set_text("我爱你baby")
     assert w._v_mixed is True
     assert w._v_rotated is False
+
+
+def test_vertical_credit_line_uses_whole_line_rotation(qapp):
+    """制作信息行不应拆成 CJK/Latin 小段, 应整行旋转显示."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("SP：五十环音乐 Straight50 Music")
+
+    assert w._v_rotated is True
+    assert w._v_mixed is False
+    assert len(w._h_word_paths) == 1
+    assert w._h_total_w > 0
 
 
 def test_vertical_mixed_short_uppercase_acronym_not_rotated(qapp):
@@ -1047,6 +1107,92 @@ def test_vertical_dual_column_layout(qapp):
     w.resize(200, 600)
     main_cx, trans_cx = w._vcol_positions()
     assert main_cx > trans_cx
+
+
+def test_vertical_translation_is_centered_to_main_lyric(qapp):
+    """竖排翻译列应围绕主歌词中心线居中, 不能从主歌词顶端开始排."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("我要直冲云霄奔向夜空", [], translation="I need to shoot right up into the night")
+    w.resize(240, 900)
+
+    layout = w._vertical_column_layout()
+    main_center = (
+        layout.main_start_y - layout.main_ascent * layout.scale + layout.main_h * layout.scale / 2.0
+    )
+    trans_center = (
+        layout.trans_start_y
+        - layout.trans_ascent * layout.scale
+        + layout.trans_h * layout.scale / 2.0
+    )
+
+    assert abs(main_center - trans_center) < 1.0
+
+
+def test_vertical_long_main_lyric_scrolls_with_progress(qapp):
+    """竖排超长歌词保持字号不缩放, 按逐字进度向上滚动."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    text = "我要直冲云霄奔向夜空穿过黑暗直到黎明"
+    words = [{"text": ch, "startMs": i * 200, "durationMs": 200} for i, ch in enumerate(text)]
+    w.set_line(text, words)
+    w.resize(160, 360)
+
+    w.set_progress_ms(0)
+    early = w._vertical_column_layout()
+    w.set_progress_ms((len(text) - 1) * 200)
+    late = w._vertical_column_layout()
+
+    assert early.scale == 1.0
+    assert late.scale == 1.0
+    assert early.main_h > w.height()
+    assert late.main_start_y < early.main_start_y
+    assert late.main_start_y - late.main_ascent < 0
+
+
+def test_vertical_long_line_without_words_scrolls_by_line_timing(qapp):
+    """无逐字 timing 的长信息行也要按行级 timing 滚到末尾, 不能静态裁掉最后字符."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "OP: 五十环音乐 Straight To Music",
+        [],
+        line_start_ms=1000,
+        line_end_ms=5000,
+    )
+    w.resize(180, 520)
+
+    w.set_progress_ms(1000)
+    early = w._vertical_column_layout()
+    w.set_progress_ms(5000)
+    late = w._vertical_column_layout()
+
+    assert early.scale == 1.0
+    assert late.scale == 1.0
+    assert late.main_start_y < early.main_start_y
+    assert late.main_start_y - late.main_ascent + late.main_h <= w.height()
+
+
+def test_vertical_rotated_latin_block_height_covers_visual_bounds(qapp):
+    """旋转 Latin 块高度必须按真实路径 bbox 计算, 不只用 horizontalAdvance."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("我听见 Straight50 Music")
+
+    last_block = w._v_word_blocks[-1][-1]
+    bounds = last_block.path.boundingRect()
+
+    assert last_block.rotated is True
+    assert bounds.left() >= 0
+    assert bounds.right() <= last_block.content_h
 
 
 def test_paint_vertical_mixed_credit_line_no_crash(qapp):
