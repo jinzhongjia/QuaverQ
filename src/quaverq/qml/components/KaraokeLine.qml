@@ -61,7 +61,7 @@ Item {
     FontMetrics {
         id: metrics
 
-        font.family: root.fontFamily
+        font.family: root.fontFamily.length > 0 ? root.fontFamily : font.family
         font.pixelSize: root.fontPixelSize
         font.weight: root.fontWeight
         font.italic: root.fontItalic
@@ -113,7 +113,7 @@ Item {
 
                             text: wordItem.modelData.text
                             color: root.unsungColor
-                            font.family: root.fontFamily
+                            font.family: root.fontFamily.length > 0 ? root.fontFamily : font.family
                             font.pixelSize: root.fontPixelSize
                             font.weight: root.fontWeight
                             font.italic: root.fontItalic
@@ -138,7 +138,7 @@ Item {
                             Text {
                                 text: wordItem.modelData.text
                                 color: root.sungColor
-                                font.family: root.fontFamily
+                                font.family: root.fontFamily.length > 0 ? root.fontFamily : font.family
                                 font.pixelSize: root.fontPixelSize
                                 font.weight: root.fontWeight
                                 font.italic: root.fontItalic

@@ -64,6 +64,14 @@ def test_parse_lrc_strips_empty_text_lines():
     assert lines[1].text == ""
 
 
+def test_parse_lrc_filters_double_slash_separator():
+    """QQ 音乐 LRC 中的 '//' 行间分隔符应被过滤掉."""
+    raw = "[00:10.00]第一行\n[00:15.00]//\n[00:20.00]第二行"
+    lines = parse_lrc(raw)
+    assert len(lines) == 2
+    assert [ln.text for ln in lines] == ["第一行", "第二行"]
+
+
 def test_parse_lrc_sorts_by_timestamp():
     raw = "[00:30.00]后\n[00:10.00]先\n[00:20.00]中"
     lines = parse_lrc(raw)
@@ -135,6 +143,14 @@ def test_parse_qrc_sorts_by_line_start():
     lines = parse_qrc(raw)
     assert [ln.timestamp_ms for ln in lines] == [1000, 2000, 3000]
     assert [ln.text for ln in lines] == ["甲", "乙", "丙"]
+
+
+def test_parse_qrc_filters_double_slash_separator():
+    """QQ 音乐 QRC 中的 '//' 行间分隔符应被过滤掉."""
+    raw = "[0,500]你(0,250)好(250,250)\n[500,0]//(500,0)\n[1000,500]世(1000,250)界(1250,250)"
+    lines = parse_qrc(raw)
+    assert len(lines) == 2
+    assert [ln.text for ln in lines] == ["你好", "世界"]
 
 
 def test_parse_qrc_empty_input():
