@@ -849,6 +849,7 @@ ApplicationWindow {
         libraryController: root.libraryController
         coverController: root.coverController
         songDetailController: root.songDetailController
+        settingsController: root.settingsController
         playbackState: root.playerController ? root.playerController.playbackState : "stopped"
         positionMs: root.playerController ? root.playerController.positionMs : 0
         durationMs: root.playerController ? root.playerController.durationMs : 0
