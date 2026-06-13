@@ -85,6 +85,7 @@ class _FakeLyricController(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.currentLineText = ""
+        self.currentLineTranslation = ""
         self.activeIndex = -1
         self.positionMs = 0
         self.lyric_lines: list[dict] = []
@@ -93,8 +94,9 @@ class _FakeLyricController(QObject):
     def lyricModel(self) -> _FakeLyricModel:
         return _FakeLyricModel(self.lyric_lines)
 
-    def set_line(self, text: str) -> None:
+    def set_line(self, text: str, translation: str = "") -> None:
         self.currentLineText = text
+        self.currentLineTranslation = translation
         self.currentLineChanged.emit()
 
     def advance_position(self, ms: int) -> None:
@@ -727,3 +729,106 @@ def test_controller_position_updates_sung_count(qapp):
     fake.advance_position(250)
     qapp.processEvents()
     assert ctrl.window._sung_count == 3
+
+
+# ============================================================== 翻译
+
+
+def test_set_line_with_translation(qapp):
+    """set_line 接受 translation 参数."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    assert w._text == "Don't Cry"
+    assert w._translation == "说好不哭"
+
+
+def test_set_text_clears_translation(qapp):
+    """set_text 应清空之前的翻译."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    assert w._translation == "说好不哭"
+    w.set_text("Another line")
+    assert w._translation == ""
+
+
+def test_paint_horizontal_with_translation_no_crash(qapp):
+    """横向 + 翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    w.resize(800, 130)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_cjk_with_translation_no_crash(qapp):
+    """竖向 CJK + 翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("离别的眼泪", [], translation="Tears of parting")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_rotated_with_translation_no_crash(qapp):
+    """竖向拉丁 (旋转 90°) + 翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_horizontal_mixed_translation_no_crash(qapp):
+    """横向 + 中英混合翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("夜に駆ける", [], translation="向夜晚奔去 Racing into the Night")
+    w.resize(800, 130)
+    assert not w.grab().isNull()
+
+
+def test_controller_syncs_translation(qapp):
+    """controller 从 LyricController 拉 currentLineTranslation."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    fake.set_line("Shape of You", "你的轮廓")
+    qapp.processEvents()
+    assert ctrl.window._text == "Shape of You"
+    assert ctrl.window._translation == "你的轮廓"
+
+
+def test_controller_clears_translation_when_absent(qapp):
+    """翻译为空时 controller 也正确传 ''."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    fake.set_line("Shape of You", "你的轮廓")
+    qapp.processEvents()
+    assert ctrl.window._translation == "你的轮廓"
+    fake.set_line("Next line")
+    qapp.processEvents()
+    assert ctrl.window._translation == ""
+
+
+def test_translation_font_is_smaller(qapp):
+    """翻译字体应为主字体的 60%."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Test", [], translation="测试")
+    main_size = w._font.pointSize()
+    trans_size = w._trans_font.pointSize()
+    assert trans_size == max(12, int(main_size * 0.6))
