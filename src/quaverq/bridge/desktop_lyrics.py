@@ -250,8 +250,6 @@ class DesktopLyricsWindow(QWidget):
         self._trans_fm: QFontMetrics | None = None
         self._trans_path = QPainterPath()
         self._trans_total_w: float = 0.0
-        self._v_trans_path = QPainterPath()
-        self._v_trans_total_chars: int = 0
         self._v_trans_line_h: float = 0.0
         # 画刷缓存: color/height 变化时重建
         self._cached_brush_base: QBrush | None = None
@@ -445,10 +443,7 @@ class DesktopLyricsWindow(QWidget):
             self._build_trans_horizontal_cache()
 
         if self._orientation == "vertical":
-            if self._v_mixed and self._v_trans_blocks:
-                self._has_trans = bool(self._translation) and self._v_trans_v_height > 0
-            else:
-                self._has_trans = bool(self._translation) and self._v_trans_total_chars > 0
+            self._has_trans = bool(self._translation) and self._v_trans_v_height > 0
         else:
             self._has_trans = bool(self._translation) and self._trans_total_w > 0
 
@@ -547,31 +542,10 @@ class DesktopLyricsWindow(QWidget):
 
     def _build_trans_vertical_cache(self) -> None:
         if not self._translation or not self._trans_fm:
-            self._v_trans_path = QPainterPath()
-            self._v_trans_total_chars = 0
             self._v_trans_blocks = []
             self._v_trans_v_height = 0.0
             return
-        tfm = self._trans_fm
-        if self._v_rotated:
-            path = QPainterPath()
-            path.addText(0, 0, self._trans_font, self._translation)
-            self._v_trans_path = path
-            self._trans_total_w = float(tfm.horizontalAdvance(self._translation))
-        elif self._v_mixed or any(
-            not _is_vertical_char(c) for c in self._translation if not c.isspace()
-        ):
-            self._build_trans_mixed_vertical_cache(tfm)
-        else:
-            char_h = tfm.ascent() + tfm.descent()
-            line_h = char_h + max(3, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
-            self._v_trans_line_h = float(line_h)
-            path = QPainterPath()
-            for i, ch in enumerate(self._translation):
-                char_w = tfm.horizontalAdvance(ch)
-                path.addText(-char_w / 2.0, float(i * line_h), self._trans_font, ch)
-            self._v_trans_path = path
-        self._v_trans_total_chars = len(self._translation)
+        self._build_trans_mixed_vertical_cache(self._trans_fm)
 
     def _build_trans_mixed_vertical_cache(self, tfm: QFontMetrics) -> None:
         char_h = tfm.ascent() + tfm.descent()
@@ -842,6 +816,43 @@ class DesktopLyricsWindow(QWidget):
         main_cx = left_edge + trans_w + _VCOL_GAP + main_w / 2.0
         return main_cx, trans_cx
 
+    def _paint_trans_vertical_blocks(
+        self, painter: QPainter, trans_cx: float, total_h: float
+    ) -> None:
+        trans_fm = self._trans_fm
+        trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
+        trans_start_y = max(
+            trans_fm.ascent(),
+            (self.height() - total_h) / 2.0 + trans_fm.ascent(),
+        )
+        base_brush = self._cached_brush_base
+        nopen = Qt.PenStyle.NoPen
+        block_y = trans_start_y
+        for blk in self._v_trans_blocks:
+            if blk.rotated:
+                painter.save()
+                painter.translate(trans_cx, block_y + blk.content_h / 2.0)
+                painter.rotate(90)
+                painter.translate(-blk.content_h / 2.0, trans_baseline)
+                painter.setPen(self._trans_outline_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(blk.path)
+                painter.setPen(nopen)
+                painter.setBrush(base_brush)
+                painter.drawPath(blk.path)
+                painter.restore()
+            else:
+                painter.save()
+                painter.translate(trans_cx, block_y)
+                painter.setPen(self._trans_outline_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(blk.path)
+                painter.setPen(nopen)
+                painter.setBrush(base_brush)
+                painter.drawPath(blk.path)
+                painter.restore()
+            block_y += blk.v_height
+
     def _paint_vertical(self, painter: QPainter) -> None:
         """竖向: CJK 逐字堆叠 / 拉丁文旋转 90° 横排 + 翻译."""
         if self._v_rotated:
@@ -861,8 +872,7 @@ class DesktopLyricsWindow(QWidget):
         main_cx, trans_cx = self._vcol_positions()
         total_h = main_h
         if has_trans:
-            trans_h = self._v_trans_line_h * self._v_trans_total_chars
-            total_h = max(main_h, trans_h)
+            total_h = max(main_h, self._v_trans_v_height)
 
         start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
 
@@ -901,20 +911,7 @@ class DesktopLyricsWindow(QWidget):
             char_idx += self._v_word_char_counts[i]
 
         if has_trans:
-            trans_fm = self._trans_fm
-            trans_start_y = max(
-                trans_fm.ascent(),
-                (self.height() - total_h) / 2.0 + trans_fm.ascent(),
-            )
-            painter.save()
-            painter.translate(trans_cx, trans_start_y)
-            painter.setPen(self._trans_outline_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self._v_trans_path)
-            painter.setPen(nopen)
-            painter.setBrush(base_brush)
-            painter.drawPath(self._v_trans_path)
-            painter.restore()
+            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
 
     def _paint_vertical_rotated(self, painter: QPainter) -> None:
         """拉丁文竖排: 横向文字旋转 90° 顺时针 + 翻译 (左列)."""
@@ -964,22 +961,8 @@ class DesktopLyricsWindow(QWidget):
         painter.restore()
 
         if has_trans:
-            trans_fm = self._trans_fm
-            trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
-
-            painter.save()
-            painter.translate(trans_cx, self.height() / 2.0)
-            painter.rotate(90)
-
-            trans_x0 = -self._trans_total_w / 2.0
-            painter.translate(trans_x0, trans_baseline)
-            painter.setPen(self._trans_outline_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self._v_trans_path)
-            painter.setPen(nopen)
-            painter.setBrush(base_brush)
-            painter.drawPath(self._v_trans_path)
-            painter.restore()
+            total_h = max(self._h_total_w, self._v_trans_v_height)
+            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
 
     def _paint_vertical_mixed(self, painter: QPainter) -> None:
         """竖向混排: CJK 直立堆叠 + Latin 段旋转 90°. 翻译左列."""
@@ -1063,37 +1046,7 @@ class DesktopLyricsWindow(QWidget):
             word_y += word_h
 
         if has_trans:
-            trans_fm = self._trans_fm
-            trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
-            trans_start_y = max(
-                trans_fm.ascent(),
-                (self.height() - total_h) / 2.0 + trans_fm.ascent(),
-            )
-            block_y = trans_start_y
-            for blk in self._v_trans_blocks:
-                if blk.rotated:
-                    painter.save()
-                    painter.translate(trans_cx, block_y + blk.content_h / 2.0)
-                    painter.rotate(90)
-                    painter.translate(-blk.content_h / 2.0, trans_baseline)
-                    painter.setPen(self._trans_outline_pen)
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawPath(blk.path)
-                    painter.setPen(nopen)
-                    painter.setBrush(base_brush)
-                    painter.drawPath(blk.path)
-                    painter.restore()
-                else:
-                    painter.save()
-                    painter.translate(trans_cx, block_y)
-                    painter.setPen(self._trans_outline_pen)
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawPath(blk.path)
-                    painter.setPen(nopen)
-                    painter.setBrush(base_brush)
-                    painter.drawPath(blk.path)
-                    painter.restore()
-                block_y += blk.v_height
+            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
 
     def _fill_brush(self, *, highlight: bool) -> QBrush:
         """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
