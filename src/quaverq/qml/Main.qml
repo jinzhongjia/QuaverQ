@@ -475,11 +475,6 @@ ApplicationWindow {
     Connections {
         target: root.appController
 
-        function onCredExpired() {
-            globalBanner.kind = "info"
-            globalBanner.actionText = qsTr("重新登录")
-            globalBanner.message = qsTr("登录已过期，请重新登录")
-        }
         function onAuthChanged(authed, reason) {
             if (authed)
                 globalBanner.dismiss()
