@@ -49,6 +49,9 @@ def parse_qrc(raw: str) -> list[LyricLine]:
         cursor = 0
         for wm in _QRC_WORD_RE.finditer(content):
             text = content[cursor : wm.start()]
+            if text.strip() == "//":
+                cursor = wm.end()
+                continue
             words.append(
                 LyricWord(
                     text=text,
@@ -60,10 +63,13 @@ def parse_qrc(raw: str) -> list[LyricLine]:
 
         if not words:
             continue
+        line_text = "".join(w.text for w in words)
+        if not line_text.strip():
+            continue
         result.append(
             LyricLine(
                 timestamp_ms=line_start,
-                text="".join(w.text for w in words),
+                text=line_text,
                 words=words,
             )
         )
@@ -88,6 +94,8 @@ def parse_lrc(raw: str) -> list[LyricLine]:
             continue
         # 取最后一个时间戳之后的文本作为歌词内容
         text = line[matches[-1].end() :].strip()
+        if text == "//":
+            continue
         for m in matches:
             mm = int(m.group(1))
             ss = int(m.group(2))

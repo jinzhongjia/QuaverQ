@@ -417,7 +417,7 @@ Rectangle {
                                     onActivated: {
                                         overflowPopup.close()
                                         if (root.settingsController)
-                                            root.settingsController.desktopLyricsEnabled = !root.settingsController.desktopLyricsEnabled
+                                            root.settingsController.setDesktopLyricsEnabled(!root.settingsController.desktopLyricsEnabled)
                                     }
                                 }
 
@@ -583,7 +583,7 @@ Rectangle {
                 enabled: root.hasSong
                 onClicked: {
                     if (root.settingsController)
-                        root.settingsController.desktopLyricsEnabled = !root.settingsController.desktopLyricsEnabled
+                        root.settingsController.setDesktopLyricsEnabled(!root.settingsController.desktopLyricsEnabled)
                 }
             }
 

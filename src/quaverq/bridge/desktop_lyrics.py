@@ -75,6 +75,78 @@ _ITALIC_SHEAR = 0.213
 # 字间距: 默认 advance 太挤 (尤其 CJK 大字号 OSD), 加 10% PercentageSpacing 让字呼吸,
 # 同时与字号成比例 (避免小字号下加固定 px 导致过宽 / 大字号下不够).
 _LETTER_SPACING_PERCENT = 110.0
+_VERTICAL_CHAR_GAP_RATIO = 0.25
+# wipe clip 纵向裕量: 值不重要, 只要大于文字实际高度就行
+_CLIP_MARGIN = 2000.0
+_TRANS_SIZE_RATIO = 0.6
+_VTRANS_SIZE_RATIO = 0.75  # 竖排翻译字号比例 (竖排本身字不大, 0.6 太小)
+_TRANS_OUTLINE_WIDTH = 2
+_TRANS_GAP = 6
+_VCOL_GAP = 12  # 竖排双列间距 (歌词右列 + 翻译左列)
+
+
+def _has_cjk(text: str) -> bool:
+    """含 CJK 表意字 / 假名 / 谚文 -> 竖排逐字堆叠; 纯拉丁文 -> 旋转 90°.
+
+    只检测实际文字 (汉字 / 平片假名 / 韩文音节), 不计 CJK 标点——
+    避免纯英文歌词里混入一个全角逗号就被误判成 CJK.
+    """
+    for c in text:
+        cp = ord(c)
+        if (
+            0x4E00 <= cp <= 0x9FFF
+            or 0x3400 <= cp <= 0x4DBF
+            or 0x3040 <= cp <= 0x309F
+            or 0x30A0 <= cp <= 0x30FF
+            or 0xAC00 <= cp <= 0xD7AF
+        ):
+            return True
+    return False
+
+
+def _is_vertical_char(c: str) -> bool:
+    """竖排中应直立堆叠的字符: CJK 表意字 / 假名 / 谚文 / 全角标点."""
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF
+        or 0x3400 <= cp <= 0x4DBF
+        or 0x3040 <= cp <= 0x309F
+        or 0x30A0 <= cp <= 0x30FF
+        or 0xAC00 <= cp <= 0xD7AF
+        or 0x3000 <= cp <= 0x303F
+        or 0xFF00 <= cp <= 0xFF60
+        or 0xFE30 <= cp <= 0xFE4F
+    )
+
+
+def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
+    """将文本拆分为 (段文字, 是否竖排) 对, 用于混排竖向布局.
+
+    CJK + 全角标点 → is_vertical=True (逐字堆叠)
+    Latin/ASCII → is_vertical=False, 按单词拆分 (每个词独立旋转 90°)
+    """
+    if not text:
+        return []
+    raw: list[tuple[str, bool]] = []
+    buf = text[0]
+    buf_vert = _is_vertical_char(text[0])
+    for c in text[1:]:
+        vert = _is_vertical_char(c)
+        if vert == buf_vert:
+            buf += c
+        else:
+            raw.append((buf, buf_vert))
+            buf = c
+            buf_vert = vert
+    raw.append((buf, buf_vert))
+    result: list[tuple[str, bool]] = []
+    for seg_text, is_vert in raw:
+        if is_vert:
+            result.append((seg_text, True))
+        else:
+            for word in seg_text.split():
+                result.append((word, False))
+    return result
 
 
 class _WordInfo(NamedTuple):
@@ -84,6 +156,15 @@ class _WordInfo(NamedTuple):
     start_ms: int
     duration_ms: int
     end_ms: int
+
+
+class _VBlock(NamedTuple):
+    """混排竖向布局中的一个视觉块."""
+
+    path: QPainterPath
+    v_height: float
+    rotated: bool
+    content_h: float
 
 
 def _make_word_infos(words: list[dict[str, Any]]) -> list[_WordInfo]:
@@ -146,11 +227,30 @@ class DesktopLyricsWindow(QWidget):
         self._h_word_xs: list[float] = []
         self._h_word_widths: list[float] = []
         self._h_total_w: float = 0.0
-        # 竖向
+        # 竖向 (纯 CJK 堆叠)
         self._v_word_paths: list[QPainterPath] = []
         self._v_word_char_counts: list[int] = []
         self._v_line_h: float = 0.0
         self._v_total_chars: int = 0
+        self._v_rotated: bool = False
+        # 竖向混排 (CJK 堆叠 + Latin 旋转 90°)
+        self._v_mixed: bool = False
+        self._v_word_blocks: list[list[_VBlock]] = []
+        self._v_word_v_heights: list[float] = []
+        self._v_total_v_height: float = 0.0
+        self._v_trans_blocks: list[_VBlock] = []
+        self._v_trans_v_height: float = 0.0
+        # 翻译
+        self._translation = ""
+        self._has_trans = False
+        self._trans_outline_pen = QPen(_OUTLINE_COLOR, _TRANS_OUTLINE_WIDTH)
+        self._trans_outline_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        self._trans_outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self._trans_font = QFont(self._font)
+        self._trans_fm: QFontMetrics | None = None
+        self._trans_path = QPainterPath()
+        self._trans_total_w: float = 0.0
+        self._v_trans_line_h: float = 0.0
         # 画刷缓存: color/height 变化时重建
         self._cached_brush_base: QBrush | None = None
         self._cached_brush_highlight: QBrush | None = None
@@ -184,9 +284,10 @@ class DesktopLyricsWindow(QWidget):
     def set_text(self, text: str) -> None:
         """back-compat 入口: 无逐字数据 -> 整句作为单段 (始终高亮)."""
         text = text or ""
-        if text == self._text and not self._words:
+        if text == self._text and not self._words and not self._translation:
             return
         self._text = text
+        self._translation = ""
         self._words = []
         self._word_infos = []
         self._word_starts = []
@@ -195,13 +296,17 @@ class DesktopLyricsWindow(QWidget):
         self._rebuild_paint_cache()
         self.update()
 
-    def set_line(self, text: str, words: list[dict[str, Any]] | None) -> None:
-        """更新当前行 + 逐字时间. words 为 None / [] 时整句作为单段高亮."""
+    def set_line(
+        self, text: str, words: list[dict[str, Any]] | None, translation: str = ""
+    ) -> None:
+        """更新当前行 + 逐字时间 + 翻译. words 为 None / [] 时整句作为单段高亮."""
         text = text or ""
         words = list(words or [])
-        if text == self._text and words == self._words:
+        translation = translation or ""
+        if text == self._text and words == self._words and translation == self._translation:
             return
         self._text = text
+        self._translation = translation
         self._words = words
         self._word_infos = _make_word_infos(words)
         self._word_starts = [w.start_ms for w in self._word_infos]
@@ -322,10 +427,25 @@ class DesktopLyricsWindow(QWidget):
         else:
             self._display_words = []
 
+        if self._translation:
+            trans_font = QFont(self._font)
+            ratio = _VTRANS_SIZE_RATIO if self._orientation == "vertical" else _TRANS_SIZE_RATIO
+            trans_font.setPointSize(max(12, int(self._font.pointSize() * ratio)))
+            trans_font.setWeight(QFont.Weight.Bold)
+            self._trans_fm = QFontMetrics(trans_font)
+            self._trans_font = trans_font
+
         if self._orientation == "vertical":
             self._build_vertical_cache(fm)
+            self._build_trans_vertical_cache()
         else:
             self._build_horizontal_cache(fm)
+            self._build_trans_horizontal_cache()
+
+        if self._orientation == "vertical":
+            self._has_trans = bool(self._translation) and self._v_trans_v_height > 0
+        else:
+            self._has_trans = bool(self._translation) and self._trans_total_w > 0
 
     def _build_horizontal_cache(self, fm: QFontMetrics) -> None:
         outline = QPainterPath()
@@ -349,8 +469,21 @@ class DesktopLyricsWindow(QWidget):
         self._h_total_w = x
 
     def _build_vertical_cache(self, fm: QFontMetrics) -> None:
-        line_h = fm.ascent() + fm.descent() + 2
+        full_text = "".join(w.text for w in self._display_words)
+        has_cjk_chars = _has_cjk(full_text)
+        self._v_rotated = not has_cjk_chars
+        if self._v_rotated:
+            self._v_mixed = False
+            self._build_horizontal_cache(fm)
+            return
+        has_latin = any(not _is_vertical_char(c) for c in full_text if not c.isspace())
+        self._v_mixed = has_latin
+        char_h = fm.ascent() + fm.descent()
+        line_h = char_h + max(4, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
         self._v_line_h = float(line_h)
+        if has_latin:
+            self._build_mixed_vertical_cache(fm, line_h, char_h)
+            return
         paths: list[QPainterPath] = []
         char_counts: list[int] = []
         total_chars = 0
@@ -365,6 +498,79 @@ class DesktopLyricsWindow(QWidget):
         self._v_word_paths = paths
         self._v_word_char_counts = char_counts
         self._v_total_chars = total_chars
+
+    def _build_mixed_vertical_cache(self, fm: QFontMetrics, line_h: int, char_h: int) -> None:
+        gap = line_h - char_h
+        word_blocks: list[list[_VBlock]] = []
+        word_heights: list[float] = []
+        total_h = 0.0
+        for w in self._display_words:
+            segments = _segment_for_vertical(w.text)
+            blocks: list[_VBlock] = []
+            word_h = 0.0
+            for seg_text, is_vert in segments:
+                if is_vert:
+                    path = QPainterPath()
+                    for i, ch in enumerate(seg_text):
+                        cw = fm.horizontalAdvance(ch)
+                        path.addText(-cw / 2.0, float(i * line_h), self._font, ch)
+                    v_h = float(len(seg_text) * line_h)
+                    blocks.append(_VBlock(path=path, v_height=v_h, rotated=False, content_h=v_h))
+                else:
+                    path = QPainterPath()
+                    path.addText(0.0, 0.0, self._font, seg_text)
+                    run_w = float(fm.horizontalAdvance(seg_text))
+                    v_h = run_w + gap
+                    blocks.append(_VBlock(path=path, v_height=v_h, rotated=True, content_h=run_w))
+                word_h += v_h
+            word_blocks.append(blocks)
+            word_heights.append(word_h)
+            total_h += word_h
+        self._v_word_blocks = word_blocks
+        self._v_word_v_heights = word_heights
+        self._v_total_v_height = total_h
+
+    def _build_trans_horizontal_cache(self) -> None:
+        if not self._translation or not self._trans_fm:
+            self._trans_path = QPainterPath()
+            self._trans_total_w = 0.0
+            return
+        path = QPainterPath()
+        path.addText(0, 0, self._trans_font, self._translation)
+        self._trans_path = path
+        self._trans_total_w = float(self._trans_fm.horizontalAdvance(self._translation))
+
+    def _build_trans_vertical_cache(self) -> None:
+        if not self._translation or not self._trans_fm:
+            self._v_trans_blocks = []
+            self._v_trans_v_height = 0.0
+            return
+        self._build_trans_mixed_vertical_cache(self._trans_fm)
+
+    def _build_trans_mixed_vertical_cache(self, tfm: QFontMetrics) -> None:
+        char_h = tfm.ascent() + tfm.descent()
+        line_h = char_h + max(3, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
+        gap = line_h - char_h
+        self._v_trans_line_h = float(line_h)
+        blocks: list[_VBlock] = []
+        total_h = 0.0
+        for seg_text, is_vert in _segment_for_vertical(self._translation):
+            if is_vert:
+                path = QPainterPath()
+                for i, ch in enumerate(seg_text):
+                    cw = tfm.horizontalAdvance(ch)
+                    path.addText(-cw / 2.0, float(i * line_h), self._trans_font, ch)
+                v_h = float(len(seg_text) * line_h)
+                blocks.append(_VBlock(path=path, v_height=v_h, rotated=False, content_h=v_h))
+            else:
+                path = QPainterPath()
+                path.addText(0.0, 0.0, self._trans_font, seg_text)
+                run_w = float(tfm.horizontalAdvance(seg_text))
+                v_h = run_w + gap
+                blocks.append(_VBlock(path=path, v_height=v_h, rotated=True, content_h=run_w))
+            total_h += v_h
+        self._v_trans_blocks = blocks
+        self._v_trans_v_height = total_h
 
     def _ensure_brush_cache(self) -> None:
         h = max(1, self.height())
@@ -394,15 +600,15 @@ class DesktopLyricsWindow(QWidget):
             return
         geo = screen.availableGeometry()
         if self._orientation == "vertical":
-            # 竖向: 窄列, 高度 ~70% 屏高, 默认右侧距边 80px
-            width = 120
+            # 竖向: 双列 (歌词右 + 翻译左), 高度 ~70% 屏高, 默认右侧距边 80px
+            width = 200
             height = max(300, int(geo.height() * 0.7))
             x = geo.x() + geo.width() - width - 80
             y = geo.y() + (geo.height() - height) // 2
         else:
-            # 横向: 宽 2/3 屏 (目标至少 900, 但钳到屏宽 —— 窄屏上不许超界), 高 90, 距底 60px
+            # 横向: 宽 2/3 屏, 高 130 (容纳主歌词 + 翻译行), 距底 60px
             width = min(geo.width(), max(900, geo.width() * 2 // 3))
-            height = 90
+            height = 130
             x = geo.x() + (geo.width() - width) // 2
             y = geo.y() + geo.height() - height - 60
         self.setGeometry(x, y, width, height)
@@ -536,25 +742,34 @@ class DesktopLyricsWindow(QWidget):
             self._paint_horizontal(painter)
 
     def _paint_horizontal(self, painter: QPainter) -> None:
-        """横向: 缓存路径 + 逐字 wipe clip."""
+        """横向: 缓存路径 + 逐字 wipe clip + 翻译."""
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
+        has_trans = self._has_trans
+
+        if has_trans:
+            trans_fm = self._trans_fm
+            main_h = fm.ascent() + fm.descent()
+            trans_h = trans_fm.ascent() + trans_fm.descent()
+            total_h = main_h + _TRANS_GAP + trans_h
+            baseline = (self.height() - total_h) / 2.0 + fm.ascent()
+        else:
+            baseline = (self.height() + fm.ascent() - fm.descent()) / 2.0
 
         x0 = (self.width() - self._h_total_w) / 2.0
-        baseline = (self.height() + fm.ascent() - fm.descent()) / 2.0
-        painter.translate(x0, baseline)
-
-        # 整句单次描边 (缓存路径)
-        painter.setPen(self._outline_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(self._h_outline_path)
-
-        # 分段填色 + wipe
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
         hi_brush = self._cached_brush_highlight
         nopen = Qt.PenStyle.NoPen
+
+        painter.save()
+        painter.translate(x0, baseline)
+
+        painter.setPen(self._outline_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(self._h_outline_path)
+
         for i, w in enumerate(self._display_words):
             word_path = self._h_word_paths[i]
             fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
@@ -573,17 +788,93 @@ class DesktopLyricsWindow(QWidget):
                 painter.setBrush(hi_brush)
                 painter.drawPath(word_path)
                 painter.restore()
+        painter.restore()
+
+        if has_trans:
+            trans_baseline = baseline + fm.descent() + _TRANS_GAP + trans_fm.ascent()
+            tx = (self.width() - self._trans_total_w) / 2.0
+            painter.save()
+            painter.translate(tx, trans_baseline)
+            painter.setPen(self._trans_outline_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(self._trans_path)
+            painter.setPen(nopen)
+            painter.setBrush(base_brush)
+            painter.drawPath(self._trans_path)
+            painter.restore()
+
+    def _vcol_positions(self) -> tuple[float, float]:
+        """竖排双列中心 X: (main_cx, trans_cx). 歌词右列, 翻译左列."""
+        fm = self._cached_fm
+        main_w = float(fm.ascent() + fm.descent())
+        if not self._has_trans or not self._trans_fm:
+            return self.width() / 2.0, 0.0
+        trans_w = float(self._trans_fm.ascent() + self._trans_fm.descent())
+        total = main_w + _VCOL_GAP + trans_w
+        left_edge = (self.width() - total) / 2.0
+        trans_cx = left_edge + trans_w / 2.0
+        main_cx = left_edge + trans_w + _VCOL_GAP + main_w / 2.0
+        return main_cx, trans_cx
+
+    def _paint_trans_vertical_blocks(
+        self, painter: QPainter, trans_cx: float, total_h: float
+    ) -> None:
+        trans_fm = self._trans_fm
+        trans_baseline = (trans_fm.ascent() - trans_fm.descent()) / 2.0
+        trans_start_y = max(
+            trans_fm.ascent(),
+            (self.height() - total_h) / 2.0 + trans_fm.ascent(),
+        )
+        base_brush = self._cached_brush_base
+        nopen = Qt.PenStyle.NoPen
+        block_y = trans_start_y
+        for blk in self._v_trans_blocks:
+            if blk.rotated:
+                painter.save()
+                painter.translate(trans_cx, block_y + blk.content_h / 2.0)
+                painter.rotate(90)
+                painter.translate(-blk.content_h / 2.0, trans_baseline)
+                painter.setPen(self._trans_outline_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(blk.path)
+                painter.setPen(nopen)
+                painter.setBrush(base_brush)
+                painter.drawPath(blk.path)
+                painter.restore()
+            else:
+                painter.save()
+                painter.translate(trans_cx, block_y)
+                painter.setPen(self._trans_outline_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(blk.path)
+                painter.setPen(nopen)
+                painter.setBrush(base_brush)
+                painter.drawPath(blk.path)
+                painter.restore()
+            block_y += blk.v_height
 
     def _paint_vertical(self, painter: QPainter) -> None:
-        """竖向: 缓存路径 + 逐字 wipe clip."""
+        """竖向: CJK 逐字堆叠 / 拉丁文旋转 90° 横排 + 翻译."""
+        if self._v_rotated:
+            self._paint_vertical_rotated(painter)
+            return
+        if self._v_mixed:
+            self._paint_vertical_mixed(painter)
+            return
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
         line_h = self._v_line_h
 
-        total_h = line_h * self._v_total_chars
+        main_h = line_h * self._v_total_chars
+        has_trans = self._has_trans
+
+        main_cx, trans_cx = self._vcol_positions()
+        total_h = main_h
+        if has_trans:
+            total_h = max(main_h, self._v_trans_v_height)
+
         start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
-        cx = self.width() / 2.0
 
         ms = self._effective_ms()
         base_brush = self._cached_brush_base
@@ -597,9 +888,8 @@ class DesktopLyricsWindow(QWidget):
             first_y = start_y + char_idx * line_h
 
             painter.save()
-            painter.translate(cx, first_y)
+            painter.translate(main_cx, first_y)
 
-            # 描边 + base 色
             painter.setPen(self._outline_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(word_path)
@@ -607,7 +897,6 @@ class DesktopLyricsWindow(QWidget):
             painter.setBrush(base_brush)
             painter.drawPath(word_path)
 
-            # 高亮 wipe (top-down)
             if fraction > 0.0:
                 n_chars = self._v_word_char_counts[i]
                 word_h = line_h * n_chars
@@ -620,6 +909,145 @@ class DesktopLyricsWindow(QWidget):
 
             painter.restore()
             char_idx += self._v_word_char_counts[i]
+
+        if has_trans:
+            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
+
+    def _paint_vertical_rotated(self, painter: QPainter) -> None:
+        """拉丁文竖排: 横向文字旋转 90° 顺时针 + 翻译 (左列)."""
+        if not self._display_words or not self._cached_fm:
+            return
+        fm = self._cached_fm
+        has_trans = self._has_trans
+
+        main_cx, trans_cx = self._vcol_positions()
+
+        # 主歌词: 旋转 90° 居中于右列
+        painter.save()
+        painter.translate(main_cx, self.height() / 2.0)
+        painter.rotate(90)
+
+        x0 = -self._h_total_w / 2.0
+        baseline = (fm.ascent() - fm.descent()) / 2.0
+        painter.translate(x0, baseline)
+
+        painter.setPen(self._outline_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(self._h_outline_path)
+
+        ms = self._effective_ms()
+        base_brush = self._cached_brush_base
+        hi_brush = self._cached_brush_highlight
+        nopen = Qt.PenStyle.NoPen
+
+        for i, w in enumerate(self._display_words):
+            word_path = self._h_word_paths[i]
+            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
+
+            painter.setPen(nopen)
+            painter.setBrush(base_brush)
+            painter.drawPath(word_path)
+
+            if fraction > 0.0:
+                word_x = self._h_word_xs[i]
+                word_w = self._h_word_widths[i]
+                clip_w = max(1.0, word_w * fraction)
+                painter.save()
+                painter.setClipRect(word_x, -_CLIP_MARGIN, clip_w, _CLIP_MARGIN * 2)
+                painter.setBrush(hi_brush)
+                painter.drawPath(word_path)
+                painter.restore()
+
+        painter.restore()
+
+        if has_trans:
+            total_h = max(self._h_total_w, self._v_trans_v_height)
+            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
+
+    def _paint_vertical_mixed(self, painter: QPainter) -> None:
+        """竖向混排: CJK 直立堆叠 + Latin 段旋转 90°. 翻译左列."""
+        if not self._display_words or not self._cached_fm:
+            return
+        fm = self._cached_fm
+        baseline_off = (fm.ascent() - fm.descent()) / 2.0
+
+        main_h = self._v_total_v_height
+        has_trans = self._has_trans
+        total_h = main_h
+        if has_trans:
+            trans_h = self._v_trans_v_height
+            total_h = max(main_h, trans_h)
+
+        main_cx, trans_cx = self._vcol_positions()
+        start_y = max(fm.ascent(), (self.height() - total_h) / 2.0 + fm.ascent())
+
+        ms = self._effective_ms()
+        base_brush = self._cached_brush_base
+        hi_brush = self._cached_brush_highlight
+        nopen = Qt.PenStyle.NoPen
+
+        word_y = start_y
+        for i, w in enumerate(self._display_words):
+            blocks = self._v_word_blocks[i]
+            word_h = self._v_word_v_heights[i]
+            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
+
+            block_y = word_y
+            for blk in blocks:
+                if blk.rotated:
+                    painter.save()
+                    painter.translate(main_cx, block_y + blk.content_h / 2.0)
+                    painter.rotate(90)
+                    painter.translate(-blk.content_h / 2.0, baseline_off)
+                    painter.setPen(self._outline_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(blk.path)
+                    painter.setPen(nopen)
+                    painter.setBrush(base_brush)
+                    painter.drawPath(blk.path)
+                    painter.restore()
+                else:
+                    painter.save()
+                    painter.translate(main_cx, block_y)
+                    painter.setPen(self._outline_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(blk.path)
+                    painter.setPen(nopen)
+                    painter.setBrush(base_brush)
+                    painter.drawPath(blk.path)
+                    painter.restore()
+                block_y += blk.v_height
+
+            if fraction > 0.0:
+                clip_total = word_h + fm.ascent()
+                clip_h = max(1, int(round(clip_total * fraction)))
+                painter.save()
+                painter.setClipRect(0, int(word_y - fm.ascent()), self.width(), clip_h)
+                block_y = word_y
+                for blk in blocks:
+                    if blk.rotated:
+                        painter.save()
+                        painter.translate(main_cx, block_y + blk.content_h / 2.0)
+                        painter.rotate(90)
+                        painter.translate(-blk.content_h / 2.0, baseline_off)
+                        painter.setPen(nopen)
+                        painter.setBrush(hi_brush)
+                        painter.drawPath(blk.path)
+                        painter.restore()
+                    else:
+                        painter.save()
+                        painter.translate(main_cx, block_y)
+                        painter.setPen(nopen)
+                        painter.setBrush(hi_brush)
+                        painter.drawPath(blk.path)
+                        painter.restore()
+                    block_y += blk.v_height
+                painter.restore()
+
+            word_y += word_h
+
+        if has_trans:
+            self._paint_trans_vertical_blocks(painter, trans_cx, total_h)
 
     def _fill_brush(self, *, highlight: bool) -> QBrush:
         """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
@@ -806,11 +1234,11 @@ class DesktopLyricsController(QObject):
         )
 
     def _sync_line(self) -> None:
-        """从 LyricController 拉当前行的 (text, words). 没有 activeIndex / lyricModel
-        的 fake controller 走 fallback: 仅用 currentLineText."""
+        """从 LyricController 拉当前行的 (text, words, translation)."""
         text = getattr(self._lyric_controller, "currentLineText", "") or ""
         words = self._current_words()
-        self._window.set_line(text, words)
+        translation = getattr(self._lyric_controller, "currentLineTranslation", "") or ""
+        self._window.set_line(text, words, translation=translation)
 
     def _sync_position(self) -> None:
         if not getattr(self._lyric_controller, "positionMs", None) and not hasattr(

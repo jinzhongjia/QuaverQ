@@ -85,6 +85,7 @@ class _FakeLyricController(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.currentLineText = ""
+        self.currentLineTranslation = ""
         self.activeIndex = -1
         self.positionMs = 0
         self.lyric_lines: list[dict] = []
@@ -93,8 +94,9 @@ class _FakeLyricController(QObject):
     def lyricModel(self) -> _FakeLyricModel:
         return _FakeLyricModel(self.lyric_lines)
 
-    def set_line(self, text: str) -> None:
+    def set_line(self, text: str, translation: str = "") -> None:
         self.currentLineText = text
+        self.currentLineTranslation = translation
         self.currentLineChanged.emit()
 
     def advance_position(self, ms: int) -> None:
@@ -727,3 +729,338 @@ def test_controller_position_updates_sung_count(qapp):
     fake.advance_position(250)
     qapp.processEvents()
     assert ctrl.window._sung_count == 3
+
+
+# ============================================================== 翻译
+
+
+def test_set_line_with_translation(qapp):
+    """set_line 接受 translation 参数."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    assert w._text == "Don't Cry"
+    assert w._translation == "说好不哭"
+
+
+def test_set_text_clears_translation(qapp):
+    """set_text 应清空之前的翻译."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    assert w._translation == "说好不哭"
+    w.set_text("Another line")
+    assert w._translation == ""
+
+
+def test_paint_horizontal_with_translation_no_crash(qapp):
+    """横向 + 翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    w.resize(800, 130)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_cjk_with_translation_no_crash(qapp):
+    """竖向 CJK + 翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("离别的眼泪", [], translation="Tears of parting")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_rotated_with_translation_no_crash(qapp):
+    """竖向拉丁 (旋转 90°) + 翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("Don't Cry", [], translation="说好不哭")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_horizontal_mixed_translation_no_crash(qapp):
+    """横向 + 中英混合翻译: paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("夜に駆ける", [], translation="向夜晚奔去 Racing into the Night")
+    w.resize(800, 130)
+    assert not w.grab().isNull()
+
+
+def test_controller_syncs_translation(qapp):
+    """controller 从 LyricController 拉 currentLineTranslation."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    fake.set_line("Shape of You", "你的轮廓")
+    qapp.processEvents()
+    assert ctrl.window._text == "Shape of You"
+    assert ctrl.window._translation == "你的轮廓"
+
+
+def test_controller_clears_translation_when_absent(qapp):
+    """翻译为空时 controller 也正确传 ''."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake)
+    fake.set_line("Shape of You", "你的轮廓")
+    qapp.processEvents()
+    assert ctrl.window._translation == "你的轮廓"
+    fake.set_line("Next line")
+    qapp.processEvents()
+    assert ctrl.window._translation == ""
+
+
+def test_translation_font_is_smaller(qapp):
+    """翻译字体应为主字体的 60%."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_line("Test", [], translation="测试")
+    main_size = w._font.pointSize()
+    trans_size = w._trans_font.pointSize()
+    assert trans_size == max(12, int(main_size * 0.6))
+
+
+# ============================================================== 竖向混排 (CJK + Latin)
+
+
+def test_segment_for_vertical_mixed():
+    """验证文本分段: CJK 字符竖排堆叠, Latin 连续段成组旋转."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("曲：Douji-T")
+    # "曲" CJK, "：" fullwidth punct → vertical; "Douji-T" Latin → rotated
+    assert len(segs) >= 2
+    assert all(s[1] is True for s in segs if all(_is_v(c) for c in s[0]))
+    assert segs[-1] == ("Douji-T", False)
+
+
+def test_segment_for_vertical_pure_cjk():
+    """纯 CJK 文本只有一个竖排段."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("离别的眼泪")
+    assert len(segs) == 1
+    assert segs[0] == ("离别的眼泪", True)
+
+
+def test_segment_for_vertical_pure_latin():
+    """纯 Latin 文本按单词拆分, 每个词独立旋转."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("Hello World")
+    assert segs == [("Hello", False), ("World", False)]
+
+
+def test_segment_for_vertical_interleaved():
+    """中英交替: '我爱你baby再见'."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("我爱你baby再见")
+    assert segs == [("我爱你", True), ("baby", False), ("再见", True)]
+
+
+def test_segment_for_vertical_latin_multi_word():
+    """Latin 多词拆分: 翻译行 "Can't read my" 按单词拆."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("Can't read my 读不懂我")
+    assert segs == [
+        ("Can't", False),
+        ("read", False),
+        ("my", False),
+        ("读不懂我", True),
+    ]
+
+
+def test_segment_for_vertical_latin_with_trailing_space():
+    """QRC 逐字常带尾部空格, 拆分后应去掉."""
+    from quaverq.bridge.desktop_lyrics import _segment_for_vertical
+
+    segs = _segment_for_vertical("Fold ")
+    assert segs == [("Fold", False)]
+
+
+def test_vertical_mixed_mode_detected(qapp):
+    """包含 CJK 和 Latin 的文本应使用混排模式."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("曲：Douji-T")
+    assert w._v_mixed is True
+    assert w._v_rotated is False
+
+
+def test_vertical_pure_cjk_not_mixed(qapp):
+    """纯 CJK 文本不使用混排模式."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("离别的眼泪")
+    assert w._v_mixed is False
+    assert w._v_rotated is False
+
+
+def test_vertical_pure_latin_uses_rotated(qapp):
+    """纯拉丁文本使用旋转模式."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("Hello World")
+    assert w._v_mixed is False
+    assert w._v_rotated is True
+
+
+def test_paint_vertical_mixed_no_crash(qapp):
+    """竖向混合中英文 (如 '曲：Douji-T') paintEvent 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("曲：Douji-T")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_mixed_with_words_no_crash(qapp):
+    """竖向混合中英文 + 逐字数据 + wipe 动画不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "我爱你baby",
+        [
+            {"text": "我", "startMs": 0, "durationMs": 200},
+            {"text": "爱", "startMs": 200, "durationMs": 200},
+            {"text": "你", "startMs": 400, "durationMs": 200},
+            {"text": "baby", "startMs": 600, "durationMs": 400},
+        ],
+    )
+    w.set_progress_ms(500)
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_paint_vertical_mixed_with_translation_no_crash(qapp):
+    """竖向混排 + 翻译不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("词：Douji-T/一只然", [], translation="Lyrics by Douji-T")
+    w.resize(200, 600)
+    assert not w.grab().isNull()
+
+
+def test_vertical_trans_cjk_blocks_not_rotated(qapp):
+    """翻译 CJK 块必须 rotated=False (正着堆叠, 不旋转)."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "Fold 'em 让他们",
+        [
+            {"text": "Fold ", "startMs": 0, "durationMs": 500},
+            {"text": "'em ", "startMs": 500, "durationMs": 500},
+            {"text": "让他们", "startMs": 1000, "durationMs": 500},
+        ],
+        translation="Can't read my 读不懂我",
+    )
+    assert w._v_mixed is True
+    assert w._has_trans is True
+    for blk in w._v_trans_blocks:
+        if not blk.rotated:
+            assert blk.v_height > 0
+
+
+def test_vertical_dual_column_layout(qapp):
+    """竖排有翻译时, 歌词右列 + 翻译左列, main_cx > trans_cx."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line("你好世界", [], translation="Hello World")
+    w.resize(200, 600)
+    main_cx, trans_cx = w._vcol_positions()
+    assert main_cx > trans_cx
+
+
+def test_paint_vertical_mixed_credit_line_no_crash(qapp):
+    """制作信息行 '曲：Douji-T' 竖向渲染不抛, Latin 段旋转显示."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("词：Douji-T/一只然/1E")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
+
+
+def test_vertical_mixed_wipe_clip_covers_rotated_block(qapp):
+    """竖向混排 wipe clip 必须覆盖旋转 Latin 块的完整视觉高度.
+
+    修复前 clip_h = word_h * fraction, 顶部偏移 ascent 消耗了 clip 空间,
+    导致末尾旋转块底部 ~(ascent-gap) px 永远不被高亮.
+    """
+    from PySide6.QtGui import QFontMetrics
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "我baby",
+        [{"text": "我baby", "startMs": 0, "durationMs": 1000}],
+    )
+    w.resize(200, 600)
+    fm = QFontMetrics(w._font)
+    ascent = fm.ascent()
+
+    assert w._v_mixed is True
+    assert len(w._v_word_blocks) == 1
+    blocks = w._v_word_blocks[0]
+    rotated_blocks = [b for b in blocks if b.rotated]
+    assert rotated_blocks, "应有旋转 Latin 块"
+    last_blk = blocks[-1]
+    assert last_blk.rotated is True
+
+    word_h = w._v_word_v_heights[0]
+    clip_total = word_h + ascent
+    clip_h_full = int(round(clip_total * 1.0))
+    assert clip_h_full >= last_blk.content_h + ascent, (
+        f"clip_h ({clip_h_full}) 必须覆盖旋转块视觉高度 + ascent 偏移 "
+        f"({last_blk.content_h} + {ascent})"
+    )
+
+
+def _is_v(c):
+    """test helper: inline CJK/fullwidth char check."""
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF
+        or 0x3400 <= cp <= 0x4DBF
+        or 0x3040 <= cp <= 0x309F
+        or 0x30A0 <= cp <= 0x30FF
+        or 0xAC00 <= cp <= 0xD7AF
+        or 0x3000 <= cp <= 0x303F
+        or 0xFF00 <= cp <= 0xFF60
+        or 0xFE30 <= cp <= 0xFE4F
+    )

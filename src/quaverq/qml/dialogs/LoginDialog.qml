@@ -21,9 +21,7 @@ Dialog {
     y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
     padding: ThemeTokens.Spacing.s6
 
-    function startLogin(force) {
-        if (!force && root.appController && root.appController.loginState === "expired")
-            return
+    function startLogin() {
         if (root.appController && !root.appController.authed) {
             let loginType = loginTabBar.currentIndex === 0 ? "qq" : "wx"
             root.appController.loginByQrCodeWithType(loginType)
@@ -32,7 +30,7 @@ Dialog {
 
     onOpened: {
         loginTabBar.currentIndex = 0
-        startLogin(false)
+        startLogin()
     }
     onClosed: {
         if (root.appController)
@@ -140,7 +138,7 @@ Dialog {
                         if (loginTabBar.currentIndex === index)
                             return
                         loginTabBar.currentIndex = index
-                        root.startLogin(true)
+                        root.startLogin()
                         // qmllint enable unqualified
                     }
 
@@ -245,7 +243,7 @@ Dialog {
                 text: root.appController && root.appController.loggingIn ? qsTr("等待确认") : qsTr("重新获取")
                 enabled: root.appController && !root.appController.loggingIn && !root.appController.authed
                 Accessible.name: text
-                onClicked: root.startLogin(true)
+                onClicked: root.startLogin()
 
                 contentItem: Label {
                     text: retryButton.text

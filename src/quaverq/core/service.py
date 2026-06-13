@@ -743,11 +743,16 @@ class QuaverService:
         trans_text = _dec(block.get("trans", "") or "")
         if trans_text:
             trans_by_ts = {ln.timestamp_ms: ln.text for ln in parse_lrc(trans_text)}
+            # QRC 毫秒精度 vs 翻译 LRC 厘秒精度: 2061 vs 2060, 差 1-2ms
+            trans_by_cs = {ts // 10: t for ts, t in trans_by_ts.items()}
             lines = [
                 LyricLine(
                     timestamp_ms=ln.timestamp_ms,
                     text=ln.text,
-                    translation=trans_by_ts.get(ln.timestamp_ms, ""),
+                    translation=(
+                        trans_by_ts.get(ln.timestamp_ms)
+                        or trans_by_cs.get(ln.timestamp_ms // 10, "")
+                    ),
                     words=ln.words,
                 )
                 for ln in lines
