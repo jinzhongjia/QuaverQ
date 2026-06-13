@@ -154,12 +154,8 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.authed
                     ? qsTr("还没有歌单")
-                    : (root.appController && root.appController.loginState === "expired"
-                        ? qsTr("登录已过期，请重新登录")
-                        : qsTr("点击上方头像登录，同步你的歌单"))
-                color: root.appController && root.appController.loginState === "expired"
-                    ? ThemeTokens.Palette.error
-                    : ThemeTokens.Palette.surfaceVariantText
+                    : qsTr("点击上方头像登录，同步你的歌单")
+                color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.caption
                 wrapMode: Text.WordWrap
             }
@@ -194,9 +190,11 @@ Rectangle {
         readonly property bool loggedIn: root.authed
         readonly property string nickname: root.appController ? (root.appController.nickname || "") : ""
         // 已登录但画像还没拉到 (加载中 / 拉取失败) 时回退「已登录」
+        readonly property bool isExpired: !ia.loggedIn
+            && root.appController && root.appController.loginState === "expired"
         readonly property string displayName: ia.loggedIn
             ? (ia.nickname.length > 0 ? ia.nickname : qsTr("已登录"))
-            : qsTr("点击登录")
+            : ia.isExpired ? qsTr("登录已过期") : qsTr("点击登录")
         readonly property string avatarUrl: ia.loggedIn && root.appController
             ? (root.appController.avatarUrl || "") : ""
         readonly property string vipKind: ia.loggedIn && root.appController
@@ -216,7 +214,7 @@ Rectangle {
         Accessible.role: Accessible.Button
         Accessible.name: ia.loggedIn
             ? ia.displayName + (ia.vipLabel.length > 0 ? " " + ia.vipLabel : "")
-            : qsTr("点击登录")
+            : ia.isExpired ? qsTr("登录已过期，点击重新登录") : qsTr("点击登录")
         activeFocusOnTab: true
 
         HoverHandler {

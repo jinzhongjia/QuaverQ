@@ -27,8 +27,8 @@ Rectangle {
 
     visible: root.message.length > 0
     implicitHeight: visible ? Math.max(48, bannerRow.implicitHeight + ThemeTokens.Spacing.s3 * 2) : 0
-    color: ThemeTokens.Palette.surfaceContainerHigh
-    border.color: root.accent
+    color: root.kind === "info" ? ThemeTokens.Palette.primaryContainer : ThemeTokens.Palette.surfaceContainerHigh
+    border.color: root.kind === "info" ? ThemeTokens.Palette.outlineMuted : root.accent
 
     RowLayout {
         id: bannerRow
