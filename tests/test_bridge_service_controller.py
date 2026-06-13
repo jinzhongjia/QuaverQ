@@ -155,6 +155,121 @@ async def test_search_async_empty_keyword_clears_results_without_network():
     assert controller.hasNextPage is False
 
 
+async def test_search_async_cancels_in_flight_request_when_keyword_changes():
+    class _SlowSearchService(_FakeService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started: dict[str, asyncio.Event] = {}
+            self.released: dict[str, asyncio.Event] = {}
+            self.cancelled: list[str] = []
+            self.cancelled_event = asyncio.Event()
+
+        async def search_songs(
+            self,
+            keyword: str,
+            *,
+            page: int = 1,
+            limit: int = 30,
+        ) -> list[Song]:
+            self.search_calls.append((keyword, page, limit))
+            self.started.setdefault(keyword, asyncio.Event()).set()
+            try:
+                await self.released.setdefault(keyword, asyncio.Event()).wait()
+            except asyncio.CancelledError:
+                self.cancelled.append(keyword)
+                self.cancelled_event.set()
+                raise
+            return [Song(mid=keyword, name=keyword)]
+
+    service = _SlowSearchService()
+    controller = ServiceController(service=service)
+
+    old_started = service.started.setdefault("old", asyncio.Event())
+    old_released = service.released.setdefault("old", asyncio.Event())
+    new_started = service.started.setdefault("new", asyncio.Event())
+    new_released = service.released.setdefault("new", asyncio.Event())
+
+    first = asyncio.create_task(controller.search_async("old"))
+    await old_started.wait()
+    second = asyncio.create_task(controller.search_async("new"))
+    await new_started.wait()
+
+    try:
+        await asyncio.wait_for(service.cancelled_event.wait(), timeout=1)
+        new_released.set()
+        await asyncio.wait_for(second, timeout=1)
+        await asyncio.wait_for(first, timeout=1)
+    finally:
+        old_released.set()
+        new_released.set()
+        for task in (first, second):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+
+    assert service.cancelled == ["old"]
+    assert controller.songResults.count == 1
+    assert controller.songResults.songAt(0)["name"] == "new"
+    assert controller.loading is False
+
+
+async def test_search_async_ignores_stale_result_when_cancel_is_swallowed():
+    class _CancellationIgnoringSearchService(_FakeService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started: dict[str, asyncio.Event] = {}
+            self.released: dict[str, asyncio.Event] = {}
+            self.cancel_seen = asyncio.Event()
+
+        async def search_songs(
+            self,
+            keyword: str,
+            *,
+            page: int = 1,
+            limit: int = 30,
+        ) -> list[Song]:
+            self.search_calls.append((keyword, page, limit))
+            self.started.setdefault(keyword, asyncio.Event()).set()
+            try:
+                await self.released.setdefault(keyword, asyncio.Event()).wait()
+            except asyncio.CancelledError:
+                self.cancel_seen.set()
+                await self.released[keyword].wait()
+            return [Song(mid=keyword, name=keyword)]
+
+    service = _CancellationIgnoringSearchService()
+    controller = ServiceController(service=service)
+
+    old_started = service.started.setdefault("old", asyncio.Event())
+    old_released = service.released.setdefault("old", asyncio.Event())
+    new_started = service.started.setdefault("new", asyncio.Event())
+    new_released = service.released.setdefault("new", asyncio.Event())
+
+    first = asyncio.create_task(controller.search_async("old"))
+    await old_started.wait()
+    second = asyncio.create_task(controller.search_async("new"))
+    await new_started.wait()
+    try:
+        await asyncio.wait_for(service.cancel_seen.wait(), timeout=1)
+
+        new_released.set()
+        await asyncio.wait_for(second, timeout=1)
+        assert controller.songResults.songAt(0)["name"] == "new"
+
+        old_released.set()
+        await asyncio.wait_for(first, timeout=1)
+    finally:
+        old_released.set()
+        new_released.set()
+        for task in (first, second):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+
+    assert controller.songResults.count == 1
+    assert controller.songResults.songAt(0)["name"] == "new"
+
+
 async def test_next_page_replaces_results_and_updates_pagination():
     service = _FakeService()
     controller = ServiceController(service=service)
@@ -225,6 +340,17 @@ async def test_start_loads_cached_credential_when_available():
 
     assert service.connected is True
     assert service.is_authenticated is True
+
+
+async def test_start_logs_elapsed(caplog):
+    service = _FakeAuthService()
+    controller = ServiceController(service=service)
+
+    with caplog.at_level(logging.INFO, logger="quaverq.bridge.service_controller"):
+        await controller.start()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(message.startswith("perf service.start elapsed_ms=") for message in messages)
 
 
 async def test_start_rejects_expired_cached_credential(tmp_path):

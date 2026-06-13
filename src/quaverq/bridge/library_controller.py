@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
@@ -12,6 +12,7 @@ from qasync import asyncSlot
 
 from quaverq.core.home_cache import HomeCache
 from quaverq.core.models import Song
+from quaverq.perf import log_elapsed
 
 from .error_utils import log_bridge_error
 from .models import (
@@ -58,7 +59,8 @@ class LibraryController(QObject):
         self._album_model = CardListModel(self)
         self._artist_model = CardListModel(self)
         self._liked_mids: set[str] = set()
-        self._loading = False
+        self._loading_sections: set[str] = set()
+        self._refresh_tasks: dict[str, asyncio.Task[None]] = {}
         self._error_message = ""
         self._liked_revision = 0
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
@@ -101,7 +103,7 @@ class LibraryController(QObject):
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
-        return self._loading
+        return bool(self._loading_sections)
 
     @Property(str, notify=errorMessageChanged)
     def errorMessage(self) -> str:
@@ -116,12 +118,15 @@ class LibraryController(QObject):
         await self.refresh_liked_async()
 
     async def refresh_liked_async(self) -> None:
+        await self._run_singleton_refresh("liked", self._refresh_liked_impl)
+
+    async def _refresh_liked_impl(self) -> None:
         self._set_error_message("")
         if not self.authed:
             self._set_liked_songs([])
             return
 
-        self._set_loading(True)
+        self._set_section_loading("liked", True)
         try:
             songs = await self._service_controller.call_service(
                 lambda service: service.get_liked_songs(),
@@ -133,7 +138,7 @@ class LibraryController(QObject):
             self.errorRaised.emit(message)
             return
         finally:
-            self._set_loading(False)
+            self._set_section_loading("liked", False)
 
         self._set_liked_songs(songs)
 
@@ -142,12 +147,15 @@ class LibraryController(QObject):
         await self.refresh_my_playlists_async()
 
     async def refresh_my_playlists_async(self) -> None:
+        await self._run_singleton_refresh("myPlaylists", self._refresh_my_playlists_impl)
+
+    async def _refresh_my_playlists_impl(self) -> None:
         self._set_error_message("")
         if not self.authed:
             self._playlist_model.clear()
             return
 
-        self._set_loading(True)
+        self._set_section_loading("myPlaylists", True)
         try:
             playlists = await self._service_controller.call_service(
                 lambda service: service.get_my_playlists(),
@@ -159,7 +167,7 @@ class LibraryController(QObject):
             self.errorRaised.emit(message)
             return
         finally:
-            self._set_loading(False)
+            self._set_section_loading("myPlaylists", False)
 
         self._playlist_model.set_cards([playlist_to_card(item) for item in playlists])
         if self._home_cache is not None:
@@ -173,12 +181,15 @@ class LibraryController(QObject):
         await self.refresh_fav_songlists_async()
 
     async def refresh_fav_songlists_async(self) -> None:
+        await self._run_singleton_refresh("favSonglists", self._refresh_fav_songlists_impl)
+
+    async def _refresh_fav_songlists_impl(self) -> None:
         self._set_error_message("")
         if not self.authed:
             self._fav_playlist_model.clear()
             return
 
-        self._set_loading(True)
+        self._set_section_loading("favSonglists", True)
         try:
             playlists = await self._service_controller.call_service(
                 lambda service: service.get_fav_songlist(),
@@ -190,7 +201,7 @@ class LibraryController(QObject):
             self.errorRaised.emit(message)
             return
         finally:
-            self._set_loading(False)
+            self._set_section_loading("favSonglists", False)
 
         self._fav_playlist_model.set_cards([playlist_to_card(item) for item in playlists])
 
@@ -199,12 +210,15 @@ class LibraryController(QObject):
         await self.refresh_fav_albums_async()
 
     async def refresh_fav_albums_async(self) -> None:
+        await self._run_singleton_refresh("favAlbums", self._refresh_fav_albums_impl)
+
+    async def _refresh_fav_albums_impl(self) -> None:
         self._set_error_message("")
         if not self.authed:
             self._album_model.clear()
             return
 
-        self._set_loading(True)
+        self._set_section_loading("favAlbums", True)
         try:
             albums = await self._service_controller.call_service(
                 lambda service: service.get_fav_albums(),
@@ -216,7 +230,7 @@ class LibraryController(QObject):
             self.errorRaised.emit(message)
             return
         finally:
-            self._set_loading(False)
+            self._set_section_loading("favAlbums", False)
 
         self._album_model.set_cards([album_to_card(item) for item in albums])
 
@@ -225,12 +239,15 @@ class LibraryController(QObject):
         await self.refresh_followed_singers_async()
 
     async def refresh_followed_singers_async(self) -> None:
+        await self._run_singleton_refresh("followedSingers", self._refresh_followed_singers_impl)
+
+    async def _refresh_followed_singers_impl(self) -> None:
         self._set_error_message("")
         if not self.authed:
             self._artist_model.clear()
             return
 
-        self._set_loading(True)
+        self._set_section_loading("followedSingers", True)
         try:
             singers = await self._service_controller.call_service(
                 lambda service: service.get_followed_singers(),
@@ -242,7 +259,7 @@ class LibraryController(QObject):
             self.errorRaised.emit(message)
             return
         finally:
-            self._set_loading(False)
+            self._set_section_loading("followedSingers", False)
 
         self._artist_model.set_cards([singer_to_card(item) for item in singers])
 
@@ -263,7 +280,7 @@ class LibraryController(QObject):
             return
 
         liked = song.mid in self._liked_mids
-        self._set_loading(True)
+        self._set_section_loading("toggleLike", True)
         self._set_error_message("")
         try:
             if liked:
@@ -280,7 +297,7 @@ class LibraryController(QObject):
             self._raise_error(log_bridge_error(logger, f"toggle like failed: {song.name}", exc))
             return
         finally:
-            self._set_loading(False)
+            self._set_section_loading("toggleLike", False)
 
         if not ok:
             self._raise_error("喜欢同步失败")
@@ -339,10 +356,40 @@ class LibraryController(QObject):
         self._liked_revision += 1
         self.likedRevisionChanged.emit()
 
-    def _set_loading(self, value: bool) -> None:
-        if self._loading == value:
+    async def _run_singleton_refresh(
+        self,
+        section: str,
+        refresh: Callable[[], Awaitable[None]],
+    ) -> None:
+        task = self._refresh_tasks.get(section)
+        current = asyncio.current_task()
+        if task is not None and task is not current and not task.done():
+            await task
             return
-        self._loading = value
+        if current is None:
+            with log_elapsed(logger, "library.refresh_section", section=section):
+                await refresh()
+            return
+        self._refresh_tasks[section] = current
+        try:
+            with log_elapsed(logger, "library.refresh_section", section=section):
+                await refresh()
+        finally:
+            if self._refresh_tasks.get(section) is current:
+                self._refresh_tasks.pop(section, None)
+
+    def _set_section_loading(self, section: str, value: bool) -> None:
+        old_loading = bool(self._loading_sections)
+        if value:
+            if section in self._loading_sections:
+                return
+            self._loading_sections.add(section)
+        else:
+            if section not in self._loading_sections:
+                return
+            self._loading_sections.discard(section)
+        if bool(self._loading_sections) == old_loading:
+            return
         self.loadingChanged.emit()
 
     def _set_error_message(self, value: str) -> None:

@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -58,8 +59,11 @@ class HomeSnapshot:
 class HomeCache:
     path: Path
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, write_delay_seconds: float = 0.05) -> None:
         self.path = Path(path)
+        self._write_delay_seconds = max(0.0, write_delay_seconds)
+        self._pending_raw: dict[str, Any] | None = None
+        self._flush_handle: asyncio.TimerHandle | None = None
 
     # ------------------------------------------------------------------ 读
     def load(self, account_key: str = "") -> HomeSnapshot:
@@ -144,26 +148,40 @@ class HomeCache:
             sections["playlists"] = {"cards": [dict(c) for c in playlists]}
         if tops is not None:
             sections["tops"] = {"cards": [dict(c) for c in tops]}
-        self._write_raw(raw)
+        self._pending_raw = raw
+        self._schedule_write()
 
     def clear_private(self) -> None:
         """登出时调: 抹掉账号私有区块, 公共区块保留."""
         raw = self._read_raw()
         if raw is None:
             return
+        self._cancel_pending_write()
         sections = raw.get("sections") or {}
         for name in _PRIVATE_SECTIONS:
             sections.pop(name, None)
+        self._pending_raw = None
         self._write_raw(raw)
 
     def clear(self) -> None:
+        self._cancel_pending_write()
+        self._pending_raw = None
         try:
             self.path.unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("删除首屏缓存失败: %s", exc)
 
+    def flush(self) -> None:
+        """立刻把待合并的写入落盘; 没有 pending 时为 no-op."""
+        self._flush_pending_now()
+
     # ------------------------------------------------------------------ 内部
     def _read_raw(self) -> dict[str, Any] | None:
+        if self._pending_raw is not None:
+            return self._pending_raw
+        return self._read_raw_from_disk()
+
+    def _read_raw_from_disk(self) -> dict[str, Any] | None:
         if not self.path.exists():
             return None
         try:
@@ -175,6 +193,32 @@ class HomeCache:
         if not isinstance(data, dict) or data.get("version") != _VERSION:
             return None
         return data
+
+    def _schedule_write(self) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._flush_pending_now()
+            return
+        if loop.is_closed():
+            self._flush_pending_now()
+            return
+        if self._flush_handle is not None and not self._flush_handle.cancelled():
+            return
+        self._flush_handle = loop.call_later(self._write_delay_seconds, self._flush_pending_now)
+
+    def _flush_pending_now(self) -> None:
+        self._cancel_pending_write()
+        raw = self._pending_raw
+        if raw is None:
+            return
+        self._pending_raw = None
+        self._write_raw(raw)
+
+    def _cancel_pending_write(self) -> None:
+        if self._flush_handle is not None and not self._flush_handle.cancelled():
+            self._flush_handle.cancel()
+        self._flush_handle = None
 
     def _write_raw(self, raw: dict[str, Any]) -> None:
         raw["version"] = _VERSION

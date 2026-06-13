@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import urllib.parse
 
 from PySide6.QtCore import QSize
@@ -72,6 +73,87 @@ def test_cover_provider_applies_rounded_alpha_mask(tmp_path):
     assert image.height() == 32
     assert image.pixelColor(0, 0).alpha() == 0
     assert image.pixelColor(16, 16).alpha() == 255
+
+
+def test_cover_provider_reuses_processed_image_from_memory_cache(tmp_path, monkeypatch):
+    url = "https://example.test/cover.jpg?size=300"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, url)
+    provider = CoverImageProvider(cache)
+    calls = 0
+
+    def fake_read_image(path, requested_size, size_hint):
+        nonlocal calls
+        calls += 1
+        image = QImage(32, 32, QImage.Format.Format_RGB32)
+        image.fill(QColor("#2563eb"))
+        return image
+
+    monkeypatch.setattr(CoverImageProvider, "_read_image", staticmethod(fake_read_image))
+
+    image_id = f"{urllib.parse.quote(url, safe='')}|32|1"
+    first = provider.requestImage(image_id, QSize(), QSize(32, 32))
+    second = provider.requestImage(image_id, QSize(), QSize(32, 32))
+
+    assert not first.isNull()
+    assert not second.isNull()
+    assert calls == 1
+
+
+def test_cover_provider_invalidates_memory_cache_when_file_changes(tmp_path, monkeypatch):
+    url = "https://example.test/cover.jpg?size=300"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, url)
+    path = cache.dir / cache._filename_for(url)
+    provider = CoverImageProvider(cache)
+    calls = 0
+
+    def fake_read_image(path, requested_size, size_hint):
+        nonlocal calls
+        calls += 1
+        image = QImage(32, 32, QImage.Format.Format_RGB32)
+        image.fill(QColor("#2563eb"))
+        return image
+
+    monkeypatch.setattr(CoverImageProvider, "_read_image", staticmethod(fake_read_image))
+
+    image_id = f"{urllib.parse.quote(url, safe='')}|32|1"
+    provider.requestImage(image_id, QSize(), QSize(32, 32))
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    provider.requestImage(image_id, QSize(), QSize(32, 32))
+
+    assert calls == 2
+
+
+def test_cover_provider_evicts_least_recently_used_processed_image(tmp_path, monkeypatch):
+    first_url = "https://example.test/first.jpg"
+    second_url = "https://example.test/second.jpg"
+    cache = CoverCache(tmp_path / "covers")
+    _write_cached_cover(cache, first_url)
+    _write_cached_cover(cache, second_url)
+    provider = CoverImageProvider(cache, max_cache_entries=1)
+    calls: list[str] = []
+
+    def fake_read_image(path, requested_size, size_hint):
+        calls.append(path.name)
+        image = QImage(32, 32, QImage.Format.Format_RGB32)
+        image.fill(QColor("#2563eb"))
+        return image
+
+    monkeypatch.setattr(CoverImageProvider, "_read_image", staticmethod(fake_read_image))
+
+    first_id = f"{urllib.parse.quote(first_url, safe='')}|32|1"
+    second_id = f"{urllib.parse.quote(second_url, safe='')}|32|1"
+    provider.requestImage(first_id, QSize(), QSize(32, 32))
+    provider.requestImage(second_id, QSize(), QSize(32, 32))
+    provider.requestImage(first_id, QSize(), QSize(32, 32))
+
+    assert calls == [
+        cache._filename_for(first_url),
+        cache._filename_for(second_url),
+        cache._filename_for(first_url),
+    ]
 
 
 def test_cover_provider_returns_null_when_uncached(tmp_path):

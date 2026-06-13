@@ -911,7 +911,6 @@ ApplicationWindow {
             onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
                 root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }
-            onNowPlayingRequested: root.openNowPlaying()
         }
     }
 

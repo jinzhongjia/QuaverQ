@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from quaverq.bridge.library_controller import LibraryController
@@ -97,6 +98,51 @@ async def test_refresh_liked_async_populates_model_and_lookup():
     assert controller.likedModel.songAt(0)["name"] == "晴天"
     assert controller.isLiked("m1") is True
     assert controller.isLiked("missing") is False
+
+
+async def test_refresh_liked_async_reuses_in_flight_request():
+    service = _FakeLibraryService()
+    calls = 0
+    release = asyncio.Event()
+
+    async def slow_liked_songs(*, limit: int = 500) -> list[Song]:
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        return service.liked_songs[:limit]
+
+    service.get_liked_songs = slow_liked_songs  # type: ignore[method-assign]
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    first = asyncio.create_task(controller.refresh_liked_async())
+    await asyncio.sleep(0)
+    second = asyncio.create_task(controller.refresh_liked_async())
+    await asyncio.sleep(0)
+
+    assert calls == 1
+
+    release.set()
+    await asyncio.gather(first, second)
+
+    assert controller.likedCount == 1
+    assert controller.likedModel.count == 1
+
+
+async def test_refresh_liked_async_logs_elapsed(caplog):
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    with caplog.at_level(logging.INFO, logger="quaverq.bridge.library_controller"):
+        await controller.refresh_liked_async()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        message.startswith("perf library.refresh_section elapsed_ms=")
+        and "section=liked" in message
+        for message in messages
+    )
 
 
 async def test_refresh_liked_async_logs_network_failure_without_traceback(caplog):
