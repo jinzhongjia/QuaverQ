@@ -1014,6 +1014,43 @@ def test_paint_vertical_mixed_credit_line_no_crash(qapp):
     assert not w.grab().isNull()
 
 
+def test_vertical_mixed_wipe_clip_covers_rotated_block(qapp):
+    """竖向混排 wipe clip 必须覆盖旋转 Latin 块的完整视觉高度.
+
+    修复前 clip_h = word_h * fraction, 顶部偏移 ascent 消耗了 clip 空间,
+    导致末尾旋转块底部 ~(ascent-gap) px 永远不被高亮.
+    """
+    from PySide6.QtGui import QFontMetrics
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_line(
+        "我baby",
+        [{"text": "我baby", "startMs": 0, "durationMs": 1000}],
+    )
+    w.resize(200, 600)
+    fm = QFontMetrics(w._font)
+    ascent = fm.ascent()
+
+    assert w._v_mixed is True
+    assert len(w._v_word_blocks) == 1
+    blocks = w._v_word_blocks[0]
+    rotated_blocks = [b for b in blocks if b.rotated]
+    assert rotated_blocks, "应有旋转 Latin 块"
+    last_blk = blocks[-1]
+    assert last_blk.rotated is True
+
+    word_h = w._v_word_v_heights[0]
+    clip_total = word_h + ascent
+    clip_h_full = int(round(clip_total * 1.0))
+    assert clip_h_full >= last_blk.content_h + ascent, (
+        f"clip_h ({clip_h_full}) 必须覆盖旋转块视觉高度 + ascent 偏移 "
+        f"({last_blk.content_h} + {ascent})"
+    )
+
+
 def _is_v(c):
     """test helper: inline CJK/fullwidth char check."""
     cp = ord(c)

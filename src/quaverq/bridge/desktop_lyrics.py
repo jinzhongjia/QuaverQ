@@ -1019,7 +1019,8 @@ class DesktopLyricsWindow(QWidget):
                 block_y += blk.v_height
 
             if fraction > 0.0:
-                clip_h = max(1, int(round(word_h * fraction)))
+                clip_total = word_h + fm.ascent()
+                clip_h = max(1, int(round(clip_total * fraction)))
                 painter.save()
                 painter.setClipRect(0, int(word_y - fm.ascent()), self.width(), clip_h)
                 block_y = word_y
