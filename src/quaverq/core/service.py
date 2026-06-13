@@ -713,13 +713,12 @@ class QuaverService:
                     lines=lines,
                     has_translation=any(ln.translation for ln in lines),
                 )
-            cred = self._effective_credential()
-            if cred is not None and cred.musickey:
+            if lines == []:
                 self._memo_put(no_qrc_key, True)
         return await self._get_lyric_lrc(mid, with_translation=with_translation)
 
-    async def _try_get_qrc(self, mid: str, *, with_translation: bool) -> list[LyricLine]:
-        """请求逐字 QRC (crypt=1 -> 库自带 qrc_decrypt 解密); 失败/无 QRC 返 []."""
+    async def _try_get_qrc(self, mid: str, *, with_translation: bool) -> list[LyricLine] | None:
+        """请求逐字 QRC; 请求失败返 None, 成功但无 QRC 返 []."""
         from qqmusic_api.algorithms import qrc_decrypt
 
         block = await self._bypass_post(
@@ -739,6 +738,8 @@ class QuaverService:
             },
             require_login=True,
         )
+        if block is None:
+            return None
         if not block:
             return []
 

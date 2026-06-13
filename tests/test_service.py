@@ -973,6 +973,45 @@ async def test_get_lyric_remembers_no_qrc_and_skips_next_probe(monkeypatch):
     assert requested_qrc_flags == [1, 0, 0]
 
 
+async def test_get_lyric_does_not_remember_no_qrc_when_qrc_request_fails(monkeypatch):
+    """QRC 请求临时失败时不写 no_qrc memo, 下次仍应重新探测 QRC."""
+    import base64
+
+    import qqmusic_api.algorithms as algo
+
+    svc = QuaverService()
+    svc._ct_value = 5
+    svc.credential = Credential(musicid=1, musickey="key")
+    requested_qrc_flags: list[int] = []
+
+    async def fake_post(module, method, param, **kw):
+        requested_qrc_flags.append(int(param.get("qrc") or 0))
+        if param.get("qrc") == 1:
+            if requested_qrc_flags.count(1) == 1:
+                return None
+            return {"lyric": "ENCRYPTED_QRC", "trans": "", "crypt": 1}
+        return {
+            "lyric": base64.b64encode("[00:05.00]临时逐行".encode()).decode("ascii"),
+            "trans": "",
+            "crypt": 0,
+        }
+
+    monkeypatch.setattr(svc, "_bypass_post", fake_post)
+    monkeypatch.setattr(
+        algo,
+        "qrc_decrypt",
+        lambda s: "[1000,500]逐(1000,250)字(1250,250)" if s == "ENCRYPTED_QRC" else "",
+    )
+
+    first = await svc.get_lyric("x")
+    second = await svc.get_lyric("x")
+
+    assert first.lines[0].text == "临时逐行"
+    assert second.lines[0].text == "逐字"
+    assert second.lines[0].words
+    assert requested_qrc_flags == [1, 0, 1]
+
+
 # ============================================================== Discover / Home (P2.1)
 
 

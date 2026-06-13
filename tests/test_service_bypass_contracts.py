@@ -263,7 +263,7 @@ async def test_lyric_lrc_invalid_base64_degrades_to_empty():
     assert lyric.has_translation is False
 
 
-async def test_qrc_none_block_returns_empty_lines():
+async def test_qrc_none_block_marks_request_failure():
     svc = _svc()
     _stub(svc, None)
-    assert await svc._try_get_qrc("m1", with_translation=True) == []
+    assert await svc._try_get_qrc("m1", with_translation=True) is None
