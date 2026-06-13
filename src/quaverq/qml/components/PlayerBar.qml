@@ -20,6 +20,7 @@ Rectangle {
     property var libraryController
     property var coverController
     property var songDetailController
+    property var settingsController
 
     readonly property bool hasSong: currentSong
         && typeof currentSong.name === "string"
@@ -407,12 +408,16 @@ Rectangle {
                                 spacing: ThemeTokens.Spacing.s2
 
                                 OverflowRow {
+                                    visible: Qt.platform.os === "windows"
                                     Layout.fillWidth: true
-                                    label: qsTr("歌词")
+                                    label: root.settingsController && root.settingsController.desktopLyricsEnabled
+                                        ? qsTr("关闭桌面歌词")
+                                        : qsTr("桌面歌词")
                                     enabled: root.hasSong
                                     onActivated: {
                                         overflowPopup.close()
-                                        root.nowPlayingRequested()
+                                        if (root.settingsController)
+                                            root.settingsController.desktopLyricsEnabled = !root.settingsController.desktopLyricsEnabled
                                     }
                                 }
 
@@ -568,12 +573,18 @@ Rectangle {
             spacing: ThemeTokens.Spacing.s2
 
             IconButton {
-                text: qsTr("歌词")
+                visible: Qt.platform.os === "windows"
+                text: qsTr("桌面歌词")
                 iconText: "词"
                 iconSize: ThemeTokens.TypeScale.bodySm
-                iconColor: ThemeTokens.Palette.surfaceVariantText
+                iconColor: root.settingsController && root.settingsController.desktopLyricsEnabled
+                    ? ThemeTokens.Palette.primary
+                    : ThemeTokens.Palette.surfaceVariantText
                 enabled: root.hasSong
-                onClicked: root.nowPlayingRequested()
+                onClicked: {
+                    if (root.settingsController)
+                        root.settingsController.desktopLyricsEnabled = !root.settingsController.desktopLyricsEnabled
+                }
             }
 
             Item {
