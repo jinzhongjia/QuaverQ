@@ -4,6 +4,59 @@
 
 梳理当前 QuaverQ 中值得优先关注的性能优化点，覆盖启动链路、服务请求、缓存读写、QML 渲染与封面图片加载，并给出后续可按 TDD 落地的实施顺序。
 
+GitHub issue：[#22 Feature: 性能优化](https://github.com/jinzhongjia/QuaverQ/issues/22)，创建于 2026-06-13，要求：
+- 良好的跨平台性
+- 禁止使用轮询
+- 尽量低的 CPU 占用
+- 尽量低的内存占用
+- 充分利用不同平台本地特性
+
+## 2026-06-14 实施记录：StreamProxy 懒启动
+
+### 决策
+
+- 不再在 `src/quaverq/__main__.py` 启动阶段同步调用 `stream_proxy.start()`。
+- `StreamProxy` 仍在入口处构造并注入给播放器和 Windows SMTC，保证对象生命周期由主程序持有，退出时继续由 `stream_proxy.stop()` 幂等清理。
+- 在线播放真正需要把 QQ CDN URL 包成回环 URL 时，由 `PlayerController._load_current()` 先按需 `start()`，再调用 `local_url()`。
+- 本地优先播放命中已下载文件时不启动 `StreamProxy`，离线播放不额外占用 server 线程。
+- Windows SMTC 只有在缓存封面已经存在或后台拉到封面、且需要把本地文件转为 `http://127.0.0.1` URI 时，才按需启动 `StreamProxy`。
+- 懒启动失败不阻断主功能：播放器保留 `local_url()` 未运行时的直连降级语义；SMTC 只跳过封面 thumbnail，标题/歌手元数据仍推送。
+- 不引入任何轮询；触发点全部来自用户播放动作或 SMTC 元数据更新信号链路。
+
+### 修改内容
+
+- `src/quaverq/__main__.py`：移除启动期 `stream_proxy.start()`，保留构造、注入与退出清理。
+- `src/quaverq/bridge/player_controller.py`：新增 `_start_stream_proxy_if_available()`，在线挂源前懒启动代理。
+- `src/quaverq/platform/_windows_media_session.py`：新增 `_local_file_url()`，SMTC 本地封面 URI 生成前懒启动代理。
+- `tests/test_bridge_player_controller.py`：新增在线首次挂源前启动代理的回归测试。
+- `tests/test_platform_windows_media_session.py`：新增 SMTC 封面 URI 懒启动代理的纯逻辑测试。
+- `src/quaverq/README.md` / `src/quaverq/bridge/README.md` / `src/quaverq/platform/README.md`：同步启动流程、播放器、代理与 Windows SMTC 的新生命周期说明。
+- `src/quaverq/platform/windows.py`：校正 Windows PAL 顶部说明，移除历史 mutex / 轮询描述。
+
+### 预期收益
+
+- 未播放、只浏览首页/搜索/设置的用户启动后不会创建 `ThreadingHTTPServer` 服务线程，也不会提前创建 `curl_cffi.Session`。
+- 启动链路少一个本地 socket bind 与线程启动点，启动期 CPU/内存峰值更低。
+- 在线首播仍保持 QQ CDN 经 curl_cffi 官方 JA3 指纹代理的行为；本地下载优先播放不受影响。
+- Windows Now Playing/SMTC 封面仍可在需要时通过本机回环 HTTP 暴露，不牺牲平台原生体验。
+
+### 自动化验证
+
+- 新增红绿测试：
+  - `uv run pytest tests/test_bridge_player_controller.py::test_remote_play_starts_stream_proxy_lazily_before_routing tests/test_platform_windows_media_session.py::test_resolve_thumbnail_uri_starts_stream_proxy_lazily`
+- Review follow-up：测试替身 `_LazyProxy` 补齐真实 `StreamProxy.running` 接口，生产代码直接调用 `running/start()/local_file_url()`，不再用防御性 `getattr` 掩盖不完整 mock。
+- 需要回归：
+  - `uv run pytest`
+  - `uv run python scripts/lint.py`
+
+### 人工验证清单
+
+- 启动应用但不播放音乐：日志不应出现 `StreamProxy 启动于 127.0.0.1:<port>`；任务线程数不应出现名为 `StreamProxy` 的线程。
+- 首次在线播放任意歌曲：播放能正常起声，日志应在首次在线挂源附近出现一次 `StreamProxy 启动于 ...`。
+- 播放已下载歌曲：应直接使用 `file://` 本地路径，不应因为本地播放启动 StreamProxy。
+- Windows 10+：播放有缓存封面的歌曲时，系统 SMTC / Now Playing 卡片仍应显示标题、歌手和封面；首次需要封面时允许出现一次 `StreamProxy 启动于 ...`。
+- 退出应用：无论代理是否启动过，退出都应正常，不应因 `stream_proxy.stop()` 幂等清理报错。
+
 ## 调研结果
 
 ### P1：封面加载热路径可以加内存缓存
