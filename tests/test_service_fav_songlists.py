@@ -1,6 +1,6 @@
 """service.get_fav_songlist 契约 (我收藏的歌单).
 
-第一档 1.2: 走 0.6.1 库方法 ``client.user.get_fav_songlist`` 分页拉全部.
+第一档 1.2: 走 0.6.x 库方法 ``client.user.get_fav_songlist`` 分页拉全部.
 - SongList 基类用 ``AliasChoices`` 识别服务端 ``tid``/``name``/``logo`` 字段, 不会挂
 - 服务端单页 cap=50, 必须循环 ``hasmore=1`` 翻页, 否则 113 项只能拿到 50
 - 库 ``ValidationError`` 时回退 ``_bypass_post`` + 手动 parse (复用 0/1 项 v_list dict 兜底)

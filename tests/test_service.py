@@ -1,4 +1,4 @@
-"""服务层测试 (qqmusic-api 0.6.1, bypass 路径).
+"""服务层测试 (qqmusic-api 0.6.x, bypass 路径).
 
 设计:
 - 0.6 Client 调用通过 mock 注入 svc._client (SimpleNamespace 模拟 client.search / album / ...)
@@ -1621,7 +1621,7 @@ async def test_get_album_detail_fetches_basic_info_and_songs_concurrently():
 
 
 async def test_get_playlist_detail_extracts_info_and_songs():
-    """0.6.1 GetSonglistDetailResponse: info + songs + total."""
+    """0.6.x GetSonglistDetailResponse: info + songs + total."""
     svc = QuaverService()
 
     async def fake_detail(songlist_id, **kwargs):
