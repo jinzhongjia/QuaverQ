@@ -262,6 +262,23 @@ async def _load_initial_state(
     )
 
 
+def _connect_pre_shutdown_hooks(
+    app: QApplication,
+    stream_proxy: StreamProxy,
+    download_controller: DownloadController,
+) -> None:
+    """只注册可被 qasync aboutToQuit 重入安全触发的退出钩子."""
+    app.aboutToQuit.connect(stream_proxy.stop)
+    # 置位取消事件让在途下载线程尽快退出并清掉 .part；aboutToQuit 可能被 qasync 的
+    # run_until_complete 提前触发, 但 shutdown 幂等且只影响下载任务, 无副作用。
+    app.aboutToQuit.connect(download_controller.shutdown)
+
+
+def _save_exit_snapshot(player_controller: PlayerController) -> None:
+    """保存会话快照；必须在 run_forever 返回后显式调一次, 不挂 aboutToQuit."""
+    player_controller.saveSessionSnapshot()
+
+
 async def _shutdown(
     mpris_controller: object | None,
     lyrics_dbus_controller: object | None,
@@ -433,11 +450,7 @@ def main() -> None:
     player_controller.set_local_resolver(download_controller.local_path_for)
     # 输出设备路由 (issue #7): QML 侧 audioOutput 在 Component.onCompleted attach 进来
     audio_device_controller = AudioDeviceController(settings_controller)
-    app.aboutToQuit.connect(player_controller.saveSessionSnapshot)
-    app.aboutToQuit.connect(stream_proxy.stop)
-    # 置位取消事件让在途下载线程尽快退出并清掉 .part (aboutToQuit 可能被 qasync 的
-    # run_until_complete 提前触发, 但 shutdown 幂等且只影响下载任务, 无副作用)
-    app.aboutToQuit.connect(download_controller.shutdown)
+    _connect_pre_shutdown_hooks(app, stream_proxy, download_controller)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(_qml_root_path()))
@@ -548,6 +561,7 @@ def main() -> None:
         if lyrics_dbus_controller is not None:
             loop.create_task(lyrics_dbus_controller.start_async())
         loop.run_forever()  # qasync 在关窗 (app.quit) 时干净返回
+        _save_exit_snapshot(player_controller)
         # 关窗后趁 loop 未关 / QObject 仍存活: 关下载 session + 停 D-Bus 服务 + 取消排空挂起任务
         loop.run_until_complete(_shutdown(mpris_controller, lyrics_dbus_controller, cover_cache))
     # 释放单实例锁: 必须在 with loop 块外, 避免被 qasync run_until_complete 的内部

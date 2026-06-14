@@ -30,5 +30,5 @@ config.load() → diagnostics.run_diagnostics() → QApplication →
 qasync.QEventLoop → 实例化 bridge.* 控制器 → setContextProperty 注入 QML →
 service.prime_credential_sync() + home_cache/library 预热 (SWR 首帧) →
 engine.load(Main.qml) → tray + MPRIS → loop.run_forever() →
-关窗后 _shutdown(): close 下载 session / 停 MPRIS / 排空挂起任务
+显式保存会话快照 → _shutdown(): close 下载 session / 停 MPRIS / 排空挂起任务
 ```
