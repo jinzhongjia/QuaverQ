@@ -136,6 +136,32 @@ async def test_translation_visibility_setting_filters_display_without_dropping_r
     assert emitted == [False, True]
 
 
+def test_model_reset_observes_new_translation_state():
+    service = _FakeLyricService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    player_controller = PlayerController(service_controller)
+    controller = LyricController(service_controller, player_controller)
+    observed: list[bool] = []
+    controller.lyricModel.modelReset.connect(lambda: observed.append(controller.hasTranslation))
+
+    controller._set_lyric(  # noqa: SLF001
+        Lyric(
+            mid="m1",
+            has_translation=True,
+            lines=[LyricLine(timestamp_ms=0, text="第一行", translation="line one")],
+        )
+    )
+    controller._set_lyric(  # noqa: SLF001
+        Lyric(
+            mid="m2",
+            has_translation=False,
+            lines=[LyricLine(timestamp_ms=0, text="第二行")],
+        )
+    )
+
+    assert observed == [True, False]
+
+
 async def test_restored_session_primes_current_mid_and_position(tmp_path):
     """重启恢复队列 + 进度后, LyricController 不应错过当前歌曲状态."""
     state_path = tmp_path / "state.json"

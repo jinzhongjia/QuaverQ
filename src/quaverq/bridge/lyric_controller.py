@@ -228,11 +228,11 @@ class LyricController(QObject):
         old_count = self._lyric_model.count
         old_has_translation = self.hasTranslation
         self._current_lyric = lyric
+        self._has_translation = lyric.has_translation
         self._sync.set_lyric(lyric)
         self._lyric_model.set_lines(lyric.lines)
         if self._lyric_model.count != old_count:
             self.lineCountChanged.emit()
-        self._has_translation = lyric.has_translation
         if old_has_translation != self.hasTranslation:
             self.hasTranslationChanged.emit()
         self._update_active_index(force=True)
