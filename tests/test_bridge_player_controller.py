@@ -75,6 +75,8 @@ async def test_source_url_routed_through_stream_proxy():
     """反风控 U2：有代理时 sourceUrl 指向本机回环，真实 CDN url 交给代理拉。"""
 
     class _FakeProxy:
+        running = True
+
         def local_url(self, real: str) -> str:
             return f"http://127.0.0.1:9000/tok?u={real}"
 
@@ -97,15 +99,15 @@ async def test_remote_play_starts_stream_proxy_lazily_before_routing():
 
     class _LazyProxy:
         def __init__(self) -> None:
-            self.started = False
+            self.running = False
             self.start_calls = 0
 
         def start(self) -> None:
-            self.started = True
+            self.running = True
             self.start_calls += 1
 
         def local_url(self, real: str) -> str:
-            assert self.started is True
+            assert self.running is True
             return f"http://127.0.0.1:9000/tok?u={real}"
 
     service = _FakeServiceController()

@@ -739,13 +739,10 @@ class PlayerController(QObject):
 
     def _start_stream_proxy_if_available(self) -> None:
         """按需启动 StreamProxy；失败时保留 local_url 的直连降级语义。"""
-        if self._stream_proxy is None or bool(getattr(self._stream_proxy, "running", False)):
-            return
-        start = getattr(self._stream_proxy, "start", None)
-        if not callable(start):
+        if self._stream_proxy is None or self._stream_proxy.running:
             return
         try:
-            start()
+            self._stream_proxy.start()
         except Exception as exc:
             logger.warning("StreamProxy 懒启动失败, 将降级为直连: %s", exc)
 

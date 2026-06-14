@@ -847,18 +847,13 @@ class WindowsMediaSession(QObject):
         """按需启动 StreamProxy 后返回本机封面 URI；失败时不影响 SMTC 元数据。"""
         if self._stream_proxy is None:
             return None
-        if not bool(getattr(self._stream_proxy, "running", False)):
-            start = getattr(self._stream_proxy, "start", None)
-            if callable(start):
-                try:
-                    start()
-                except Exception as exc:
-                    logger.warning("SMTC: StreamProxy 懒启动失败, 跳过封面: %s", exc)
-                    return None
-        local_file_url = getattr(self._stream_proxy, "local_file_url", None)
-        if not callable(local_file_url):
-            return None
-        return local_file_url(filename)
+        if not self._stream_proxy.running:
+            try:
+                self._stream_proxy.start()
+            except Exception as exc:
+                logger.warning("SMTC: StreamProxy 懒启动失败, 跳过封面: %s", exc)
+                return None
+        return self._stream_proxy.local_file_url(filename)
 
     def _push_playback_status(self) -> None:
         if not self._started or self._session is None:

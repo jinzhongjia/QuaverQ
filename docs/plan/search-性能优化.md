@@ -44,6 +44,7 @@ GitHub issue：[#22 Feature: 性能优化](https://github.com/jinzhongjia/Quaver
 
 - 新增红绿测试：
   - `uv run pytest tests/test_bridge_player_controller.py::test_remote_play_starts_stream_proxy_lazily_before_routing tests/test_platform_windows_media_session.py::test_resolve_thumbnail_uri_starts_stream_proxy_lazily`
+- Review follow-up：测试替身 `_LazyProxy` 补齐真实 `StreamProxy.running` 接口，生产代码直接调用 `running/start()/local_file_url()`，不再用防御性 `getattr` 掩盖不完整 mock。
 - 需要回归：
   - `uv run pytest`
   - `uv run python scripts/lint.py`

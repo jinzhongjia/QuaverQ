@@ -36,16 +36,16 @@ class _FakeCoverCache:
 
 class _LazyProxy:
     def __init__(self) -> None:
-        self.started = False
+        self.running = False
         self.start_calls = 0
         self.local_file_calls: list[str] = []
 
     def start(self) -> None:
-        self.started = True
+        self.running = True
         self.start_calls += 1
 
     def local_file_url(self, filename: str) -> str | None:
-        assert self.started is True
+        assert self.running is True
         self.local_file_calls.append(filename)
         return f"http://127.0.0.1:9000/_local/token/{filename}"
 
