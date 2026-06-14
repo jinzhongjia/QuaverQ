@@ -22,7 +22,7 @@ class _FakeHomeService:
     async def disconnect(self) -> None:
         self.connected = False
 
-    async def get_daily_recommend_songs(self, *, limit: int = 30) -> list[Song]:
+    async def get_daily_recommend_songs(self, *, limit: int = 5) -> list[Song]:
         self.daily_calls += 1
         return [
             Song(
@@ -58,7 +58,7 @@ async def test_refresh_home_populates_discovery_models():
     assert service.connected is True
     assert service.daily_calls == 1
     assert controller.dailyRequiresLogin is False
-    assert controller.dailyModel.count == 30
+    assert controller.dailyModel.count == 5
     assert controller.dailyPreviewSong["name"] == "每日0"
     assert controller.playlistModel.cardAt(0)["title"] == "今日推荐"
     assert controller.newSongModel.songAt(0)["name"] == "新歌"
@@ -70,7 +70,7 @@ class _FakeHomeServiceWithExtend(_FakeHomeService):
         super().__init__()
         self._batches = list(batches)
 
-    async def get_daily_recommend_songs(self, *, limit: int = 30) -> list[Song]:
+    async def get_daily_recommend_songs(self, *, limit: int = 5) -> list[Song]:
         self.daily_calls += 1
         if not self._batches:
             return []

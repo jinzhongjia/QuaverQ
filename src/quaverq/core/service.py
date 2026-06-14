@@ -1235,8 +1235,8 @@ class QuaverService:
         self._memo_put("recommend_new_songs", out)
         return out
 
-    async def get_daily_recommend_songs(self, *, limit: int = 30) -> list[Song]:
-        """每日推荐歌曲. 优先取雷达推荐并补足到 limit, 失败时回退猜你喜欢."""
+    async def get_daily_recommend_songs(self, *, limit: int = 5) -> list[Song]:
+        """每日推荐歌曲. 优先取雷达推荐, 失败时回退猜你喜欢."""
         if limit <= 0:
             return []
 
@@ -1249,59 +1249,24 @@ class QuaverService:
         seen: set[str] = set()
 
         try:
-            page = 1
-            while len(out) < limit and page <= 10:
-                data = await self._bypass_post(
-                    "music.recommend.TrackRelationServer",
-                    "GetRadarSong",
-                    {
-                        "Page": page,
-                        "ReqType": 0,
-                        "FavSongs": [],
-                        "EntranceSongs": [],
-                    },
-                    require_login=True,
-                    timeout=5,
-                )
-                songs_raw = (
-                    (data or {}).get("VecSongs", None) or (data or {}).get("songs", None) or []
-                )
-                for raw in songs_raw:
-                    song = self._to_radar_song(raw)
-                    if not song.mid or song.mid in seen:
-                        continue
-                    seen.add(song.mid)
-                    out.append(song)
-                    if len(out) >= limit:
-                        break
-                has_more = bool(
-                    (data or {}).get("HasMore", None) or (data or {}).get("has_more", False)
-                )
-                if not songs_raw or not has_more:
+            resp = await self.client.recommend.get_radar_recommend()
+            for raw in resp.songs:
+                song = self._to_song(raw)
+                if not song.mid or song.mid in seen:
+                    continue
+                seen.add(song.mid)
+                out.append(song)
+                if len(out) >= limit:
                     break
-                page += 1
         except Exception as exc:
             logger.warning("get_radar_recommend 失败: %s", exc)
 
         if not out:
             try:
-                data = await self._bypass_post(
-                    "music.radioProxy.MbTrackRadioSvr",
-                    "get_radio_track",
-                    {
-                        "id": 99,
-                        "num": limit,
-                        "from": 0,
-                        "scene": 0,
-                        "song_ids": [],
-                    },
-                    require_login=True,
-                    timeout=5,
+                resp = await self.client.recommend.get_guess_recommend(
+                    credential=self.credential,
                 )
-                songs_raw = (
-                    (data or {}).get("tracks", None) or (data or {}).get("songs", None) or []
-                )
-                for raw in songs_raw:
+                for raw in resp.songs:
                     song = self._to_song(raw)
                     if not song.mid or song.mid in seen:
                         continue
@@ -2092,12 +2057,6 @@ class QuaverService:
                 or 0
             ),
         )
-
-    @staticmethod
-    def _to_radar_song(raw: Any) -> Song:
-        """雷达推荐返回 VecSongs[*].Track, 兼容直接 song dict."""
-        track = QuaverService._g(raw, "Track", None) or raw
-        return QuaverService._to_song(track)
 
     @staticmethod
     def _to_song_from_top_raw(raw: Any) -> Song:

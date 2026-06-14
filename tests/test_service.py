@@ -1105,45 +1105,42 @@ async def test_get_recommend_new_songs_uses_memo_cache():
     assert call_count[0] == 1
 
 
-async def test_get_daily_recommend_songs_collects_radar_pages():
+async def test_get_daily_recommend_songs_from_radar():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
-    calls: list[int] = []
 
-    async def fake_post(module, _method, param, **_kwargs):
-        assert module == "music.recommend.TrackRelationServer"
-        page = param["Page"]
-        calls.append(page)
-        start = (page - 1) * 20
-        return {
-            "VecSongs": [
-                {"Track": _raw_song(mid=f"m{i}", name=f"每日{i}")} for i in range(start, start + 20)
-            ],
-            "HasMore": page < 2,
-        }
+    async def fake_radar(page=1):
+        return SimpleNamespace(
+            songs=[_raw_song(mid=f"m{i}", name=f"每日{i}") for i in range(5)],
+        )
 
-    svc._bypass_post = fake_post
+    svc._client = SimpleNamespace(recommend=SimpleNamespace(get_radar_recommend=fake_radar))
 
-    songs = await svc.get_daily_recommend_songs(limit=30)
+    songs = await svc.get_daily_recommend_songs(limit=5)
 
-    assert calls == [1, 2]
-    assert len(songs) == 30
+    assert len(songs) == 5
     assert songs[0].name == "每日0"
-    assert songs[-1].name == "每日29"
+    assert songs[-1].name == "每日4"
 
 
 async def test_get_daily_recommend_songs_falls_back_to_guess():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_post(module, _method, _param, **_kwargs):
-        if module == "music.recommend.TrackRelationServer":
-            raise RuntimeError("radar unavailable")
-        return {"tracks": [_raw_song(mid="g1", name="猜你喜欢")]}
+    async def fake_radar(page=1):
+        raise RuntimeError("radar unavailable")
 
-    svc._bypass_post = fake_post
+    async def fake_guess(*, credential=None):
+        return SimpleNamespace(songs=[_raw_song(mid="g1", name="猜你喜欢")])
 
-    songs = await svc.get_daily_recommend_songs(limit=30)
+    svc._client = SimpleNamespace(
+        recommend=SimpleNamespace(
+            get_radar_recommend=fake_radar,
+            get_guess_recommend=fake_guess,
+        ),
+    )
+
+    songs = await svc.get_daily_recommend_songs(limit=5)
 
     assert len(songs) == 1
     assert songs[0].name == "猜你喜欢"

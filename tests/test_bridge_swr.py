@@ -39,7 +39,7 @@ class _FakeService:
         return self._cred
 
     # --- Home ---
-    async def get_daily_recommend_songs(self, *, limit: int = 30) -> list[Song]:
+    async def get_daily_recommend_songs(self, *, limit: int = 5) -> list[Song]:
         self.daily_calls += 1
         return [
             Song(

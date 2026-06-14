@@ -259,7 +259,7 @@ class HomeController(QObject):
 
         async def load() -> list[Song]:
             return await self._service_controller.call_service(
-                lambda service: service.get_daily_recommend_songs(limit=30),
+                lambda service: service.get_daily_recommend_songs(limit=5),
                 operation_name="daily recommend songs",
             )
 
@@ -443,7 +443,7 @@ class HomeController(QObject):
             return []
         try:
             fetched: list[Song] = await self._service_controller.call_service(
-                lambda service: service.get_daily_recommend_songs(limit=30),
+                lambda service: service.get_daily_recommend_songs(limit=5),
                 operation_name="daily recommend songs (extend)",
             )
         except Exception as exc:
