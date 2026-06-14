@@ -1,0 +1,8 @@
+{
+    "uuid": "quaverq-lyrics@quaverq",
+    "name": "QuaverQ Lyrics",
+    "description": "Display lyrics from QuaverQ music player on GNOME desktop.\nOSD overlay and top bar modes.",
+    "shell-version": ["50"],
+    "url": "https://github.com/jinzhongjia/quaverq",
+    "settings-schema": "org.gnome.shell.extensions.quaverq-lyrics"
+}

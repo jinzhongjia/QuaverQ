@@ -1,0 +1,43 @@
+/* OSD overlay */
+.quaverq-osd {
+    background-color: rgba(0, 0, 0, 0.70);
+    border-radius: 12px;
+    padding: 16px 32px;
+}
+
+.quaverq-osd-main {
+    color: white;
+    font-size: 22px;
+    font-weight: 500;
+    text-align: center;
+}
+
+.quaverq-osd-translation {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 16px;
+    text-align: center;
+    margin-top: 4px;
+}
+
+.quaverq-osd-next {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 16px;
+    text-align: center;
+    margin-top: 8px;
+}
+
+/* Panel indicator */
+.quaverq-panel-icon {
+    color: #31c27c;
+    font-size: 14px;
+    margin-right: 4px;
+}
+
+.quaverq-panel-label {
+    max-width: 300px;
+    font-size: 13px;
+}
+
+.quaverq-menu-active {
+    font-weight: bold;
+}
