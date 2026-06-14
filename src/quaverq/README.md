@@ -7,7 +7,7 @@ QuaverQ 的 Python 包根目录。包含应用入口、配置/资源/诊断/打�
 | 文件 | 作用 |
 | --- | --- |
 | `__init__.py` | 包元数据 (`__version__` / `__author__`)。 |
-| `__main__.py` | **应用入口** (`uv run quaverq` / `python -m quaverq`)。装配 `QApplication` + `qasync` 事件循环，实例化所有 `bridge` 控制器，加载 `qml/Main.qml`，挂上系统托盘、MPRIS、stream 代理，并在退出时按顺序清理。启动关键段（系统主题、SWR prime、QML load）会记录 `perf ... elapsed_ms=...` 耗时日志。 |
+| `__main__.py` | **应用入口** (`uv run quaverq` / `python -m quaverq`)。装配 `QApplication` + `qasync` 事件循环，实例化所有 `bridge` 控制器，加载 `qml/Main.qml`，挂上系统托盘、MPRIS/SMTC 等平台能力，并在退出时按顺序清理。`StreamProxy` 只构造不立即启动，等在线播放或 Windows SMTC 本地封面真正需要回环 HTTP 时懒启动，避免未播放用户启动期多占一个 server 线程和 curl session。启动关键段（系统主题、SWR prime、QML load）会记录 `perf ... elapsed_ms=...` 耗时日志。 |
 | `config.py` | 解析 `config.toml`，给出 `CONFIG_DIR` / `CACHE_DIR` 等路径常量（通过 `platformdirs` 跨平台：Linux 走 XDG / `~/.config`、`~/.cache`，Windows 走 `%APPDATA%` / `%LOCALAPPDATA%`，macOS 走 `~/Library/...`）；负责旧架构遗留缓存的清理。 |
 | `diagnostics.py` | 启动自检：QtMultimedia/FFmpeg 后端、D-Bus 会话总线等关键依赖是否就绪，缺失给出 `info/warning/critical` 三级提示。 |
 | `perf.py` | 轻量性能日志 helper：`log_elapsed(logger, event, **fields)` 统一输出 `perf <event> elapsed_ms=<n> key=value`，供启动与刷新路径定位真实耗时。 |
@@ -29,6 +29,9 @@ QuaverQ 的 Python 包根目录。包含应用入口、配置/资源/诊断/打�
 config.load() → diagnostics.run_diagnostics() → QApplication →
 qasync.QEventLoop → 实例化 bridge.* 控制器 → setContextProperty 注入 QML →
 service.prime_credential_sync() + home_cache/library 预热 (SWR 首帧) →
-engine.load(Main.qml) → tray + MPRIS → loop.run_forever() →
+engine.load(Main.qml) → tray + MPRIS/SMTC → loop.run_forever() →
 关窗后 _shutdown(): close 下载 session / 停 MPRIS / 排空挂起任务
 ```
+
+`StreamProxy` 不在这条启动链路里同步 `start()`；第一次在线挂源由 `PlayerController`
+启动，Windows SMTC 第一次把缓存封面转成本机 `http://127.0.0.1` URI 时也会启动。
