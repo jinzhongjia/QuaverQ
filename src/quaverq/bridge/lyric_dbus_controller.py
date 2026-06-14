@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class LyricsServiceLike(Protocol):
     async def start(self) -> bool: ...
     async def stop(self) -> None: ...
-    def push_lyric(self, lyric: Lyric | None) -> None: ...
+    def push_lyric(self, lyric: Lyric | None, *, include_translation: bool = True) -> None: ...
     def push_position(self, position_ms: int) -> None: ...
     def push_active(self, line_index: int, word_index: int) -> None: ...
 
@@ -45,12 +45,14 @@ class LyricsDBusController(QObject):
         *,
         lyric_controller: LyricController,
         player_controller: PlayerController,
+        settings_controller: object | None = None,
         service_factory: LyricsServiceFactory = LyricsService,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._lyric_controller = lyric_controller
         self._player_controller = player_controller
+        self._settings_controller = settings_controller
         self._service = service_factory()
         self._started = False
         # 上次 push 的 (line, word); 用来去重避免 PositionMs tick 内 word 未变也刷.
@@ -82,7 +84,11 @@ class LyricsDBusController(QObject):
         if not self._started:
             return
         lyric = self._lyric_controller.current_lyric
-        self._service.push_lyric(lyric if lyric.lines else None)
+        include_translation = bool(getattr(self._lyric_controller, "translationVisible", True))
+        self._service.push_lyric(
+            lyric if lyric.lines else None,
+            include_translation=include_translation,
+        )
         # 切歌时把去重 cache 重置 → 下一次 active 一定会推
         self._last_active = (-2, -2)
         self._push_active()

@@ -64,10 +64,13 @@ def build_trackid(mid: str) -> str:
 
 def lyric_to_payload(
     lyric: Lyric | None,
+    *,
+    include_translation: bool = True,
 ) -> tuple[str, bool, list[tuple[int, str, str, list[tuple[int, int, str]]]]]:
     """Lyric → GetLyric() 返回值: (mid, has_word_timing, lines).
 
     lines: 每行 (timestamp_ms, text, translation, words);
+    include_translation=False 时 translation 固定为空串，但不改 Lyric 原始数据。
     words: 每字 (start_ms, duration_ms, text); 普通 LRC 行 words=[].
     """
     if lyric is None or not lyric.lines:
@@ -77,7 +80,8 @@ def lyric_to_payload(
     lines: list[tuple[int, str, str, list[tuple[int, int, str]]]] = []
     for line in lyric.lines:
         words = [(w.start_ms, w.duration_ms, w.text) for w in line.words]
-        lines.append((line.timestamp_ms, line.text, line.translation, words))
+        translation = line.translation if include_translation else ""
+        lines.append((line.timestamp_ms, line.text, translation, words))
     return lyric.mid, has_word_timing, lines
 
 
@@ -100,9 +104,15 @@ def compute_active_word(line: LyricLine, position_ms: int) -> int:
     return len(words) - 1
 
 
-def window_to_payload(lines: list[LyricLine]) -> list[tuple[int, str, str]]:
+def window_to_payload(
+    lines: list[LyricLine],
+    *,
+    include_translation: bool = True,
+) -> list[tuple[int, str, str]]:
     """LyricSync.window() 的行列表 → GetWindow() 返回的 (ts, text, translation) 元组."""
-    return [(ln.timestamp_ms, ln.text, ln.translation) for ln in lines]
+    return [
+        (ln.timestamp_ms, ln.text, ln.translation if include_translation else "") for ln in lines
+    ]
 
 
 # ---------------------------------------------------------------- D-Bus 接口
@@ -215,9 +225,11 @@ def _build_interface():
         def LineEntered(self, line, ts_ms) -> "ix":  # noqa: N802
             return [line, ts_ms]
 
-        # 外部 push (controller / service 调)
-        def update_lyric(self, lyric: Lyric | None) -> None:
-            mid, has_word, payload = lyric_to_payload(lyric)
+        def update_lyric(self, lyric: Lyric | None, *, include_translation: bool = True) -> None:
+            mid, has_word, payload = lyric_to_payload(
+                lyric,
+                include_translation=include_translation,
+            )
             self._mid = mid
             self._trackid = build_trackid(mid)
             # dbus-next 要 STRUCT 是 list 而不是 tuple, 在 D-Bus 边界统一转一次
@@ -226,7 +238,7 @@ def _build_interface():
                 for (ts, text, translation, words) in payload
             ]
             self._has_word_timing = has_word
-            self._has_translation = bool(lyric and lyric.has_translation)
+            self._has_translation = bool(include_translation and lyric and lyric.has_translation)
             self._active_line = -1
             self._active_word = -1
             self.emit_properties_changed(
@@ -301,10 +313,10 @@ class LyricsService:
             self._iface = None
             return False
 
-    def push_lyric(self, lyric: Lyric | None) -> None:
+    def push_lyric(self, lyric: Lyric | None, *, include_translation: bool = True) -> None:
         if self._iface is not None:
             try:
-                self._iface.update_lyric(lyric)
+                self._iface.update_lyric(lyric, include_translation=include_translation)
             except Exception:
                 logger.exception("Lyrics 推 lyric 异常")
 

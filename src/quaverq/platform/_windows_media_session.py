@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 logger = logging.getLogger(__name__)
+_WINFUNCTYPE = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+
 
 # ---------------------------------------------------------------- COM basics
 
@@ -158,7 +160,7 @@ def _release(com_ptr: c_void_p) -> int:
     """IUnknown::Release (vtable[2]); 返回新 refcount."""
     if not com_ptr or not com_ptr.value:
         return 0
-    Proto = ctypes.WINFUNCTYPE(ctypes.c_ulong, c_void_p)
+    Proto = _WINFUNCTYPE(ctypes.c_ulong, c_void_p)
     fn = Proto(_vtbl_ptr(com_ptr, 2))
     return fn(com_ptr)
 
@@ -167,7 +169,7 @@ def _release(com_ptr: c_void_p) -> int:
 
 # ISystemMediaTransportControlsInterop::GetForWindow vtable index = 6
 # (3 IUnknown + 3 IInspectable)
-_GetForWindowProto = ctypes.WINFUNCTYPE(
+_GetForWindowProto = _WINFUNCTYPE(
     c_int32,  # HRESULT
     c_void_p,  # this
     wintypes.HWND,  # hwnd
@@ -232,8 +234,8 @@ PLAYBACK_STATUS_STOPPED = 2
 PLAYBACK_STATUS_PLAYING = 3
 PLAYBACK_STATUS_PAUSED = 4
 
-_PutBoolProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, ctypes.c_ubyte)
-_PutInt32Proto = ctypes.WINFUNCTYPE(c_int32, c_void_p, c_int32)
+_PutBoolProto = _WINFUNCTYPE(c_int32, c_void_p, ctypes.c_ubyte)
+_PutInt32Proto = _WINFUNCTYPE(c_int32, c_void_p, c_int32)
 
 
 def _put_bool(com_ptr: c_void_p, vtbl_index: int, value: bool, *, label: str) -> None:
@@ -260,13 +262,13 @@ BUTTON_NEXT = 6
 BUTTON_PREVIOUS = 7
 
 # IUnknown vtable function prototypes
-_QueryInterfaceProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, POINTER(_IID), POINTER(c_void_p))
-_AddRefRelease = ctypes.WINFUNCTYPE(ctypes.c_ulong, c_void_p)
+_QueryInterfaceProto = _WINFUNCTYPE(c_int32, c_void_p, POINTER(_IID), POINTER(c_void_p))
+_AddRefRelease = _WINFUNCTYPE(ctypes.c_ulong, c_void_p)
 # ITypedEventHandler<T,U>::Invoke(this, IInspectable* sender, IInspectable* args)
-_InvokeProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, c_void_p, c_void_p)
+_InvokeProto = _WINFUNCTYPE(c_int32, c_void_p, c_void_p, c_void_p)
 
 # IButtonArgs::get_Button(this, MediaButton* out): vtable index 6 (IInspectable 6 + 0)
-_GetButtonProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, POINTER(c_int32))
+_GetButtonProto = _WINFUNCTYPE(c_int32, c_void_p, POINTER(c_int32))
 
 
 class _ButtonHandlerVTable(ctypes.Structure):
@@ -396,8 +398,8 @@ class _PyButtonHandler:
 
 # add_ButtonPressed: vtable index 32; signature (this, handler*, token*)
 _EventRegistrationToken = ctypes.c_int64  # 64-bit
-_AddButtonProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, c_void_p, POINTER(_EventRegistrationToken))
-_RemoveButtonProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, _EventRegistrationToken)
+_AddButtonProto = _WINFUNCTYPE(c_int32, c_void_p, c_void_p, POINTER(_EventRegistrationToken))
+_RemoveButtonProto = _WINFUNCTYPE(c_int32, c_void_p, _EventRegistrationToken)
 
 
 # ---------------------------------------------------------------- DisplayUpdater (元数据)
@@ -418,9 +420,9 @@ _RemoveButtonProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, _EventRegistrationTok
 
 MEDIA_PLAYBACK_TYPE_MUSIC = 1
 
-_GetIfaceProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, POINTER(c_void_p))
-_PutHStringProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, _HSTRING)
-_VoidProto = ctypes.WINFUNCTYPE(c_int32, c_void_p)
+_GetIfaceProto = _WINFUNCTYPE(c_int32, c_void_p, POINTER(c_void_p))
+_PutHStringProto = _WINFUNCTYPE(c_int32, c_void_p, _HSTRING)
+_VoidProto = _WINFUNCTYPE(c_int32, c_void_p)
 
 
 def _get_iface(com_ptr: c_void_p, vtbl_index: int, label: str) -> c_void_p:
@@ -454,9 +456,9 @@ def _call_void(com_ptr: c_void_p, vtbl_index: int, *, label: str) -> None:
 
 # IUriRuntimeClassFactory::CreateUri(HSTRING, IUriRuntimeClass**)
 # vtable[6] (after 3 IUnknown + 3 IInspectable)
-_CreateUriProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, _HSTRING, POINTER(c_void_p))
+_CreateUriProto = _WINFUNCTYPE(c_int32, c_void_p, _HSTRING, POINTER(c_void_p))
 # IRandomAccessStreamReferenceStatics::CreateFromUri(IUriRuntimeClass*, IRandomAccessStreamReference**)
-_CreateFromUriProto = ctypes.WINFUNCTYPE(c_int32, c_void_p, c_void_p, POINTER(c_void_p))
+_CreateFromUriProto = _WINFUNCTYPE(c_int32, c_void_p, c_void_p, POINTER(c_void_p))
 
 
 def _make_stream_reference_from_uri(uri: str) -> c_void_p:
@@ -595,7 +597,7 @@ class _SmtcSession:
         if self._display is None:
             return
         # vtable: put_Thumbnail 在 DisplayUpdater[11]
-        put_thumb = ctypes.WINFUNCTYPE(c_int32, c_void_p, c_void_p)(_vtbl_ptr(self._display, 11))
+        put_thumb = _WINFUNCTYPE(c_int32, c_void_p, c_void_p)(_vtbl_ptr(self._display, 11))
 
         if not uri:
             hr = put_thumb(self._display, c_void_p(0)) & 0xFFFFFFFF

@@ -24,6 +24,9 @@
 | `lyric_dbus_controller.py` | `LyricsDBusController` | 把 `LyricController` 当前歌词 + `PlayerController.positionMs` 推到 `core.lyric_dbus.LyricsService`（`org.quaverq.Lyrics1`）。`active_word` 由 controller 内部用 `compute_active_word` + 当前行 words + 实时 position 算出；用 `_last_active` 去重避免 PositionMs tick 内字未变也重复 push。纯输出, 不接收 D-Bus 入站调用。 |
 | `cover_provider.py` | `CoverController` + `CoverImageProvider` | `image://covers/<url>\|<size>\|<radius>` 的图片提供者；圆角裁剪、并发上限 6、磁盘命中秒级返回、未命中异步下载。provider 内部对已解码 + 圆角后的 `QImage` 做有界 LRU（key 含 path / mtime / size / target / radius），列表滚动重复命中时不再反复读盘和重绘圆角。 |
 
+歌词翻译可见性由 `SettingsController.lyricTranslationVisible` 统一控制：`LyricController` 保留原始翻译用于缓存与重新显示，但对 `currentLineTranslation` / `LyricLineListModel.translation` 做展示过滤；`DesktopLyricsController` 读取过滤后的当前行；`LyricsDBusController` 通过 `include_translation` 让 D-Bus 的 `HasTranslation` / `GetLyric()` / `GetWindow()` 同步隐藏翻译。
+
+
 ## 适配器与基础设施
 
 | 文件 | 作用 |

@@ -9,10 +9,13 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QSettings
+
 from quaverq.bridge.lyric_controller import LyricController
 from quaverq.bridge.lyric_dbus_controller import LyricsDBusController
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.bridge.service_controller import ServiceController
+from quaverq.bridge.settings_controller import SettingsController
 from quaverq.core.models import Lyric, LyricLine, LyricWord, Song, SongUrl
 
 
@@ -29,6 +32,7 @@ class _FakeLyricsService:
         self.lyrics: list[Lyric | None] = []
         self.positions: list[int] = []
         self.actives: list[tuple[int, int]] = []
+        self.include_translation: list[bool] = []
 
     async def start(self) -> bool:
         self.started = True
@@ -37,8 +41,9 @@ class _FakeLyricsService:
     async def stop(self) -> None:
         self.stopped = True
 
-    def push_lyric(self, lyric: Lyric | None) -> None:
+    def push_lyric(self, lyric: Lyric | None, *, include_translation: bool = True) -> None:
         self.lyrics.append(lyric)
+        self.include_translation.append(include_translation)
 
     def push_position(self, position_ms: int) -> None:
         self.positions.append(position_ms)
@@ -73,11 +78,18 @@ def _make_qrc_lyric(mid: str = "m1") -> Lyric:
 
 
 def _build(
-    *, with_lyric: Lyric | None = None
+    *,
+    with_lyric: Lyric | None = None,
+    settings_controller: SettingsController | None = None,
 ) -> tuple[LyricsDBusController, _FakeLyricsService, LyricController, PlayerController]:
     service_controller = ServiceController()
     player = PlayerController(_FakeAudioService())  # type: ignore[arg-type]
-    lyric_controller = LyricController(service_controller, player)
+    lyric_controller = LyricController(
+        service_controller,
+        player,
+        settings_controller=settings_controller,
+    )
+
     if with_lyric is not None:
         lyric_controller._set_lyric(with_lyric)  # noqa: SLF001
     fake = _FakeLyricsService()
@@ -113,6 +125,29 @@ async def test_lyric_changed_signal_pushes_new_lyric():
     lc._set_lyric(new_lyric)  # noqa: SLF001
 
     assert fake.lyrics[-1] is new_lyric
+
+
+async def test_translation_visibility_flag_follows_lyric_controller_setting(tmp_path):
+    settings = SettingsController(
+        settings=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.setLyricTranslationVisible(False)
+    lyric = Lyric(
+        mid="m1",
+        lines=[LyricLine(timestamp_ms=0, text="原文", translation="translation")],
+        has_translation=True,
+    )
+    controller, fake, _, _ = _build(with_lyric=lyric, settings_controller=settings)
+
+    await controller.start_async()
+
+    assert fake.lyrics[-1] is lyric
+    assert fake.include_translation[-1] is False
+
+    settings.setLyricTranslationVisible(True)
+
+    assert fake.lyrics[-1] is lyric
+    assert fake.include_translation[-1] is True
 
 
 async def test_position_change_updates_active_word_within_line():

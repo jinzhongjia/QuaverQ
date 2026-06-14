@@ -87,10 +87,11 @@ class PlatformAdapter(Protocol):
         *,
         lyric_controller: Any,
         player_controller: Any,
+        settings_controller: Any = None,
     ) -> Any | None:
         """返回歌词外发控制器 (Linux: LyricsDBusController, org.quaverq.Lyrics1 D-Bus).
 
-        让外部消费者 (如桌面歌词、第三方插件) 拿到当前歌词 + 实时高亮位置.
+        ``settings_controller`` 用来同步歌词翻译可见性；不传时默认外发翻译。
         Windows / macOS 暂无对等机制, 返回 None.
         """
         ...

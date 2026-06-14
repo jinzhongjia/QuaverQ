@@ -246,6 +246,17 @@ ScrollView {
             Layout.rightMargin: ThemeTokens.Spacing.s6
             title: qsTr("歌词")
 
+            SwitchRow {
+                Layout.fillWidth: true
+                title: qsTr("显示歌词翻译")
+                value: qsTr("关闭后应用内歌词、桌面悬浮歌词和 D-Bus 歌词输出都会隐藏翻译")
+                checked: root.settingsController ? root.settingsController.lyricTranslationVisible : true
+                onToggleRequested: function(newValue) {
+                    if (root.settingsController)
+                        root.settingsController.setLyricTranslationVisible(newValue)
+                }
+            }
+
             FontPickerRow {
                 Layout.fillWidth: true
                 title: qsTr("字体")

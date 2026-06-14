@@ -58,6 +58,7 @@ class WindowsPlatform:
         *,
         lyric_controller: Any,
         player_controller: Any,
+        settings_controller: Any = None,
     ) -> Any | None:
         return None
 

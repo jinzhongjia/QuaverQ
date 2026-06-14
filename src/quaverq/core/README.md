@@ -21,6 +21,9 @@
 | `lyric_dbus.py` | **Lyrics D-Bus 服务**（`org.quaverq.Lyrics1` @ `/org/quaverq/Lyrics`）。把当前歌词 + 实时位置 + 当前行/字索引暴露给桌面歌词工具（osdlyrics / waybar 自写模块 / 用户脚本）。Properties: `Mid` `TrackId` `PositionMs` `ActiveLine` `ActiveWord` `HasWordTiming` `HasTranslation` `LineCount`，标准 PropertiesChanged 推送。Methods: `GetLyric() → (s, b, a(xssa(xxs)))` 全量歌词 + 逐字 timing；`GetWindow(i, i) → (a(xss), i)` 当前行附近窗口。Signals: `LyricChanged(s mid)` `LineEntered(i, x)`。逐字精度（~16ms）不走 signal，客户端拿 `PositionMs` + 全行 word timing 自己插值。状态由 `bridge.LyricsDBusController` 推。 |
 | `single_instance.py` | **单实例守卫**。启动时占 well-known name `org.quaverq.SingleInstance`（`RequestName + DO_NOT_QUEUE`），占到即第一实例；占不到则给 `org.mpris.MediaPlayer2.quaverq` 发 `Raise` 通知已有实例前置窗口，调用方退出。bus 连接由 `SingleInstanceGuard` 自持到 `release()`，断连即释放名字。 |
 
+`lyric_dbus.py` 的 `GetLyric()` / `GetWindow()` 结构里第三列本身就是翻译文本；桥接层可用 `include_translation=False` 外发同一首歌词但把翻译列置空，并同步让 `HasTranslation=False`。
+
+
 ## 缓存与持久化
 
 | 文件 | 作用 |
