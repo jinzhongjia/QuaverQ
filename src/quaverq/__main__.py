@@ -420,10 +420,11 @@ def main() -> None:
     detail_controller_factory = DetailControllerFactory(service_controller)
     song_detail_controller = SongDetailController(service_controller)
     library_controller = LibraryController(service_controller, home_cache=home_cache)
-    # Windows SMTC 用 stream_proxy 暴露封面给系统 (SMTC 的 RandomAccessStreamReference
-    # 不支持 file:// URI, 必须走 http://); 其他平台无影响.
+    # StreamProxy 懒启动: 在线播放 / Windows SMTC 本地封面真正需要回环 HTTP 时再 start(),
+    # 避免未播放用户启动期就创建 server 线程和 curl session.
+    # Windows SMTC 用它暴露封面给系统 (SMTC 的 RandomAccessStreamReference 不支持
+    # file:// URI, 必须走 http://); 其他平台无影响.
     stream_proxy = StreamProxy(local_dir=CACHE_DIR / "covers")
-    stream_proxy.start()
     player_controller = PlayerController(
         service_controller,
         settings_controller=settings_controller,

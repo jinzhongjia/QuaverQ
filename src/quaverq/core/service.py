@@ -1,4 +1,4 @@
-"""QQ 音乐服务层 (qqmusic-api-python 0.6.1).
+"""QQ 音乐服务层 (qqmusic-api-python 0.6.x).
 
 关键设计:
 - 用 0.6.x Client 类 + pydantic 返回模型
@@ -211,7 +211,7 @@ def _load_credential_blob() -> str | None:
 
 @dataclass
 class QuaverService:
-    """QQ 音乐 API 门面层 (0.6.1, 含 vkey bypass).
+    """QQ 音乐 API 门面层 (0.6.x, 含 vkey bypass).
 
     用法:
         svc = QuaverService()
@@ -321,7 +321,7 @@ class QuaverService:
 
             self._device_guid = device_guid()
         logger.info(
-            "QQMusic 服务初始化 (qqmusic-api 0.6.1, vkey bypass ct=%d)",
+            "QQMusic 服务初始化 (qqmusic-api 0.6.x, vkey bypass ct=%d)",
             self._ct_value,
         )
 
@@ -503,7 +503,7 @@ class QuaverService:
     # ------------------------------------------------------------------
 
     async def get_album_detail(self, album_mid: str, *, song_limit: int = 100) -> Album:
-        # 0.6.1 client method 返回 awaitable 但 unhashable 的 Request 对象; 直接塞
+        # 0.6.x client method 返回 awaitable 但 unhashable 的 Request 对象; 直接塞
         # gather 会在内部去重 dict 时报 TypeError。包成本地 coroutine 后可安全并发。
         async def _fetch_detail() -> Any:
             return await self.client.album.get_detail(album_mid)
@@ -551,7 +551,7 @@ class QuaverService:
         except (TypeError, ValueError):
             sid = 0
         resp = await self.client.songlist.get_detail(songlist_id=sid, num=song_limit)
-        # 0.6.1 GetSonglistDetailResponse: info (SonglistInfo) + songs (list) + total
+        # 0.6.x GetSonglistDetailResponse: info (SonglistInfo) + songs (list) + total
         info = getattr(resp, "info", None)
         creator_obj = getattr(info, "creator", None)
         # creator 可能是 SonglistCreator (pydantic) 含 nick/name 字段
@@ -1396,7 +1396,7 @@ class QuaverService:
     async def get_fav_albums(self) -> list[Album]:
         """收藏的专辑.
 
-        绕过 qqmusic-api 0.6.1 的 ``UserFavAlbumResponse``：该模型用 jsonpath
+        绕过 qqmusic-api 0.6.x 的 ``UserFavAlbumResponse``：该模型用 jsonpath
         ``$.v_list[*]`` 取列表，当用户只有 0/1 个专辑时 ``v_list`` 可能是单个
         dict 而非数组，pydantic 直接校验失败、整页拉不到。这里走 ``_bypass_post``
         取原始 data，手动容错解析（``v_list`` 为 dict / list / 缺失都能处理）。
@@ -1460,7 +1460,7 @@ class QuaverService:
     async def get_fav_songlist(self) -> list[Playlist]:
         """收藏的外部歌单 (区别于 ``get_my_playlists`` 的自建歌单).
 
-        走 0.6.1 库方法 ``client.user.get_fav_songlist`` 分页拉到 ``hasmore=0``.
+        走 0.6.x 库方法 ``client.user.get_fav_songlist`` 分页拉到 ``hasmore=0``.
         ``SongList`` 基类用 ``AliasChoices`` 识别服务端 ``tid``/``name``/``logo``
         等字段名变体, pydantic 解析正常. ``v_list`` 在 0/1 项时变 dict 触发
         ``ValidationError`` 时回退 ``_bypass_post``, 沿用 fav_albums 同款兜底.

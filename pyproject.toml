@@ -25,10 +25,8 @@ classifiers = [
 # 跨平台依赖.
 # Linux-only 项用 sys_platform marker 隔离, Windows / macOS 装包时自动跳过.
 dependencies = [
-    # 临时 git pin: VIP 身份模型 (issue #257 -> PR #258) 已合入上游 main 但 0.6.2 未包含;
-    # 上游发布含该提交的版本后切回 PyPI 版本锁 (>=0.6.3,<0.7 之类).
-    # luren-dc 即 PyPI 包 repository (github.com/l-1124/QQMusicApi) 的同仓库旧名, GitHub 自动重定向.
-    "qqmusic-api-python @ git+https://github.com/luren-dc/QQMusicApi.git@650437317290c4905bc81fefed169a9e725f7c29",
+    # 临时 git pin: 依赖上游 main 最新提交; 上游发布含该提交的版本后切回 PyPI 版本锁.
+    "qqmusic-api-python @ git+https://github.com/L-1124/QQMusicApi.git@0ef9645806c9778cfa6214dd60fa56644568c276",
     "tomli-w>=1.0",
     "platformdirs>=4.0",     # 跨平台 config / cache 目录解析
     "keyring>=24.0",         # 跨平台凭据存储 (Linux Secret Service / Win Credential Manager / macOS Keychain)
