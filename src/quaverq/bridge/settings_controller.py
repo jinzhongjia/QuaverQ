@@ -181,6 +181,8 @@ class SettingsController(QObject):
             _LYRIC_FONT_WEIGHTS,
         )
         self._lyric_font_italic = self._read_bool("lyrics/italic", False)
+        self._lyric_translation_visible = self._read_bool("lyrics/translationVisible", True)
+
         self._available_lyric_fonts: list[str] | None = None
 
         # 桌面悬浮歌词 (Windows-only feature; 字段持久化跨平台无伤大雅, 反正非 Windows
@@ -287,6 +289,11 @@ class SettingsController(QObject):
     @Property(bool, notify=settingsChanged)
     def lyricFontItalic(self) -> bool:
         return self._lyric_font_italic
+
+    @Property(bool, notify=settingsChanged)
+    def lyricTranslationVisible(self) -> bool:
+        """是否显示歌词翻译；关闭只隐藏展示 / 外发，不丢弃已缓存的翻译文本。"""
+        return self._lyric_translation_visible
 
     # ------------------------------------------------------------------ 桌面悬浮歌词 (Windows-only)
 
@@ -517,6 +524,16 @@ class SettingsController(QObject):
             return
         self._lyric_font_italic = value
         self._settings.setValue("lyrics/italic", value)
+        self._settings.sync()
+        self.settingsChanged.emit()
+
+    @Slot(bool)
+    def setLyricTranslationVisible(self, visible: bool) -> None:
+        value = bool(visible)
+        if self._lyric_translation_visible == value:
+            return
+        self._lyric_translation_visible = value
+        self._settings.setValue("lyrics/translationVisible", value)
         self._settings.sync()
         self.settingsChanged.emit()
 

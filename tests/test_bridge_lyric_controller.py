@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QSettings
+
 from quaverq.bridge.lyric_controller import LyricController
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.bridge.service_controller import ServiceController
+from quaverq.bridge.settings_controller import SettingsController
 from quaverq.core.lyric_cache import LyricCache
 from quaverq.core.models import Lyric, LyricLine, Singer, Song, SongUrl
 from quaverq.core.queue import PlayQueue
@@ -95,6 +98,42 @@ async def test_active_index_tracks_player_position():
     assert controller.activeIndex == 1
     assert controller.currentLineText == "第二行"
     assert controller.currentLineTranslation == "line two"
+
+
+async def test_translation_visibility_setting_filters_display_without_dropping_raw_lyric(tmp_path):
+    service = _FakeLyricService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    player_controller = PlayerController(service_controller)
+    player_controller._queue.push([_song()], play_now=True)  # noqa: SLF001
+    player_controller._emit_current_changed()  # noqa: SLF001
+    settings_controller = SettingsController(
+        settings=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    controller = LyricController(
+        service_controller,
+        player_controller,
+        settings_controller=settings_controller,
+    )
+
+    await controller.refresh_current_lyric_async()
+    player_controller.updatePosition(1500)
+    emitted: list[bool] = []
+    controller.lyricChanged.connect(lambda: emitted.append(controller.hasTranslation))
+
+    settings_controller.setLyricTranslationVisible(False)
+
+    assert controller.hasTranslation is False
+    assert controller.currentLineTranslation == ""
+    assert controller.lyricModel.lineAt(1)["translation"] == ""
+    assert controller.current_lyric.lines[1].translation == "line two"
+    assert emitted == [False]
+
+    settings_controller.setLyricTranslationVisible(True)
+
+    assert controller.hasTranslation is True
+    assert controller.currentLineTranslation == "line two"
+    assert controller.lyricModel.lineAt(1)["translation"] == "line two"
+    assert emitted == [False, True]
 
 
 async def test_restored_session_primes_current_mid_and_position(tmp_path):

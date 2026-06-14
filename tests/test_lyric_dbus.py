@@ -61,6 +61,15 @@ def test_lyric_to_payload_qrc_with_translation():
     assert words[3] == (1600, 400, "界")
 
 
+def test_lyric_to_payload_can_hide_translation():
+    mid, has_word, lines = lyric_to_payload(_make_qrc_lyric(), include_translation=False)
+
+    assert mid == "003abc"
+    assert has_word is True
+    assert lines[0][2] == ""
+    assert lines[1][2] == ""
+
+
 def test_lyric_to_payload_plain_lrc():
     """无 words 时 has_word_timing=False, 每行 words=[]."""
     lyric = Lyric(
@@ -154,6 +163,16 @@ def test_window_to_payload_basic():
     assert out == [
         (1000, "你好世界", "hello world"),
         (3000, "再见", "bye"),
+    ]
+
+
+def test_window_to_payload_can_hide_translation():
+    lines = _make_qrc_lyric().lines
+    out = window_to_payload(lines, include_translation=False)
+
+    assert out == [
+        (1000, "你好世界", ""),
+        (3000, "再见", ""),
     ]
 
 

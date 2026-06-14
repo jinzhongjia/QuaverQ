@@ -49,12 +49,14 @@ class LinuxPlatform:
         *,
         lyric_controller: Any,
         player_controller: Any,
+        settings_controller: Any = None,
     ) -> Any:
         from ..bridge.lyric_dbus_controller import LyricsDBusController
 
         return LyricsDBusController(
             lyric_controller=lyric_controller,
             player_controller=player_controller,
+            settings_controller=settings_controller,
         )
 
     def power_saver(self, player_controller: Any) -> Any | None:  # noqa: ARG002

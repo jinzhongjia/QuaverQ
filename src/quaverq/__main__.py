@@ -419,7 +419,10 @@ def main() -> None:
         player_controller=player_controller,
     )
     lyric_controller = LyricController(
-        service_controller, player_controller, lyric_cache=lyric_cache
+        service_controller,
+        player_controller,
+        lyric_cache=lyric_cache,
+        settings_controller=settings_controller,
     )
     download_controller = DownloadController(
         service_controller,
@@ -482,6 +485,7 @@ def main() -> None:
     lyrics_dbus_controller = pal.lyric_publisher(
         lyric_controller=lyric_controller,
         player_controller=player_controller,
+        settings_controller=settings_controller,
     )
     # 桌面悬浮歌词 (Windows 默认开启 QQ 音乐风格悬浮窗; Linux 走 MPRIS 不内嵌).
     # 必须保留引用防 GC, 否则 Qt 会回收 QWidget + signal 连接断.

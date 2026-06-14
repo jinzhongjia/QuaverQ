@@ -24,6 +24,9 @@
 
 返回 `None` 表示能力不可用，调用方必须容忍（应用功能降级，不能崩）。
 
+`lyric_publisher(..., settings_controller=...)` 在 Linux 把设置层的歌词翻译可见性传给 `LyricsDBusController`；Windows / macOS 仍无歌词外发能力。
+
+
 ## 对外接口
 
 ```python

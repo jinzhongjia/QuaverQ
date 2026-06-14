@@ -33,6 +33,7 @@ class LyricController(QObject):
     loadingChanged = Signal()
     errorMessageChanged = Signal()
     hasTranslationChanged = Signal()
+    translationVisibleChanged = Signal()
     lyricChanged = Signal()
     errorRaised = Signal(str)
 
@@ -42,11 +43,13 @@ class LyricController(QObject):
         player_controller: PlayerController,
         lyric_cache: LyricCache | None = None,
         parent: QObject | None = None,
+        settings_controller: Any = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
         self._player_controller = player_controller
         self._lyric_cache = lyric_cache
+        self._settings_controller = settings_controller
         self._lyric_model = LyricLineListModel(self)
         self._sync = LyricSync()
         self._current_lyric: Lyric = Lyric(mid="")
@@ -55,11 +58,16 @@ class LyricController(QObject):
         self._loading = False
         self._error_message = ""
         self._has_translation = False
+        self._translation_visible = self._read_translation_visible()
+        self._lyric_model.set_translation_visible(self._translation_visible)
         self._load_generation = 0
 
         self._player_controller.currentSongChanged.connect(self._handle_current_song_changed)
         self._player_controller.positionMsChanged.connect(self._handle_position_changed)
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
+        settings_changed = getattr(self._settings_controller, "settingsChanged", None)
+        if settings_changed is not None:
+            settings_changed.connect(self._handle_settings_changed)
         self._sync_current_song(schedule_load=False)
 
     @Property(QObject, notify=lyricModelChanged)
@@ -86,6 +94,8 @@ class LyricController(QObject):
 
     @Property(str, notify=currentLineChanged)
     def currentLineTranslation(self) -> str:
+        if not self._translation_visible:
+            return ""
         line = self._active_line()
         return line.get("translation", "") if line else ""
 
@@ -103,7 +113,11 @@ class LyricController(QObject):
 
     @Property(bool, notify=hasTranslationChanged)
     def hasTranslation(self) -> bool:
-        return self._has_translation
+        return self._has_translation and self._translation_visible
+
+    @Property(bool, notify=translationVisibleChanged)
+    def translationVisible(self) -> bool:
+        return self._translation_visible
 
     @asyncSlot()
     async def refreshCurrentLyric(self) -> None:
@@ -160,6 +174,10 @@ class LyricController(QObject):
             self._load_generation += 1
             self._schedule_load(self._current_mid, self._load_generation)
 
+    @Slot()
+    def _handle_settings_changed(self) -> None:
+        self._set_translation_visible(self._read_translation_visible())
+
     def _schedule_load(self, mid: str, generation: int) -> None:
         try:
             loop = asyncio.get_running_loop()
@@ -208,15 +226,32 @@ class LyricController(QObject):
 
     def _set_lyric(self, lyric: Lyric) -> None:
         old_count = self._lyric_model.count
+        old_has_translation = self.hasTranslation
         self._current_lyric = lyric
         self._sync.set_lyric(lyric)
         self._lyric_model.set_lines(lyric.lines)
         if self._lyric_model.count != old_count:
             self.lineCountChanged.emit()
-        if self._has_translation != lyric.has_translation:
-            self._has_translation = lyric.has_translation
+        self._has_translation = lyric.has_translation
+        if old_has_translation != self.hasTranslation:
             self.hasTranslationChanged.emit()
         self._update_active_index(force=True)
+        self.currentLineChanged.emit()
+        self.lyricChanged.emit()
+
+    def _read_translation_visible(self) -> bool:
+        return bool(getattr(self._settings_controller, "lyricTranslationVisible", True))
+
+    def _set_translation_visible(self, visible: bool) -> None:
+        value = bool(visible)
+        if self._translation_visible == value:
+            return
+        old_has_translation = self.hasTranslation
+        self._translation_visible = value
+        self._lyric_model.set_translation_visible(value)
+        self.translationVisibleChanged.emit()
+        if old_has_translation != self.hasTranslation:
+            self.hasTranslationChanged.emit()
         self.currentLineChanged.emit()
         self.lyricChanged.emit()
 

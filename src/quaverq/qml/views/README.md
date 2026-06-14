@@ -14,6 +14,9 @@
 | `SettingsView.qml` | `settings` | **设置页**。账号 / 播放音质 / **下载**（下载音质四档含臻品母带、下载目录——`FolderDialog` 选目录 + 「打开」走 `downloadController.openDownloadDirectory()`、歌词 / 封面 / 嵌入标签开关）/ 主题 / 歌词字体（family、size、weight、italic + 一键重置）/ 封面缓存上限 + 一键清理。分区标题在卡片外（小号灰字 + 紧凑行卡），内容列最大宽 840px。行类型：`ChoiceRow`（下拉，经显式 `Binding` 同步外部重置）/ `SwitchRow`（二元开关，绿色 Switch）/ `SpinRow`（数字输入 + 框外后缀）/ `ColorRow`（色板 + QColorDialog）/ `FontPickerRow`（顶部 TextField 实时子串过滤、delegate 用对应 family 渲染做字形预览）。危险动作（退出登录）按钮文字走 `Palette.error`。「外观」分区含主题与「减少动效」开关（写 `settingsController.reduceMotion` → Main 注入 `Motion.reduceMotion`）。「关于」分区显示版本号（`appController.appVersion`）+ 开源仓库链接（`Qt.openUrlExternally`）。挂载时主动 `refreshCoverCacheSize()` 拿当前占用。 |
 | `DownloadsView.qml` | `downloads` | **下载管理整页**（侧边栏「下载」入口）。绑 `downloadController.downloadModel`：行 = 封面（`AlbumArt`）+ 歌名 + 歌手 · 状态 · 音质（失败显红色错误原因）+ running 进度条；**整行点击 → `playerController.pushAndPlay(song)` 应用内播放**（播放核心本地优先：已下载文件直接放，失效回退在线）；行尾按状态「取消」（进行中）/「重试」（失败/取消）/「重新下载」+「移除」（文件失效 missing：副标题 warning 色「文件已删除」）/「删除」（已完成 done：删本地文件+记录，`ConfirmDialog` 二次确认）；顶部「打开下载目录」；空态引导。重启后由 `DownloadController` 从 `downloads.json` 加载的历史填充。 |
 
+`SettingsView.qml` 的「歌词」分区包含「显示歌词翻译」开关，写入 `settingsController.lyricTranslationVisible`，同时影响应用内歌词、桌面悬浮歌词和 D-Bus 歌词外发。
+
+
 ## 约定
 
 - **路由 + 控制器从外注入**：视图顶部一律是 `property string routeName: ...` + 一组 `property var xxxController`，由 `Main.qml` 在切路由时挂上去；视图内部不直接引用 context property。

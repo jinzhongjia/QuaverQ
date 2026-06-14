@@ -90,12 +90,12 @@ def _lyric_words_to_maps(line: LyricLine) -> list[dict[str, Any]]:
     ]
 
 
-def lyric_line_to_map(line: LyricLine) -> dict[str, Any]:
+def lyric_line_to_map(line: LyricLine, *, include_translation: bool = True) -> dict[str, Any]:
     """Convert a core LyricLine into a QVariantMap-friendly dict."""
     return {
         "timestampMs": line.timestamp_ms,
         "lineText": line.text,
-        "translation": line.translation,
+        "translation": line.translation if include_translation else "",
         "words": _lyric_words_to_maps(line),
     }
 
@@ -393,6 +393,7 @@ class LyricLineListModel(QAbstractListModel):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._lines: list[LyricLine] = []
+        self._translation_visible = True
 
     @Property(int, notify=countChanged)
     def count(self) -> int:
@@ -409,13 +410,13 @@ class LyricLineListModel(QAbstractListModel):
 
         line = self._lines[index.row()]
         if role == self.LineRole:
-            return lyric_line_to_map(line)
+            return lyric_line_to_map(line, include_translation=self._translation_visible)
         if role == self.TimestampMsRole:
             return line.timestamp_ms
         if role == self.LineTextRole or role == Qt.ItemDataRole.DisplayRole:
             return line.text
         if role == self.TranslationRole:
-            return line.translation
+            return line.translation if self._translation_visible else ""
         if role == self.WordsRole:
             return _lyric_words_to_maps(line)
         return None
@@ -435,6 +436,17 @@ class LyricLineListModel(QAbstractListModel):
         self.endResetModel()
         self.countChanged.emit()
 
+    def set_translation_visible(self, visible: bool) -> None:
+        value = bool(visible)
+        if self._translation_visible == value:
+            return
+        self._translation_visible = value
+        if not self._lines:
+            return
+        top_left = self.index(0, 0)
+        bottom_right = self.index(len(self._lines) - 1, 0)
+        self.dataChanged.emit(top_left, bottom_right, [self.LineRole, self.TranslationRole])
+
     def lines(self) -> list[LyricLine]:
         return list(self._lines)
 
@@ -445,4 +457,7 @@ class LyricLineListModel(QAbstractListModel):
     def lineAt(self, row: int) -> dict[str, Any]:
         if not (0 <= row < len(self._lines)):
             return {}
-        return lyric_line_to_map(self._lines[row])
+        return lyric_line_to_map(
+            self._lines[row],
+            include_translation=self._translation_visible,
+        )

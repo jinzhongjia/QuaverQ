@@ -294,6 +294,26 @@ def test_lyric_font_defaults(tmp_path):
     assert controller.lyricFontItalic is False
 
 
+def test_lyric_translation_visibility_defaults_on(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    assert controller.lyricTranslationVisible is True
+
+
+def test_lyric_translation_visibility_persists_and_emits_once(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+    emitted: list[bool] = []
+    controller.settingsChanged.connect(lambda: emitted.append(controller.lyricTranslationVisible))
+
+    controller.setLyricTranslationVisible(False)
+    controller.setLyricTranslationVisible(False)
+
+    assert emitted == [False]
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.lyricTranslationVisible is False
+
+
 def test_lyric_font_persists(tmp_path):
     path = tmp_path / "settings.ini"
     controller = SettingsController(settings=_settings(path))
