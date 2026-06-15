@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import Property, QObject, QSettings, Signal
 
 from quaverq.bridge.download_controller import DownloadController, DownloadListModel
 from quaverq.bridge.models import song_from_map
@@ -84,6 +84,24 @@ class _FakeService:
         return Lyric(mid=mid, lines=[LyricLine(timestamp_ms=0, text="第一行")])
 
 
+class _FakePlayer(QObject):
+    onlineStreamActiveChanged = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._online_stream_active = False
+
+    @Property(bool, notify=onlineStreamActiveChanged)
+    def onlineStreamActive(self) -> bool:
+        return self._online_stream_active
+
+    def set_online_stream_active(self, value: bool) -> None:
+        if self._online_stream_active == value:
+            return
+        self._online_stream_active = value
+        self.onlineStreamActiveChanged.emit()
+
+
 def _song_map(mid: str = "m1", name: str = "晴天") -> dict:
     return {
         "mid": mid,
@@ -100,7 +118,7 @@ def _song_map(mid: str = "m1", name: str = "晴天") -> dict:
     }
 
 
-def _make_controller(tmp_path, http_server, **service_flags):
+def _make_controller(tmp_path, http_server, *, player_controller=None, **service_flags):
     service = _FakeService(http_server)
     for key, value in service_flags.items():
         setattr(service, key, value)
@@ -114,6 +132,7 @@ def _make_controller(tmp_path, http_server, **service_flags):
         settings_controller,
         store=DownloadStore(tmp_path / "downloads.json"),
         cover_url_builder=lambda album_mid: f"{http_server}/cover/{album_mid}",
+        player_controller=player_controller,
     )
     return controller, service, settings_controller
 
@@ -584,6 +603,91 @@ async def test_cancel_uses_mid_not_row(tmp_path, http_server):
 
     assert cancel_seen == ["canceled"]
     assert controller.downloadModel.task_at(0).status == "canceled"
+
+
+async def test_download_waits_until_online_playback_idle(tmp_path, http_server):
+    player = _FakePlayer()
+    player.set_online_stream_active(True)
+    controller, service, _ = _make_controller(tmp_path, http_server, player_controller=player)
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    await asyncio.sleep(0.05)
+
+    task = controller.downloadModel.task_at(0)
+    assert task.status == "pending"
+    assert service.url_calls == []
+
+    player.set_online_stream_active(False)
+    await controller.wait_idle()
+
+    assert controller.downloadModel.task_at(0).status == "done"
+    assert service.url_calls == [("m1", "balanced")]
+
+
+async def test_cancel_pending_download_waiting_for_playback_unblocks_worker(tmp_path, http_server):
+    player = _FakePlayer()
+    player.set_online_stream_active(True)
+    controller, service, _ = _make_controller(tmp_path, http_server, player_controller=player)
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    await asyncio.sleep(0.05)
+
+    controller.cancelTask(0)
+    await controller.wait_idle()
+
+    assert controller.downloadModel.task_at(0).status == "canceled"
+    assert service.url_calls == []
+
+
+async def test_online_playback_preempts_active_download_and_requeues(tmp_path, http_server):
+    player = _FakePlayer()
+    controller, _service, _ = _make_controller(tmp_path, http_server, player_controller=player)
+    started = threading.Event()
+    canceled = threading.Event()
+    release = threading.Event()
+    audio_attempts = 0
+
+    def _slow_then_finish(url, dest, *, progress_cb=None, cancel=None):
+        nonlocal audio_attempts
+        is_audio = "/audio" in url
+        if is_audio:
+            audio_attempts += 1
+        if is_audio and audio_attempts == 1:
+            started.set()
+            while not release.wait(0.02):
+                if cancel is not None and cancel.is_set():
+                    canceled.set()
+                    from quaverq.core.downloader import DownloadCanceled
+
+                    raise DownloadCanceled
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"x")
+
+    controller._downloader.download_file = _slow_then_finish  # noqa: SLF001
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    for _ in range(200):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.02)
+    assert started.is_set()
+
+    player.set_online_stream_active(True)
+    for _ in range(200):
+        if canceled.is_set():
+            break
+        await asyncio.sleep(0.02)
+
+    task = controller.downloadModel.task_at(0)
+    assert canceled.is_set()
+    assert task.status == "pending"
+
+    player.set_online_stream_active(False)
+    release.set()
+    await controller.wait_idle()
+
+    assert audio_attempts == 2
+    assert controller.downloadModel.task_at(0).status == "done"
 
 
 # ============================================================== UX: 即时反馈 / 聚合 / 防冲突

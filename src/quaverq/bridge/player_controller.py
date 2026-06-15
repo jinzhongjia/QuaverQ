@@ -67,6 +67,7 @@ class PlayerController(QObject):
     loadingChanged = Signal()
     errorMessageChanged = Signal()
     errorRaised = Signal(str)
+    onlineStreamActiveChanged = Signal()
     # 非错误级轻提示 (Snackbar info): 如自动跳过无版权曲目
     noticeRaised = Signal(str)
 
@@ -111,6 +112,9 @@ class PlayerController(QObject):
         self._muted = False
         self._loading = False
         self._error_message = ""
+        # True 表示播放器正在或即将通过 QQ CDN 拉在线音频流。下载器监听它避让，
+        # 防同账号播放流 + 下载流并发触发 CDN 401/403。
+        self._online_stream_active = False
         self._load_generation = 0
         # 瞬态媒体错误 (CDN 401 等) 的自动重试: 按当前曲 mid 计数, 成功播放清零
         self._media_retry_count = 0
@@ -161,6 +165,10 @@ class PlayerController(QObject):
     @Property(str, notify=sourceUrlChanged)
     def sourceUrl(self) -> str:
         return self._source_url
+
+    @Property(bool, notify=onlineStreamActiveChanged)
+    def onlineStreamActive(self) -> bool:
+        return self._online_stream_active
 
     @Property(str, notify=playbackStateChanged)
     def playbackState(self) -> str:
@@ -435,6 +443,8 @@ class PlayerController(QObject):
     def play(self) -> None:
         self._pause_pending = False  # 用户主动播放 -> 撤销加载窗口内的暂停意图
         if self._source_url:
+            if self._source_is_online(self._source_url):
+                self._set_online_stream_active(True)
             self.playRequested.emit()
             return
         try:
@@ -452,11 +462,14 @@ class PlayerController(QObject):
                     resume_position_ms=self._position_ms,
                 )
             return
+        if self._source_is_online(self._source_url):
+            self._set_online_stream_active(True)
         self.playRequested.emit()
 
     @Slot()
     def pause(self) -> None:
         self.pauseRequested.emit()
+        self._set_online_stream_active(False)
         # 加载/淡出窗口内暂停: 记住意图, _load_current 起播前会尊重它, 否则 fade
         # 淡出 sleep 醒来的 playRequested 会覆盖用户刚按下的暂停 (review 发现).
         if self._loading or self._suppress_position_updates:
@@ -475,6 +488,7 @@ class PlayerController(QObject):
         self._suppress_position_updates = False
         self._pause_pending = False
         self._set_source_url("")
+        self._set_online_stream_active(False)
         self._set_position_ms(0)
         self._set_playback_state("stopped")
         self.stopRequested.emit()
@@ -532,8 +546,12 @@ class PlayerController(QObject):
     @Slot(str)
     def updatePlaybackState(self, state: str) -> None:
         if state == "playing":
+            if self._source_is_online(self._source_url):
+                self._set_online_stream_active(True)
             self._media_retry_count = 0  # 成功播放 -> 清零, 允许后续 (如 vkey 过期) 再重试
             self._schedule_prefetch_next()
+        elif state in {"paused", "stopped"}:
+            self._set_online_stream_active(False)
         self._set_playback_state(state)
 
     @asyncSlot(int, str)
@@ -642,7 +660,9 @@ class PlayerController(QObject):
         song_url = None
         if local_path:
             logger.info("本地播放: %s (mid=%s)", song.name, song.mid)
+            self._set_online_stream_active(False)
         else:
+            self._set_online_stream_active(True)
             song_url = self._take_prefetched(song.mid, self._quality_preference())
         if song_url is not None:
             # 预取命中: 免 vkey 往返, 直接挂源 (issue #11)
@@ -719,8 +739,10 @@ class PlayerController(QObject):
 
         if local_path:
             playback_url = QUrl.fromLocalFile(local_path).toString()
+            self._set_online_stream_active(False)
         else:
             playback_url = song_url.url
+            self._set_online_stream_active(True)
             if self._stream_proxy is not None:
                 # 反风控 U2: 经本机回环代理拉流（出网走 curl_cffi 官方指纹 https）
                 self._start_stream_proxy_if_available()
@@ -890,12 +912,26 @@ class PlayerController(QObject):
             return
         self._source_url = value
         self.sourceUrlChanged.emit()
+        if not value or not self._source_is_online(value):
+            self._set_online_stream_active(False)
 
     def _set_playback_state(self, value: str) -> None:
         if self._playback_state == value:
             return
         self._playback_state = value
         self.playbackStateChanged.emit()
+        if value in {"paused", "stopped"}:
+            self._set_online_stream_active(False)
+
+    @staticmethod
+    def _source_is_online(value: str) -> bool:
+        return bool(value) and not value.startswith("file:")
+
+    def _set_online_stream_active(self, value: bool) -> None:
+        if self._online_stream_active == value:
+            return
+        self._online_stream_active = value
+        self.onlineStreamActiveChanged.emit()
 
     def _set_position_ms(self, value: int) -> None:
         value = max(0, int(value))

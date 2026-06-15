@@ -1,4 +1,6 @@
-# QQMusicApi 地区版权绕过完整研究报告
+# QQMusicApi 地区版权绕过历史研究报告
+
+> **2026-06-16 修订**：本文 2026-05 阶段得出的「不传 `ct` 最稳」已经被后续实测推翻，不能再作为实现依据。当前策略必须**显式传递 `ct`**，但要避开已知会触发风控 / CDN 401 / 403 的 `ct` 值，并在运行期发现坏值后动态剔除与重签。下面保留早期实验记录用于追溯，但凡出现「不传 `ct`」的旧结论，均视为历史结论。
 
 > **测试环境**：新加坡 IP, QQ 音乐账号 `musicid=2685843396`(有绿钻 VIP), 库 `qqmusic-api-python==0.6.1`, 测试时间 2026-05
 > **测试方式**: 所有结论均经过实测验证 (含 84 项稳定性矩阵 + HEAD 实际文件大小验证)
@@ -7,7 +9,9 @@
 
 ## TL;DR 极简结论
 
-**只需要不传 `ct` 字段 + 带 `qq+authst` 认证就能完全绕过地区版权**:
+**历史结论已过期：不能再使用“不传 `ct`”方案。**
+
+当前实现必须显式传递 `ct` 字段，并且只从可用候选池中选值；如果某个 `ct` 被远端拉黑导致 vkey 拒发、CDN 401 或 CDN 403，应在运行期切换到下一个候选 `ct` 后重新签链接。旧实验中的最小 payload 仅作为当时环境的消融记录保留：
 
 ```python
 payload = {
@@ -59,9 +63,11 @@ payload = {
 | 状态 | ct 值 | 备注 |
 |------|------|------|
 | ❌ 被风控 | 1, 3, 4, **11**, 18, **19**, 23, 27, 46 | 都对应"热门客户端" (ct=19 于 2026-06-07 实测新增黑名单, CDN Lego Server 直接 403) |
-| ✅ 通过 | 其它所有值, 以及 **不传 ct** | 冷门/未注册值 |
+| ✅ 历史实测通过 | 其它所有值, 以及当时的 **不传 ct** | “不传 ct”已过期；当前只保留冷门候选 `ct` |
 
-**最终最稳方案**: 直接**不传 ct** (服务端走默认逻辑, 不应用地区策略).
+> **2026-06-16 当前复测**：`ct=0..100` 中当前坏值为 `1, 11, 18, 19, 27`；其中 `18` 是 vkey 成功但 CDN `Range GET` 返回 403，`1/11/19/27` 是 vkey 阶段 `purl` 为空。旧表里的 `3/4/23/46` 本次均可用。详见 `docs/plan/search-song-url-401-ct.md`。
+
+**当前修订**: 这里的“不传 ct”已过期。生产路径必须传 `ct`，并通过候选池 + 运行期坏值剔除处理远端策略变化。
 
 ## 四、稳定性验证
 
@@ -81,7 +87,7 @@ payload = {
 | **MASTER** | AI00 | **161.5 MB** | **臻品母带 24Bit/192kHz, 平时需豪华绿钻** |
 | **ATMOS_2** | Q000 | **23.93 MB** | **臻品音质 (银河), 平时需 SVIP** |
 
-**vkey 接口在"无 ct"路径下完全不校验音质权限**. 连付费才能听的母带都能拿.
+**历史记录**：当时 vkey 接口在“无 ct”路径下未校验音质权限，连付费才能听的母带都能拿。该结论已过期，当前实现不能依赖“无 ct”。
 
 ## 五、必需字段
 
@@ -92,7 +98,7 @@ payload = {
 | `qq` | ✅ | 真实 musicid |
 | `authst` | ✅ | 对应 musickey |
 | `tmeLoginType` | ⭕ | 可省 |
-| `ct` | ❌ **省略** | 填 11/23/... 触发风控 |
+| `ct` | ✅ **必须显式传递** | 不能省略；填 11/23/... 这类热门客户端值会触发风控，需要用候选池并动态剔除坏值 |
 | 其它 (`cv/v/tmeAppID/format/QIMEI/uid/device`) | ❌ | 全不需要 |
 
 ### tmeAppID 反直觉发现
@@ -116,7 +122,7 @@ payload = {
 `music.vkey.GetEVkey` / `CgiGetEVkey` 在 ct=2 下成功返回 `purl + ekey(704 字节)`. 文件需客户端用 ekey 本地解密. 完整解密实现待补 (见第九节).
 
 ### 6.4 ct 轮换
-冷门 ct 值 `[2, 5, 8, 13, 24, 30]` 都能用. 但既然不传 ct 就行, 没必要绕一层.
+冷门 ct 值 `[2, 5, 8, 13, 24, 30]` 当时都能用。当前修订为必须从候选池显式传 `ct`，不能再省略。
 
 ## 七、其它探索结论
 
@@ -151,7 +157,7 @@ payload = {
 ### 7.4 MV/视频接口
 `music.stream.MvUrlProxy` / `GetMvUrls`:
 - modern 路径 (带 ct=11): 返回结构中 `url=[]` 全空, `code=1000/2000`
-- bypass 路径 (无 ct): 与 modern 完全相同的响应, **也拿不到 URL**
+- 历史 bypass 路径 (无 ct): 与 modern 完全相同的响应, **也拿不到 URL**（该“无 ct”姿势已过期）
 
 **MV 用独立的版权策略**, 跟 vkey 不是一套. 当前绕过对 MV 无效. 深挖需另起项目.
 
@@ -165,14 +171,14 @@ DEFAULT_VERSION_POLICY.android.ct = 11
 `Client` 默认 `platform=Platform.ANDROID`, `Client.request_api` 调 `_version_policy.build_comm` 把 `ct=11` 写进 comm, 正好命中 QQ 音乐对 Android 客户端的地区策略.
 
 ### 修复路径
-- **不改库**: 用 `hybrid.py` 直接绕过 `request_api`, 自己拼 JSON payload
-- **改库源码**: `versioning.py` 里把 `android.ct` 改成 `2` 等冷门值, 或重写 `build_comm` 让它不传 ct
-- **未来 PR 上游**: 让 0.6.1+ 默认就走绕过路径
+- **不改库**: 继续绕过 `request_api`, 自己拼 JSON payload，并显式传入项目选择的 `ct`
+- **改库源码**: `versioning.py` 里把 `android.ct` 改成可用候选值，或暴露调用方可控的 `ct`
+- **未来 PR 上游**: 让库允许按接口覆盖 `comm.ct`，避免 `get_song_urls()` 固定吃默认平台策略
 
 ## 九、ekey 加密文件本地解密 (已评估为低价值)
 
 ### 9.1 现状
-- API 路径已通: `music.vkey.GetEVkey` 在新加坡 IP + 无 ct 下能拿到 ekey (704 字符 base64) + 加密文件 URL
+- 历史 API 路径已通: `music.vkey.GetEVkey` 在新加坡 IP + 无 ct 下能拿到 ekey (704 字符 base64) + 加密文件 URL；当前不能依赖“无 ct”
 - 加密文件下载没问题 (HEAD 实测 1MB 范围下载成功)
 
 ### 9.2 解密未完成
@@ -192,16 +198,16 @@ DEFAULT_VERSION_POLICY.android.ct = 11
 
 ## 十、生产部署建议
 
-1. **主路径**: `music.vkey.GetVkey` + `{qq, authst}` (无 ct) + `music.stream.MvUrlProxy` 同样可试这种姿势
+1. **主路径**: `music.vkey.GetVkey` + `{ct, qq, authst}`，`ct` 来自候选池；发现 CDN 401 / 403 后剔除当前 `ct` 并重签
 2. **备用**: `vkey.GetVkeyServer` 作 fallback (独立通道)
 3. **限速**: < 1 req/s/账号, 避免行为风控
 4. **多账号轮换**: 提高总吞吐, 降低单账号风险
-5. **监控 `result` 码变化**: 一旦发现 104003 比例上升, 说明 QQ 音乐扩大了风控范围 (比如把 "无 ct" 也加上检查)
+5. **监控 `result` 码变化**: 一旦发现 104003 / CDN 401 / CDN 403 比例上升, 说明 QQ 音乐扩大了风控范围，需要动态缩小候选池或更新 blocklist
 6. **不要请求 MV**: 当前绕过对 MV 无效, 强请会浪费请求次数
 
 ## 十一、风险
 
-- **`无 ct` 不是永远稳的**: 未来 QQ 音乐可能强制要求 ct 字段并校验在白名单内
+- **必须带 `ct`**: “无 ct”结论已过期；未来远端仍可能继续扩大 `ct` 黑名单
 - **`qq+authst` 是真实登录态**: 单账号被识别为异常行为可能限流/封禁
 - **新加坡 IP 仍可能被特殊 ASN 拦截**: 当前测试中没发生
 - **`ct=46` 等孤立风控点**: 提醒 QQ 音乐随时可能扩大风控列表
@@ -221,7 +227,7 @@ DEFAULT_VERSION_POLICY.android.ct = 11
 | `explore.py` | ct 全空间扫描 + endpoint + tmeAppID |
 | `explore2.py` | 稳定性矩阵 + 加密接口探测 |
 | `explore3.py` | 高 ct 扩展 + 替代 module |
-| `explore4.py` | 不传 ct 稳定性最终验证 |
+| `explore4.py` | 历史阶段的“不传 ct”稳定性验证（现已过期，仅供追溯） |
 | `explore_quality.py` | 高音质验证 (MP3_320 → MASTER) |
 | `verify_quality.py` | HEAD 实测文件大小验证 |
 | `explore_anonymous.py` | 无登录态全部尝试 |
@@ -236,7 +242,7 @@ DEFAULT_VERSION_POLICY.android.ct = 11
 
 **误判 1**: `uid=3931641530` 是社区流传的"魔法 UID", 绕过关键 → ❌ 完全无关, 去掉照样过.
 
-**误判 2**: 需要写死 0.4.1 风格的全套参数 → ❌ 只要不传 ct + 带 qq/authst 即可.
+**误判 2（已过期）**: 需要写死 0.4.1 风格的全套参数 → 当时误以为只要不传 ct + 带 qq/authst 即可；当前修订为必须显式传 `ct`，并动态避开坏值。
 
 **误判 3**: `Platform.DESKTOP` 应该能绕过 → ❌ 库的 DESKTOP 路径同时换了认证字段为 `uin + g_tk`, vkey 不认, 反而返回 `result=22`.
 

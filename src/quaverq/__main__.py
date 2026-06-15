@@ -446,6 +446,7 @@ def main() -> None:
         service_controller,
         settings_controller,
         store=DownloadStore(CONFIG_DIR / "downloads.json"),
+        player_controller=player_controller,
     )
     # 本地优先播放: 已下载的歌直接放本地文件 (离线可听), 失效自动回落在线
     player_controller.set_local_resolver(download_controller.local_path_for)

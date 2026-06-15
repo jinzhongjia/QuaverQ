@@ -45,6 +45,7 @@ from .error_utils import log_bridge_error
 from .models import SongListModel, song_from_map, song_to_map
 
 if TYPE_CHECKING:
+    from .player_controller import PlayerController
     from .service_controller import ServiceController
     from .settings_controller import SettingsController
 
@@ -237,11 +238,13 @@ class DownloadController(QObject):
         store: DownloadStore | None = None,
         downloader: Downloader | None = None,
         cover_url_builder: Callable[[str], str] | None = None,
+        player_controller: PlayerController | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service_controller = service_controller
         self._settings_controller = settings_controller
+        self._player_controller = player_controller
         self._store = store
         self._downloader = downloader or Downloader()
         self._cover_url_builder = cover_url_builder or (
@@ -251,10 +254,18 @@ class DownloadController(QObject):
         self._queue: asyncio.Queue[int] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}
+        self._playback_preempted_mids: set[str] = set()
+        self._playback_idle = asyncio.Event()
+        if not self._online_stream_active():
+            self._playback_idle.set()
         self._closing = False
         # 本轮 worker 运行期间成功完成的 (歌名, 音质文本): 队列清空时聚合成一条提示
         self._session_completed: list[tuple[str, str]] = []
         self._load_history()
+        signal = getattr(player_controller, "onlineStreamActiveChanged", None)
+        connect = getattr(signal, "connect", None)
+        if callable(connect):
+            connect(self._on_online_stream_active_changed)
 
     def _load_history(self) -> None:
         """启动时把持久化的已下载记录填进 model (status=done), 供重启后展示."""
@@ -322,6 +333,7 @@ class DownloadController(QObject):
         if task.status == "pending":
             self._model.set_status(row, "canceled")
             self.activeCountChanged.emit()
+            self._playback_idle.set()
         elif task.status == "running":
             # _cancel_events 按 mid 存 (不按 row): 移除历史行后 row 偏移仍能命中
             event = self._cancel_events.get(task.song.mid)
@@ -431,6 +443,7 @@ class DownloadController(QObject):
     def shutdown(self) -> None:
         """退出序列调用: 置位所有取消事件, 让下载线程尽快退出并清掉 .part."""
         self._closing = True
+        self._playback_idle.set()
         for event in self._cancel_events.values():
             event.set()
 
@@ -475,6 +488,9 @@ class DownloadController(QObject):
         self._model.set_status(row, "running")
         self.activeCountChanged.emit()
 
+        if not await self._wait_for_playback_idle(row, task):
+            return
+
         try:
             song_url = await self._service_controller.get_song_url(
                 song, quality_preference=task.quality_preference
@@ -500,6 +516,9 @@ class DownloadController(QObject):
             self.noticeRaised.emit(f"已存在，跳过下载:{dest.name}")
             return
 
+        if not await self._wait_for_playback_idle(row, task):
+            return
+
         cancel = threading.Event()
         self._cancel_events[song.mid] = cancel
         loop = asyncio.get_running_loop()
@@ -522,6 +541,11 @@ class DownloadController(QObject):
                 cancel=cancel,
             )
         except DownloadCanceled:
+            if song.mid in self._playback_preempted_mids:
+                self._playback_preempted_mids.discard(song.mid)
+                self._model.set_status(row, "pending")
+                self._queue.put_nowait(row)
+                return
             self._model.set_status(row, "canceled")
             self.activeCountChanged.emit()
             return
@@ -559,6 +583,42 @@ class DownloadController(QObject):
                 downloaded_at=int(time.time()),
             )
         )
+
+    def _online_stream_active(self) -> bool:
+        player = self._player_controller
+        if player is None:
+            return False
+        try:
+            return bool(getattr(player, "onlineStreamActive", False))
+        except RuntimeError:
+            return False
+
+    def _on_online_stream_active_changed(self) -> None:
+        if self._online_stream_active():
+            self._playback_idle.clear()
+            for mid, event in list(self._cancel_events.items()):
+                self._playback_preempted_mids.add(mid)
+                event.set()
+            return
+        self._playback_idle.set()
+
+    async def _wait_for_playback_idle(self, row: int, task: DownloadTask) -> bool:
+        if not self._online_stream_active():
+            self._playback_idle.set()
+            return True
+
+        self._playback_idle.clear()
+        self._model.set_status(row, "pending")
+        self.activeCountChanged.emit()
+        logger.info("在线播放中，延后下载: %s (mid=%s)", task.song.name, task.song.mid)
+        while self._online_stream_active() and not self._closing and task.status != "canceled":
+            await self._playback_idle.wait()
+
+        if self._closing or task.status == "canceled":
+            return False
+        self._model.set_status(row, "running")
+        self.activeCountChanged.emit()
+        return True
 
     async def _save_lyric(self, song: Song, audio_dest: Path) -> None:
         if not bool(getattr(self._settings_controller, "downloadWithLyric", True)):

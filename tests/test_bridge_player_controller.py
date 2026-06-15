@@ -68,7 +68,34 @@ async def test_push_and_play_loads_source_and_emits_play_request():
     assert controller.loading is False
     assert controller.errorMessage == ""
     assert controller.playbackState == "loading"
+    assert controller.onlineStreamActive is True
     assert play_requests == [True]
+
+
+async def test_online_stream_active_clears_on_stop():
+    service = _FakeServiceController()
+    controller = PlayerController(service)  # type: ignore[arg-type]
+
+    await controller.play_songs_async([_song("m1", "晴天")], 0)
+    assert controller.onlineStreamActive is True
+
+    controller.stop()
+
+    assert controller.onlineStreamActive is False
+
+
+async def test_local_playback_does_not_mark_online_stream_active(tmp_path):
+    service = _FakeServiceController()
+    local_file = tmp_path / "m1.mp3"
+    local_file.write_bytes(b"audio")
+    controller = PlayerController(service)  # type: ignore[arg-type]
+    controller.set_local_resolver(lambda mid: str(local_file) if mid == "m1" else "")
+
+    await controller.play_songs_async([_song("m1", "晴天")], 0)
+
+    assert service.calls == []
+    assert controller.sourceUrl == QUrl.fromLocalFile(str(local_file)).toString()
+    assert controller.onlineStreamActive is False
 
 
 async def test_source_url_routed_through_stream_proxy():
