@@ -5,6 +5,9 @@
     uv run python build.py              # Nuitka standalone → dist/quaverq.dist/
     uv run python build.py --onefile    # 单文件 exe
     uv run python build.py --appimage   # standalone + AppImage（Linux, 需 linuxdeploy）
+    uv run python build.py --deb        # standalone + deb（Linux, 需 dpkg-deb）
+    uv run python build.py --rpm        # standalone + rpm（Linux, 需 rpmbuild）
+    uv run python build.py --archlinux  # standalone + Arch Linux 包（Linux, 需 makepkg）
     uv run python build.py --msi        # standalone + MSI 安装包 (Windows, 需 WiX 5)
     uv run python build.py --portable   # standalone + portable 归档 (Win .zip / 其他 .tar.gz, 解压即跑)
 """

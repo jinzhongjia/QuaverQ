@@ -12,7 +12,7 @@ QuaverQ 的 Python 包根目录。包含应用入口、配置/资源/诊断/打�
 | `diagnostics.py` | 启动自检：QtMultimedia/FFmpeg 后端、D-Bus 会话总线等关键依赖是否就绪，缺失给出 `info/warning/critical` 三级提示。 |
 | `perf.py` | 轻量性能日志 helper：`log_elapsed(logger, event, **fields)` 统一输出 `perf <event> elapsed_ms=<n> key=value`，供启动与刷新路径定位真实耗时。 |
 | `resources.py` | 定位 `assets/`（`.desktop` / 图标 / metainfo），同时兼容源码布局与 Nuitka bundle 布局；`APP_ID` 常量在这里。 |
-| `packaging.py` | Nuitka standalone 构建 + AppImage / portable / MSI 封装的纯函数命令组装 + 实际调用（`uv run python build.py --appimage` / `--portable` / `--msi` / `python -m quaverq.packaging --smoke ...`）。portable 的 `--no-rebuild` 会复用已有 Nuitka dist，并按其中的 `QuaverQ.exe` / `QuaverQ` 推断 zip 或 tar.gz。 |
+| `packaging.py` | Nuitka standalone 构建 + AppImage / deb / rpm / Arch Linux pacman 包 / portable / MSI 封装的纯函数命令组装 + 实际调用（`uv run python build.py --appimage` / `--deb` / `--rpm` / `--archlinux` / `--portable` / `--msi` / `python -m quaverq.packaging --smoke ...`）。Linux 原生包共用 `/opt/quaverq` 安装树、`/usr/bin/quaverq` 启动器与 freedesktop desktop/icon/metainfo 文件；portable 的 `--no-rebuild` 会复用已有 Nuitka dist，并按其中的 `QuaverQ.exe` / `QuaverQ` 推断 zip 或 tar.gz。 |
 
 ## 子目录
 

@@ -1,7 +1,9 @@
-"""打包：Nuitka standalone 构建 + AppImage 封装。
+"""打包：Nuitka standalone 构建 + Linux/Windows 安装包封装。
 
-命令组装与 AppDir 布局是纯函数，便于测试；真正的编译 / linuxdeploy 调用在
-:func:`build` / :func:`build_appimage` 内执行（依赖 nuitka、linuxdeploy，通常在 CI 跑）。
+命令组装与安装树布局是纯函数，便于测试；真正的编译 / 系统打包器调用在
+:func:`build` / :func:`build_appimage` / :func:`build_deb` / :func:`build_rpm`
+/:func:`build_archlinux` 内执行（依赖 nuitka、linuxdeploy、dpkg-deb、rpmbuild、
+makepkg，通常在 CI 或对应发行版构建机跑）。
 
 要点：
 - ``--enable-plugin=pyside6`` 让 Nuitka 正确带 Qt/QML 运行时。
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -220,6 +223,137 @@ def linuxdeploy_command(
         "--output",
         "appimage",
     ]
+
+
+_PACKAGE_NAME = "quaverq"
+_PACKAGE_SUMMARY = "QQ 音乐桌面客户端"
+_PACKAGE_MAINTAINER = "Jin <mail@nvimer.org>"
+_LINUX_INSTALL_PREFIX = Path("/opt/quaverq")
+_LINUX_LAUNCHER = Path("/usr/bin/quaverq")
+_DEB_DEPENDS = (
+    "libc6",
+    "libstdc++6",
+    "libgcc-s1",
+    "libglib2.0-0",
+    "libdbus-1-3",
+    "libx11-6",
+    "libxcb1",
+    "libxkbcommon-x11-0",
+    "libegl1",
+    "libgl1",
+    "libasound2",
+)
+_RPM_REQUIRES = (
+    "glibc",
+    "libstdc++",
+    "libgcc",
+    "glib2",
+    "dbus-libs",
+    "libX11",
+    "libxcb",
+    "libxkbcommon-x11",
+    "mesa-libEGL",
+    "mesa-libGL",
+    "alsa-lib",
+)
+_ARCH_DEPENDS = (
+    "glibc",
+    "gcc-libs",
+    "glib2",
+    "dbus",
+    "libx11",
+    "libxcb",
+    "libxkbcommon-x11",
+    "libglvnd",
+    "alsa-lib",
+)
+
+
+def linux_package_arch(package_format: str, *, machine: str | None = None) -> str:
+    """把 ``platform.machine()`` 映射到各发行版包格式使用的架构名。"""
+    arch = machine or platform.machine()
+    match package_format, arch:
+        case "deb", "x86_64" | "AMD64":
+            return "amd64"
+        case "deb", "aarch64" | "arm64":
+            return "arm64"
+        case "rpm" | "arch", "x86_64" | "AMD64":
+            return "x86_64"
+        case "rpm" | "arch", "aarch64" | "arm64":
+            return "aarch64"
+        case _:
+            return arch
+
+
+def _desktop_file_text_for_package() -> str:
+    """安装包内 desktop 文件走稳定的 ``/usr/bin/quaverq`` 启动器。"""
+    text = resources.desktop_file().read_text(encoding="utf-8")
+    return text.replace("Exec=QuaverQ\n", "Exec=quaverq\n")
+
+
+def linux_package_layout(root_dir: str | Path) -> dict[Path, str | Path]:
+    """Linux 安装包根目录内的固定文件映射。
+
+    ``/opt/quaverq`` 下的 Nuitka bundle 由 :func:`prepare_linux_package_root`
+    递归复制；这里仅描述桌面集成文件与启动器。
+    """
+    base = Path(root_dir)
+    return {
+        base / _LINUX_LAUNCHER.relative_to("/"): f"{_LINUX_INSTALL_PREFIX}/QuaverQ",
+        base / "usr/share/applications" / f"{APP_ID}.desktop": resources.desktop_file(),
+        base / "usr/share/icons/hicolor/scalable/apps" / f"{APP_ID}.svg": resources.icon_file(),
+        base / "usr/share/metainfo" / f"{APP_ID}.metainfo.xml": resources.metainfo_file(),
+    }
+
+
+def prepare_linux_package_root(root_dir: str | Path, dist_dir: str | Path) -> None:
+    """把 Nuitka standalone 产物整理成 deb/rpm/pacman 共用的安装根。"""
+    root = Path(root_dir)
+    dist = Path(dist_dir)
+    if root.exists():
+        shutil.rmtree(root)
+    bundle_target = root / _LINUX_INSTALL_PREFIX.relative_to("/")
+    shutil.copytree(dist, bundle_target, symlinks=True)
+
+    launcher = root / _LINUX_LAUNCHER.relative_to("/")
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    launcher.symlink_to(f"{_LINUX_INSTALL_PREFIX}/QuaverQ")
+
+    desktop_target = root / "usr/share/applications" / f"{APP_ID}.desktop"
+    desktop_target.parent.mkdir(parents=True, exist_ok=True)
+    desktop_target.write_text(_desktop_file_text_for_package(), encoding="utf-8")
+
+    icon_target = root / "usr/share/icons/hicolor/scalable/apps" / f"{APP_ID}.svg"
+    icon_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(resources.icon_file(), icon_target)
+
+    metainfo_target = root / "usr/share/metainfo" / f"{APP_ID}.metainfo.xml"
+    metainfo_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(resources.metainfo_file(), metainfo_target)
+
+
+def _installed_size_kib(root_dir: Path) -> int:
+    return max(
+        1, sum(path.stat().st_size for path in root_dir.rglob("*") if path.is_file()) // 1024
+    )
+
+
+def _ensure_linux_dist(output_dir: str, *, rebuild: bool, label: str) -> Path | None:
+    if sys.platform != "linux":
+        print(f"[{label}] 仅 Linux 支持该安装包格式", file=sys.stderr)
+        return None
+    root = resources.project_root()
+    dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
+    if rebuild or not (dist_dir / "QuaverQ").exists():
+        rc = build("standalone", output_dir=output_dir)
+        if rc != 0:
+            return None
+    else:
+        print(f"[{label}] 复用已有 Nuitka 产物: {dist_dir} (--no-rebuild)")
+    if not dist_dir.is_dir():
+        print(f"[{label}] 期望的产物目录不存在: {dist_dir}", file=sys.stderr)
+        return None
+    return dist_dir
 
 
 def clean_stray_qt_objects() -> int:
@@ -589,6 +723,184 @@ def build_appimage(output_dir: str = "dist") -> int:
     return subprocess.run(cmd, cwd=root / output_dir, env=env).returncode
 
 
+def build_deb(output_dir: str = "dist", *, rebuild: bool = True) -> int:
+    """Nuitka standalone -> Debian ``.deb`` 安装包。"""
+    dpkg_deb = shutil.which("dpkg-deb")
+    if dpkg_deb is None:
+        print("[deb] 未找到 dpkg-deb. Debian/Ubuntu 安装 dpkg-dev 后重试", file=sys.stderr)
+        return 1
+    dist_dir = _ensure_linux_dist(output_dir, rebuild=rebuild, label="deb")
+    if dist_dir is None:
+        return 1
+
+    root = resources.project_root()
+    version = project_version()
+    package_root = root / output_dir / "deb-root"
+    prepare_linux_package_root(package_root, dist_dir)
+
+    debian_dir = package_root / "DEBIAN"
+    debian_dir.mkdir(parents=True, exist_ok=True)
+    control = "\n".join(
+        (
+            f"Package: {_PACKAGE_NAME}",
+            f"Version: {version}",
+            "Section: sound",
+            "Priority: optional",
+            f"Architecture: {linux_package_arch('deb')}",
+            f"Maintainer: {_PACKAGE_MAINTAINER}",
+            f"Installed-Size: {_installed_size_kib(package_root)}",
+            f"Depends: {', '.join(_DEB_DEPENDS)}",
+            f"Description: {_PACKAGE_SUMMARY}",
+            " QuaverQ 是基于 PySide6 + Qt Quick 的 QQ 音乐桌面客户端。",
+            "",
+        )
+    )
+    (debian_dir / "control").write_text(control, encoding="utf-8")
+
+    deb_path = root / output_dir / f"quaverq_{version}_{linux_package_arch('deb')}.deb"
+    cmd = [dpkg_deb, "--root-owner-group", "--build", str(package_root), str(deb_path)]
+    print("[deb]", " ".join(shlex.quote(c) for c in cmd))
+    rc = subprocess.run(cmd, cwd=root).returncode
+    if rc == 0:
+        print(f"[deb] OK -> {deb_path}")
+    return rc
+
+
+def _rpm_spec_text(version: str, package_root: Path) -> str:
+    requires = "\n".join(f"Requires: {name}" for name in _RPM_REQUIRES)
+    return f"""Name: {_PACKAGE_NAME}
+Version: {version}
+Release: 1%{{?dist}}
+Summary: {_PACKAGE_SUMMARY}
+License: GPL-3.0-or-later
+URL: https://github.com/jinzhongjia/quaverq
+AutoReqProv: no
+{requires}
+
+%description
+QuaverQ 是基于 PySide6 + Qt Quick 的 QQ 音乐桌面客户端。
+
+%prep
+
+%build
+
+%install
+rm -rf "%{{buildroot}}"
+mkdir -p "%{{buildroot}}"
+cp -a "{package_root}/." "%{{buildroot}}/"
+
+%files
+/opt/quaverq
+/usr/bin/quaverq
+/usr/share/applications/{APP_ID}.desktop
+/usr/share/icons/hicolor/scalable/apps/{APP_ID}.svg
+/usr/share/metainfo/{APP_ID}.metainfo.xml
+"""
+
+
+def build_rpm(output_dir: str = "dist", *, rebuild: bool = True) -> int:
+    """Nuitka standalone -> RPM 安装包。"""
+    rpmbuild = shutil.which("rpmbuild")
+    if rpmbuild is None:
+        print("[rpm] 未找到 rpmbuild. Fedora/RHEL 安装 rpm-build 后重试", file=sys.stderr)
+        return 1
+    dist_dir = _ensure_linux_dist(output_dir, rebuild=rebuild, label="rpm")
+    if dist_dir is None:
+        return 1
+
+    root = resources.project_root()
+    version = project_version()
+    package_root = root / output_dir / "rpm-root"
+    prepare_linux_package_root(package_root, dist_dir)
+
+    topdir = root / output_dir / "rpmbuild"
+    spec_dir = topdir / "SPECS"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    spec_path = spec_dir / "quaverq.spec"
+    spec_path.write_text(_rpm_spec_text(version, package_root), encoding="utf-8")
+
+    cmd = [
+        rpmbuild,
+        "-bb",
+        str(spec_path),
+        "--target",
+        linux_package_arch("rpm"),
+        "--define",
+        f"_topdir {topdir}",
+        "--define",
+        f"_rpmdir {root / output_dir}",
+    ]
+    print("[rpm]", " ".join(shlex.quote(c) for c in cmd))
+    rc = subprocess.run(cmd, cwd=root).returncode
+    if rc == 0:
+        print(f"[rpm] OK -> {root / output_dir}")
+    return rc
+
+
+def _arch_pkgbuild_text(version: str) -> str:
+    depends = " ".join(f"'{name}'" for name in _ARCH_DEPENDS)
+    return f"""# Maintainer: {_PACKAGE_MAINTAINER}
+pkgname=quaverq
+pkgver={version}
+pkgrel=1
+pkgdesc='{_PACKAGE_SUMMARY}'
+arch=('{linux_package_arch("arch")}')
+url='https://github.com/jinzhongjia/quaverq'
+license=('GPL-3.0-or-later')
+depends=({depends})
+options=('!strip')
+source=('quaverq-install-root.tar.gz')
+sha256sums=('SKIP')
+
+package() {{
+    cp -a "$srcdir/package-root/." "$pkgdir/"
+}}
+"""
+
+
+def _write_arch_source_tar(package_root: Path, tar_path: Path) -> None:
+    import tarfile
+
+    with tarfile.open(tar_path, "w:gz", compresslevel=6) as tf:
+        for path in sorted(package_root.rglob("*")):
+            relative = path.relative_to(package_root)
+            tf.add(path, arcname=Path("package-root") / relative, recursive=False)
+
+
+def build_archlinux(output_dir: str = "dist", *, rebuild: bool = True) -> int:
+    """Nuitka standalone -> Arch Linux ``.pkg.tar.zst`` 包。"""
+    makepkg = shutil.which("makepkg")
+    if makepkg is None:
+        print(
+            "[archlinux] 未找到 makepkg. Arch Linux 安装 pacman/base-devel 后重试", file=sys.stderr
+        )
+        return 1
+    dist_dir = _ensure_linux_dist(output_dir, rebuild=rebuild, label="archlinux")
+    if dist_dir is None:
+        return 1
+
+    root = resources.project_root()
+    version = project_version()
+    package_root = root / output_dir / "arch-root"
+    prepare_linux_package_root(package_root, dist_dir)
+
+    workdir = root / output_dir / "archlinux"
+    if workdir.exists():
+        shutil.rmtree(workdir)
+    workdir.mkdir(parents=True)
+    (workdir / "PKGBUILD").write_text(_arch_pkgbuild_text(version), encoding="utf-8")
+    _write_arch_source_tar(package_root, workdir / "quaverq-install-root.tar.gz")
+
+    cmd = [makepkg, "-f", "--noconfirm"]
+    print("[archlinux]", " ".join(shlex.quote(c) for c in cmd))
+    rc = subprocess.run(cmd, cwd=workdir).returncode
+    if rc == 0:
+        for pkg in sorted(workdir.glob("*.pkg.tar.*")):
+            shutil.copy2(pkg, root / output_dir / pkg.name)
+            print(f"[archlinux] OK -> {root / output_dir / pkg.name}")
+    return rc
+
+
 _SMOKE_OK_MARKER = "QuaverQ started with QML"
 _SMOKE_FAIL_MARKERS = ("QML load failed", "is not installed", "Traceback", "FATAL:")
 
@@ -627,6 +939,17 @@ def main() -> None:
         "--msi", action="store_true", help="standalone + WiX 5 -> Windows MSI 安装包 (仅 Windows)"
     )
     parser.add_argument(
+        "--deb", action="store_true", help="standalone + dpkg-deb -> Debian/Ubuntu .deb"
+    )
+    parser.add_argument(
+        "--rpm", action="store_true", help="standalone + rpmbuild -> Fedora/RHEL RPM"
+    )
+    parser.add_argument(
+        "--archlinux",
+        action="store_true",
+        help="standalone + makepkg -> Arch Linux .pkg.tar.zst",
+    )
+    parser.add_argument(
         "--portable",
         action="store_true",
         help="standalone -> portable 归档 (Windows .zip / 其他平台 .tar.gz, 解压即跑)",
@@ -634,7 +957,10 @@ def main() -> None:
     parser.add_argument(
         "--no-rebuild",
         action="store_true",
-        help="跟 --msi / --portable 一起用: 复用已存在的 Nuitka 产物, 只跑后续打包步骤 (省时间)",
+        help=(
+            "跟 --msi / --portable / --deb / --rpm / --archlinux 一起用: "
+            "复用已存在的 Nuitka 产物, 只跑后续打包步骤 (省时间)"
+        ),
     )
     parser.add_argument("--smoke", metavar="BINARY", help="对产物跑 smoke 启动自检")
     args = parser.parse_args()
@@ -647,6 +973,12 @@ def main() -> None:
         sys.exit(build_appimage())
     if args.msi:
         sys.exit(build_msi(rebuild=not args.no_rebuild))
+    if args.deb:
+        sys.exit(build_deb(rebuild=not args.no_rebuild))
+    if args.rpm:
+        sys.exit(build_rpm(rebuild=not args.no_rebuild))
+    if args.archlinux:
+        sys.exit(build_archlinux(rebuild=not args.no_rebuild))
     if args.portable:
         sys.exit(build_portable(rebuild=not args.no_rebuild))
     sys.exit(build("onefile" if args.onefile else "standalone"))

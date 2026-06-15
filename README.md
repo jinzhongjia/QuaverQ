@@ -50,13 +50,20 @@ uv run quaverq                         # 启动应用
 
 环境要求:Linux、Python ≥ 3.10、桌面基础库(libEGL / libGL / libxkbcommon / libxcb-* / dbus)。播放需先扫码登录 QQ 音乐。
 
-## 打包(AppImage)
+## 打包
 
 ```bash
-uv run python build.py --appimage          # -> dist/QuaverQ-x86_64.AppImage
-uv run python -m quaverq.packaging --smoke dist/quaverq.dist/QuaverQ
+uv run python build.py --appimage          # Linux AppImage, 需 linuxdeploy
+uv run python build.py --deb               # Debian/Ubuntu .deb, 需 dpkg-deb
+uv run python build.py --rpm               # Fedora/RHEL RPM, 需 rpmbuild
+uv run python build.py --archlinux         # Arch Linux .pkg.tar.zst, 需 makepkg
+uv run python build.py --portable          # Win zip / Linux tar.gz portable 归档
+uv run python build.py --msi               # Windows MSI, 需 WiX 5
+uv run python -m quaverq.packaging --smoke dist/quaverq_entry.dist/QuaverQ
 ```
 
+Linux 原生包统一把 Nuitka bundle 安装到 `/opt/quaverq`，并提供
+`/usr/bin/quaverq` 启动器与 freedesktop desktop/icon/metainfo 文件。
 打 `v*` tag 触发 GitHub Actions 自动构建并发布 AppImage(见 `.github/workflows/release.yml`)。
 
 ## 配置与数据
