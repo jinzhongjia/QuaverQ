@@ -32,7 +32,7 @@ class LyricPanelIndicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
         });
-        this._label.clutter_text.ellipsize = 3; // PANGO_ELLIPSIZE_END
+        this._label.clutter_text.ellipsize = 3;
         box.add_child(this._label);
 
         this.add_child(box);
@@ -49,14 +49,16 @@ class LyricPanelIndicator extends PanelMenu.Button {
         this.visible = false;
     }
 
-    setLyric(lines) {
+    setLyric(lines, _hasWordTiming) {
         this._lines = lines;
         this._activeLine = -1;
         this._label.text = '';
         this.visible = false;
     }
 
-    setActive(line) {
+    setActive(line, _word) {
+        if (line === this._activeLine)
+            return;
         this._activeLine = line;
 
         if (line < 0 || line >= this._lines.length) {
@@ -114,7 +116,11 @@ class LyricPanelIndicator extends PanelMenu.Button {
     }
 
     addToPanel(position) {
-        Main.panel.addToStatusArea('quaverq-lyrics', this, 0, position);
+        if (position === 'right') {
+            Main.panel.addToStatusArea('quaverq-lyrics', this, -1, 'center');
+        } else {
+            Main.panel.addToStatusArea('quaverq-lyrics', this, 0, 'center');
+        }
     }
 
     destroy() {

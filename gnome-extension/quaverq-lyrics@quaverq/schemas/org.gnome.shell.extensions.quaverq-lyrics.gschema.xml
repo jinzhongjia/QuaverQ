@@ -3,45 +3,14 @@
   <schema id="org.gnome.shell.extensions.quaverq-lyrics"
           path="/org/gnome/shell/extensions/quaverq-lyrics/">
 
-    <key name="display-mode" type="s">
-      <default>'both'</default>
-      <summary>Display mode</summary>
-      <description>'osd' = floating overlay, 'panel' = top bar, 'both' = both active</description>
-    </key>
-
-    <key name="osd-font-size" type="i">
-      <default>22</default>
-      <summary>OSD main line font size in pixels</summary>
-    </key>
-
-    <key name="osd-bottom-margin" type="i">
-      <default>80</default>
-      <summary>OSD distance from screen bottom in pixels</summary>
-    </key>
-
-    <key name="osd-opacity" type="d">
-      <default>0.70</default>
-      <summary>OSD background opacity (0.0 ~ 1.0)</summary>
-    </key>
-
-    <key name="show-translation" type="b">
-      <default>true</default>
-      <summary>Show translation line in OSD</summary>
-    </key>
-
-    <key name="show-next-line" type="b">
-      <default>true</default>
-      <summary>Show next line preview in OSD</summary>
-    </key>
-
     <key name="panel-max-width" type="i">
       <default>300</default>
       <summary>Panel lyric label max width in pixels</summary>
     </key>
 
     <key name="panel-position" type="s">
-      <default>'center'</default>
-      <summary>Panel indicator position: 'left', 'center', or 'right'</summary>
+      <default>'left'</default>
+      <summary>Panel indicator position relative to clock: 'left' or 'right'</summary>
     </key>
 
   </schema>
