@@ -639,6 +639,64 @@ async def test_cancel_pending_download_waiting_for_playback_unblocks_worker(tmp_
     assert service.url_calls == []
 
 
+async def test_waiting_download_survives_history_row_removal(tmp_path, http_server):
+    player = _FakePlayer()
+    player.set_online_stream_active(True)
+    controller, service, _ = _make_controller(tmp_path, http_server, player_controller=player)
+    history = DownloadTask(song=song_from_map(_song_map("old", "旧歌")), quality_preference="")
+    history.status = "done"
+    controller.downloadModel.append_task(history)
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    await asyncio.sleep(0.05)
+    controller.removeTask(0)
+
+    player.set_online_stream_active(False)
+    await controller.wait_idle()
+
+    task = controller.downloadModel.task_at(0)
+    assert task.song.mid == "m1"
+    assert task.status == "done"
+    assert service.url_calls == [("m1", "balanced")]
+
+
+async def test_running_download_survives_history_row_removal(tmp_path, http_server):
+    controller, _service, _ = _make_controller(tmp_path, http_server)
+    history = DownloadTask(song=song_from_map(_song_map("old", "旧歌")), quality_preference="")
+    history.status = "done"
+    controller.downloadModel.append_task(history)
+    started = threading.Event()
+    release = threading.Event()
+
+    def _download_after_row_shift(url, dest, *, progress_cb=None, cancel=None):
+        started.set()
+        release.wait(5)
+        if progress_cb is not None:
+            progress_cb(10, 10)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"x")
+
+    controller._downloader.download_file = _download_after_row_shift  # noqa: SLF001
+
+    await controller.download_song_async(_song_map("m1", "晴天"))
+    for _ in range(200):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.02)
+    assert started.is_set()
+
+    controller.removeTask(0)
+    release.set()
+    await controller.wait_idle()
+    await asyncio.sleep(0)
+
+    task = controller.downloadModel.task_at(0)
+    assert task.song.mid == "m1"
+    assert task.status == "done"
+    assert task.received == 10
+    assert task.total == 10
+
+
 async def test_online_playback_preempts_active_download_and_requeues(tmp_path, http_server):
     player = _FakePlayer()
     controller, _service, _ = _make_controller(tmp_path, http_server, player_controller=player)

@@ -160,7 +160,7 @@ class DownloadListModel(QAbstractListModel):
             self.SongRole: QByteArray(b"song"),
         }
 
-    # ---- 任务操作 (行号即任务 id; 列表只增不删, 行号稳定) ----
+    # ---- 任务操作 (行号会随历史删除漂移; 跨 await 后按 task 对象重定位) ----
 
     def append_task(self, task: DownloadTask) -> int:
         row = len(self._tasks)
@@ -181,6 +181,12 @@ class DownloadListModel(QAbstractListModel):
     def task_at(self, row: int) -> DownloadTask | None:
         if 0 <= row < len(self._tasks):
             return self._tasks[row]
+        return None
+
+    def row_of(self, task: DownloadTask) -> int | None:
+        for row, item in enumerate(self._tasks):
+            if item is task:
+                return row
         return None
 
     def set_status(self, row: int, status: str, *, error: str = "") -> None:
@@ -251,7 +257,7 @@ class DownloadController(QObject):
             lambda album_mid: cover_url_for(album_mid, _COVER_SIZE)
         )
         self._model = DownloadListModel(self)
-        self._queue: asyncio.Queue[int] = asyncio.Queue()
+        self._queue: asyncio.Queue[DownloadTask] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}
         self._playback_preempted_mids: set[str] = set()
@@ -321,7 +327,7 @@ class DownloadController(QObject):
         task.received = 0
         task.total = 0
         self._model.set_status(row, "pending")
-        self._queue.put_nowait(row)
+        self._queue.put_nowait(task)
         self.activeCountChanged.emit()
         self._ensure_worker()
 
@@ -402,8 +408,9 @@ class DownloadController(QObject):
             self.noticeRaised.emit(f"《{song.name}》已在下载队列中")
             return
         preference = quality if quality in _QUALITY_PREFERENCES else self._default_quality()
-        row = self._model.append_task(DownloadTask(song=song, quality_preference=preference))
-        self._queue.put_nowait(row)
+        task = DownloadTask(song=song, quality_preference=preference)
+        self._model.append_task(task)
+        self._queue.put_nowait(task)
         self.activeCountChanged.emit()
         self.noticeRaised.emit(f"已加入下载：{song.name}")  # 即时反馈, 不必等下载完成
         self._ensure_worker()
@@ -414,10 +421,9 @@ class DownloadController(QObject):
         for song in songs:
             if not song.mid or self._model.has_active_for(song.mid):
                 continue
-            row = self._model.append_task(
-                DownloadTask(song=song, quality_preference=self._default_quality())
-            )
-            self._queue.put_nowait(row)
+            task = DownloadTask(song=song, quality_preference=self._default_quality())
+            self._model.append_task(task)
+            self._queue.put_nowait(task)
             queued += 1
         if not queued:
             self.noticeRaised.emit("没有可下载的歌曲")
@@ -454,20 +460,21 @@ class DownloadController(QObject):
     async def _drain_queue(self) -> None:
         while not self._closing:
             try:
-                row = self._queue.get_nowait()
+                task = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 self._flush_completion()
                 return
-            task = self._model.task_at(row)
-            if task is None or task.status != "pending":
+            if self._model.row_of(task) is None or task.status != "pending":
                 continue  # 已被取消等
             try:
-                await self._process(row, task)
+                await self._process(task)
             except Exception as exc:
                 # _process 内各步骤已自带 try/except 转 _fail; 这里兜底捕获其裸露区
                 # (路径拼接 / model 更新等) 的意外异常, 防单个任务崩掉整个 worker
                 # 导致后续 pending 任务卡死 (见 PR #16 review).
-                self._fail(row, log_bridge_error(logger, f"download task {task.song.name}", exc))
+                self._fail_task(
+                    task, log_bridge_error(logger, f"download task {task.song.name}", exc)
+                )
 
     def _flush_completion(self) -> None:
         """worker 队列清空时把本轮成功完成的歌聚合成一条提示, 避免批量逐首刷屏 Snackbar."""
@@ -483,12 +490,13 @@ class DownloadController(QObject):
         else:
             self.downloadFinished.emit(f"已下载 {len(items)} 首")
 
-    async def _process(self, row: int, task: DownloadTask) -> None:
+    async def _process(self, task: DownloadTask) -> None:
         song = task.song
-        self._model.set_status(row, "running")
+        if not self._set_task_status(task, "running"):
+            return
         self.activeCountChanged.emit()
 
-        if not await self._wait_for_playback_idle(row, task):
+        if not await self._wait_for_playback_idle(task):
             return
 
         try:
@@ -496,10 +504,10 @@ class DownloadController(QObject):
                 song, quality_preference=task.quality_preference
             )
         except Exception as exc:
-            self._fail(row, log_bridge_error(logger, f"download url {song.name}", exc))
+            self._fail_task(task, log_bridge_error(logger, f"download url {song.name}", exc))
             return
         if song_url is None or not song_url.url:
-            self._fail(row, f"《{song.name}》无版权或不可下载")
+            self._fail_task(task, f"《{song.name}》无版权或不可下载")
             return
 
         quality_label = song_url.quality or ""
@@ -508,15 +516,16 @@ class DownloadController(QObject):
         stem = self._file_stem(song)
         name = f"{stem} [{short}]" if short else stem
         dest = Path(self._download_directory()) / f"{name}.{quality_extension(quality_label)}"
-        self._model.set_result(row, quality_label=quality_label, dest_path=str(dest))
+        if not self._set_task_result(task, quality_label=quality_label, dest_path=str(dest)):
+            return
 
         if dest.exists():
-            self._model.set_status(row, "exists")
+            self._set_task_status(task, "exists")
             self.activeCountChanged.emit()
             self.noticeRaised.emit(f"已存在，跳过下载:{dest.name}")
             return
 
-        if not await self._wait_for_playback_idle(row, task):
+        if not await self._wait_for_playback_idle(task):
             return
 
         cancel = threading.Event()
@@ -530,7 +539,7 @@ class DownloadController(QObject):
             if received - last_emit < _PROGRESS_EMIT_STEP and received != total:
                 return
             last_emit = received
-            loop.call_soon_threadsafe(self._model.set_progress, row, received, total)
+            loop.call_soon_threadsafe(self._set_task_progress, task, received, total)
 
         try:
             await asyncio.to_thread(
@@ -543,14 +552,14 @@ class DownloadController(QObject):
         except DownloadCanceled:
             if song.mid in self._playback_preempted_mids:
                 self._playback_preempted_mids.discard(song.mid)
-                self._model.set_status(row, "pending")
-                self._queue.put_nowait(row)
+                self._set_task_status(task, "pending")
+                self._queue.put_nowait(task)
                 return
-            self._model.set_status(row, "canceled")
+            self._set_task_status(task, "canceled")
             self.activeCountChanged.emit()
             return
         except Exception as exc:
-            self._fail(row, log_bridge_error(logger, f"download audio {song.name}", exc))
+            self._fail_task(task, log_bridge_error(logger, f"download audio {song.name}", exc))
             return
         finally:
             self._cancel_events.pop(song.mid, None)
@@ -561,10 +570,36 @@ class DownloadController(QObject):
         await self._embed_tags(song, dest)
 
         self._record_done(task, dest, quality_label)
-        self._model.set_status(row, "done")
+        self._set_task_status(task, "done")
         self.activeCountChanged.emit()
         # 攒着, 等 worker 队列清空时由 _flush_completion 聚合成一条提示
         self._session_completed.append((song.name, _QUALITY_TEXT.get(quality_label, quality_label)))
+
+    def _set_task_status(self, task: DownloadTask, status: str, *, error: str = "") -> bool:
+        row = self._model.row_of(task)
+        if row is None:
+            return False
+        self._model.set_status(row, status, error=error)
+        return True
+
+    def _set_task_result(self, task: DownloadTask, *, quality_label: str, dest_path: str) -> bool:
+        row = self._model.row_of(task)
+        if row is None:
+            return False
+        self._model.set_result(row, quality_label=quality_label, dest_path=dest_path)
+        return True
+
+    def _set_task_progress(self, task: DownloadTask, received: int, total: int) -> None:
+        row = self._model.row_of(task)
+        if row is None:
+            return
+        self._model.set_progress(row, received, total)
+
+    def _fail_task(self, task: DownloadTask, message: str) -> None:
+        row = self._model.row_of(task)
+        if row is None:
+            return
+        self._fail(row, message)
 
     def _record_done(self, task: DownloadTask, dest: Path, quality_label: str) -> None:
         """下载成功后持久化记录 (供重启展示 + 本地优先播放)."""
@@ -602,13 +637,14 @@ class DownloadController(QObject):
             return
         self._playback_idle.set()
 
-    async def _wait_for_playback_idle(self, row: int, task: DownloadTask) -> bool:
+    async def _wait_for_playback_idle(self, task: DownloadTask) -> bool:
         if not self._online_stream_active():
             self._playback_idle.set()
             return True
 
         self._playback_idle.clear()
-        self._model.set_status(row, "pending")
+        if not self._set_task_status(task, "pending"):
+            return False
         self.activeCountChanged.emit()
         logger.info("在线播放中，延后下载: %s (mid=%s)", task.song.name, task.song.mid)
         while self._online_stream_active() and not self._closing and task.status != "canceled":
@@ -616,7 +652,8 @@ class DownloadController(QObject):
 
         if self._closing or task.status == "canceled":
             return False
-        self._model.set_status(row, "running")
+        if not self._set_task_status(task, "running"):
+            return False
         self.activeCountChanged.emit()
         return True
 
