@@ -19,6 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..resources import APP_ID
 from .models import Song
 
 logger = logging.getLogger(__name__)
@@ -164,7 +165,10 @@ def _build_interfaces(cb: MprisCallbacks):
 
         @dbus_property(access=PropertyAccess.READ)
         def DesktopEntry(self) -> s:  # noqa: N802
-            return "quaverq"
+            # 必须是"已安装 .desktop 文件去掉后缀的 basename" (MPRIS 规范). 桌面环境
+            # 据此找 .desktop -> 读 Icon= 解析 Now Playing 卡片的应用图标. 必须等于
+            # 打包安装的 `{APP_ID}.desktop`, 否则 GNOME 找不到 -> 显示默认图标.
+            return APP_ID
 
         @dbus_property(access=PropertyAccess.READ)
         def SupportedUriSchemes(self) -> "as":  # noqa: N802
