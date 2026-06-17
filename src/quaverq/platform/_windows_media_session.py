@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
+from quaverq.platform._windows_com import _IID, _make_iid, _release, _vtbl_ptr
+
 logger = logging.getLogger(__name__)
 _WINFUNCTYPE = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
 
@@ -42,33 +44,6 @@ _WINFUNCTYPE = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
 if TYPE_CHECKING or sys.platform == "win32":
     _combase = ctypes.WinDLL("combase", use_last_error=True)
     _ole32 = ctypes.WinDLL("ole32", use_last_error=True)
-
-
-class _IID(ctypes.Structure):
-    """COM IID / GUID (16 bytes)."""
-
-    _fields_ = [
-        ("Data1", c_uint32),
-        ("Data2", ctypes.c_uint16),
-        ("Data3", ctypes.c_uint16),
-        ("Data4", ctypes.c_ubyte * 8),
-    ]
-
-
-def _make_iid(s: str) -> _IID:
-    """从 ``{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}`` 字符串构造 IID."""
-    s = s.strip("{}")
-    parts = s.split("-")
-    return _IID(
-        int(parts[0], 16),
-        int(parts[1], 16),
-        int(parts[2], 16),
-        (ctypes.c_ubyte * 8)(
-            int(parts[3][0:2], 16),
-            int(parts[3][2:4], 16),
-            *(int(parts[4][i : i + 2], 16) for i in (0, 2, 4, 6, 8, 10)),
-        ),
-    )
 
 
 # 错误码
@@ -148,21 +123,6 @@ def _make_hstring(s: str) -> _HSTRING:
 def _delete_hstring(h: _HSTRING) -> None:
     if h.value:
         _combase.WindowsDeleteString(h)
-
-
-def _vtbl_ptr(com_ptr: c_void_p, index: int) -> int:
-    """读 COM 对象 vtable 第 ``index`` 项 (函数指针)."""
-    vtbl = ctypes.cast(com_ptr, POINTER(POINTER(c_void_p)))[0]
-    return vtbl[index]
-
-
-def _release(com_ptr: c_void_p) -> int:
-    """IUnknown::Release (vtable[2]); 返回新 refcount."""
-    if not com_ptr or not com_ptr.value:
-        return 0
-    Proto = _WINFUNCTYPE(ctypes.c_ulong, c_void_p)
-    fn = Proto(_vtbl_ptr(com_ptr, 2))
-    return fn(com_ptr)
 
 
 # ---------------------------------------------------------------- 取 SMTC

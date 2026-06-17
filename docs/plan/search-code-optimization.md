@@ -30,14 +30,20 @@
 | 2c | 删死方法 `service.to_song_simple()`（纯转发 `_to_song`，零调用方） | ✅ 完成 | -4 | service 测试绿 |
 | 2d | 删死方法 `desktop_lyrics._fill_brush`（仅测试引用，生产走 `_ensure_brush_cache`+直接读缓存）+ `_draw_outline`（零引用）；测试 `test_fill_brush_for_gradient` 改指向 `_ensure_brush_cache`+`_cached_brush_highlight` 保住渐变覆盖 | ✅ 完成 | -14 | desktop_lyrics 测试绿 |
 | 4 | `PlayerBar` 两个 Slider（仅 `Layout.preferredHeight` 18/24 不同）→ 同文件 `component VolumeSlider`（仿现成 `OverflowRow` 自包含写法，暴露 `muted` 属性，`value`/`onMoved` 使用处绑） | ✅ 完成 | ~-31 | qmllint --max-warnings=0 绿 |
-| 3 | Windows ctypes 去重（`_make_iid`/`_IID`/`_vtbl_ptr`/`_release` 在 `_windows_media_session` + `_windows_taskbar` 各一份 → 抽 `platform/_windows_com.py`） | ⏸ **推迟** | （~-32） | 见下 |
+| 3 | Windows ctypes 去重（`_make_iid`/`_IID`/`_vtbl_ptr`/`_release` 在 `_windows_media_session` + `_windows_taskbar` 各抄一份 → 抽 `platform/_windows_com.py`；`_release_com`→`_release` 统一，返回值本就全忽略） | ✅ 完成 | ~-30 | 见下 |
 
-### 为什么推迟 Phase 3
+### Phase 3 验证说明（Linux 上能验 / 不能验）
 
-那两个文件 `import ctypes.wintypes`，**在 Linux 上根本 import 不了**，无单元测试、无法运行验证。
-盲改底层 COM 代码（vtable 偏移、IID）省 32 行还多加一个文件，一旦抄错运行期才在 Windows 上崩，
-违反项目"每改动留可跑验证"。**需在 Windows 上验证才做**——届时确认 4 个 helper 字节级一致 + 全调用点
-更新 + `python -m quaverq.packaging --smoke` 通过。
+逐字比对确认 4 个 helper 两边等价后才抽。关键设计：共享模块只用跨平台 ctypes 原语
+（`WINFUNCTYPE` 取不到回退 `CFUNCTYPE`），**不 import `wintypes`**，所以 `_windows_com.py`
+自身在 Linux 也能 import / 单测。
+
+- ✅ **能验**：新增 `tests/test_platform_windows_com.py`（Linux 直接跑，3 测试覆盖唯一有解析逻辑的
+  `_make_iid` + 结构 16 字节）；`ruff check` 静态确认两消费文件无 F821 未定义名 / 无 F401 孤儿 import
+  （= import 接对了、`c_uint32` 仍被 `WindowsCreateString` 用着没误删）。
+- ⚠️ **不能验（需 Windows）**：media_session / taskbar 因各自 `wintypes` 依赖在 Linux import 不了，
+  COM vtable 运行期调用无法在此跑。但这些路径**字节未改**——只搬了 helper 定义 + 统一了 `_release`
+  名称，行为按构造保持不变。上 Windows 后跑 `python -m quaverq.packaging --smoke` + 实测任务栏/SMTC 即可。
 
 ### 同样未做（低收益 / 高风险，留作记录）
 
@@ -47,7 +53,11 @@
 
 ## 预期结果 / 实测
 
-- 现役代码净 **-150 行**（119 增 / 269 删，7 文件）。
-- `uv run pytest` → **988 passed, 21 skipped**（skip 均 Windows-only）。
+- **Phase 1/2/4**（已提交 `bf97b4a`）：现役代码净 **-150 行**（119 增 / 269 删，7 文件）。
+- **Phase 3**（未提交）：两个 Windows 文件去重 **-82 行**，抽出 56 行 `_windows_com.py` + 32 行测试
+  → 净源码 **-26 行**，COM helper 单一来源。
+- 累计源码净 **约 -176 行**（+ 新增 32 行 Windows COM 测试）。
+- `uv run pytest` → **991 passed, 21 skipped**（skip 均 Windows-only；+3 为新增 `_windows_com` 测试）。
 - `uv run python scripts/lint.py` → ruff + ruff format + pyside6-qmllint 全绿。
-- 无公共接口变化，无 README 需同步（被删符号未在任何 README 出现）。
+- 无公共接口变化；README 文件表只列 adapter 入口（`__init__`/`base`/`linux`/`windows`），不列
+  `_windows_*` 实现文件，故新增 `_windows_com.py` 按既有约定不入表，无 README 需同步。
