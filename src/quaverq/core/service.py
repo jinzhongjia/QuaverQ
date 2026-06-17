@@ -2084,7 +2084,3 @@ class QuaverService:
         if isinstance(obj, dict):
             return obj.get(name, default)
         return getattr(obj, name, default)
-
-    @staticmethod
-    def to_song_simple(raw: Any) -> Song:
-        return QuaverService._to_song(raw)

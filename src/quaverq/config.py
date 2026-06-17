@@ -123,7 +123,7 @@ DEFAULTS: dict[str, Any] = {
 
 def load() -> dict[str, Any]:
     """加载并合并配置（默认 + 文件）."""
-    config = _deep_merge(DEFAULTS.copy(), {})
+    config = DEFAULTS.copy()
 
     if CONFIG_FILE.exists():
         try:
