@@ -1344,20 +1344,6 @@ class DesktopLyricsWindow(QWidget):
         if has_trans:
             self._paint_trans_vertical_blocks(painter, layout)
 
-    def _fill_brush(self, *, highlight: bool) -> QBrush:
-        """vertical gradient brush: 顶端 = 用户色, 底端 = 微暗版.
-
-        效果类似 QQ Music 的"舞台灯": 字体上半明下半略沉, 立体感强于纯色.
-        渐变跨窗口高度而非字形 bbox -> 文字越大 / 行越靠中, 渐变越平滑.
-        """
-        self._ensure_brush_cache()
-        return self._cached_brush_highlight if highlight else self._cached_brush_base  # type: ignore[return-value]
-
-    def _draw_outline(self, painter: QPainter, path: QPainterPath) -> None:
-        painter.setPen(self._outline_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(path)
-
     def _is_slanted_font(self) -> bool:
         """斜体 / 倾斜样式都需要 clip 也跟着倾斜, 否则垂直 clip 把字劈成楔形."""
         return self._font.italic() or self._font.style() == QFont.Style.StyleOblique

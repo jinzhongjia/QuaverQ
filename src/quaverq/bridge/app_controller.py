@@ -59,6 +59,9 @@ class AppController(QObject):
         self._dark_mode = False
         self._logging_in = False
         self._login_task: asyncio.Task[None] | None = None
+        # 串行化"取消上一个登录 + 登记本次"的抢占, 防止快速切换 QQ/微信 时多个并发调用
+        # 各自覆写 _login_task 导致前一个轮询 task 成孤儿 (见 login_by_qrcode_async).
+        self._login_lock = asyncio.Lock()
         self._qrcode_data_url = ""
         self._qrcode_kind = ""
         self._login_state = "idle"
@@ -144,21 +147,25 @@ class AppController(QObject):
         await self.login_by_qrcode_async(login_type=login_type)
 
     async def login_by_qrcode_async(self, login_type: str = "qq") -> None:
-        if self._logging_in:
-            task = self._login_task
-            if task is not None and not task.done():
-                task.cancel()
-                await asyncio.wait([task])
         if self._service_controller is None:
             self._set_login_error("登录服务未初始化")
             return
 
-        self._set_login_type(login_type)
-        self._set_logging_in(True)
-        self._login_task = asyncio.current_task()
-        self._set_qrcode("", "")
-        self._set_login_state("loading")
-        self._set_login_message("正在获取二维码")
+        me = asyncio.current_task()
+        # 锁内完成"取消上一个 + 登记自己 + 置初始 UI 态", 锁外才 await 长轮询: 这样下一次
+        # 切换能拿到锁、取消当前并接管. 不加锁时多个并发调用会各自把 _login_task 覆写成
+        # 自己, 前一个轮询 task 无人持有 -> 登录成功后仍在后台刷"等待扫码" (孤儿循环).
+        async with self._login_lock:
+            prev = self._login_task
+            if prev is not None and prev is not me and not prev.done():
+                prev.cancel()
+                await asyncio.gather(prev, return_exceptions=True)
+            self._login_task = me
+            self._set_login_type(login_type)
+            self._set_logging_in(True)
+            self._set_qrcode("", "")
+            self._set_login_state("loading")
+            self._set_login_message("正在获取二维码")
         try:
             success = await self._service_controller.login_by_qrcode(
                 self._handle_qrcode,
@@ -177,8 +184,11 @@ class AppController(QObject):
             self._set_login_error(str(exc) or exc.__class__.__name__)
             return
         finally:
-            self._set_logging_in(False)
-            self._login_task = None
+            # 仅当"我"仍是当前活跃登录才清理; 若已被新一轮切换接管 (_login_task 指向别人),
+            # 不要抹掉接管者的 logging_in / task.
+            if self._login_task is me:
+                self._set_logging_in(False)
+                self._login_task = None
 
         if success:
             self._set_authed(True, "login")

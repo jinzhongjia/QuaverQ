@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QObject, Qt, QTimer, Slot
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 
+from quaverq.platform._windows_com import _IID, _make_iid, _release, _vtbl_ptr
+
 if TYPE_CHECKING or sys.platform == "win32":
     _ole32 = ctypes.WinDLL("ole32", use_last_error=True)
     _comctl32 = ctypes.WinDLL("comctl32", use_last_error=True)
@@ -45,33 +47,6 @@ logger = logging.getLogger(__name__)
 _LRESULT = ctypes.c_ssize_t  # LONG_PTR (signed pointer-sized)
 _UINT_PTR = ctypes.c_size_t
 _DWORD_PTR = ctypes.c_size_t
-
-
-# ---------------------------------------------------------------- IID / CLSID
-
-
-class _IID(ctypes.Structure):
-    _fields_ = [
-        ("Data1", ctypes.c_uint32),
-        ("Data2", ctypes.c_uint16),
-        ("Data3", ctypes.c_uint16),
-        ("Data4", ctypes.c_ubyte * 8),
-    ]
-
-
-def _make_iid(s: str) -> _IID:
-    s = s.strip("{}")
-    parts = s.split("-")
-    return _IID(
-        int(parts[0], 16),
-        int(parts[1], 16),
-        int(parts[2], 16),
-        (ctypes.c_ubyte * 8)(
-            int(parts[3][0:2], 16),
-            int(parts[3][2:4], 16),
-            *(int(parts[4][i : i + 2], 16) for i in (0, 2, 4, 6, 8, 10)),
-        ),
-    )
 
 
 _CLSID_TASKBARLIST = _make_iid("{56FDF344-FD6D-11D0-958A-006097C9A090}")
@@ -166,23 +141,6 @@ class _BITMAPINFO(ctypes.Structure):
     ]
 
 
-# ---------------------------------------------------------------- COM helpers
-
-
-def _vtbl_ptr(com_ptr: c_void_p, index: int) -> int:
-    """读 COM 对象 vtable 第 ``index`` 项 (函数指针)."""
-    vtbl = ctypes.cast(com_ptr, POINTER(POINTER(c_void_p)))[0]
-    return vtbl[index]
-
-
-def _release_com(com_ptr: c_void_p) -> None:
-    if not com_ptr or not com_ptr.value:
-        return
-    proto = ctypes.WINFUNCTYPE(ctypes.c_ulong, c_void_p)
-    fn = proto(_vtbl_ptr(com_ptr, 2))
-    fn(com_ptr)
-
-
 def _co_create_taskbar_list() -> c_void_p:
     """``CoCreateInstance`` 拿 ``ITaskbarList3`` + ``HrInit``. 失败返空指针."""
     _ole32.CoCreateInstance.argtypes = [
@@ -211,7 +169,7 @@ def _co_create_taskbar_list() -> c_void_p:
     hr = init_fn(ptr)
     if hr != _S_OK:
         logger.warning("ITaskbarList3::HrInit 失败: HRESULT=0x%08X", hr & 0xFFFFFFFF)
-        _release_com(ptr)
+        _release(ptr)
         return c_void_p()
     return ptr
 
@@ -673,7 +631,7 @@ class WindowsTaskbar(QObject):
                 state_fn(self._taskbar, self._hwnd, _TBPF_NOPROGRESS)
             except (OSError, ValueError):
                 pass
-            _release_com(self._taskbar)
+            _release(self._taskbar)
             self._taskbar = c_void_p()
 
         _user32.DestroyIcon.argtypes = [wintypes.HICON]

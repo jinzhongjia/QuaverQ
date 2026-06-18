@@ -452,43 +452,11 @@ Rectangle {
                                         onClicked: root.muteToggleRequested()
                                     }
 
-                                    Slider {
-                                        id: overflowVolumeSlider
-
-                                        Layout.fillWidth: true
+                                    VolumeSlider {
                                         Layout.preferredHeight: 24
-                                        from: 0
-                                        to: 1
                                         value: root.volume
-                                        Accessible.name: qsTr("音量")
+                                        muted: root.muted
                                         onMoved: root.volumeRequested(value)
-
-                                        background: Rectangle {
-                                            x: overflowVolumeSlider.leftPadding
-                                            y: overflowVolumeSlider.topPadding + overflowVolumeSlider.availableHeight / 2 - height / 2
-                                            width: overflowVolumeSlider.availableWidth
-                                            height: 4
-                                            radius: height / 2
-                                            color: ThemeTokens.Palette.outline
-
-                                            Rectangle {
-                                                width: overflowVolumeSlider.visualPosition * parent.width
-                                                height: parent.height
-                                                radius: parent.radius
-                                                color: ThemeTokens.Palette.primary
-                                                opacity: root.muted ? 0.35 : 1
-                                            }
-                                        }
-
-                                        handle: Rectangle {
-                                            x: overflowVolumeSlider.leftPadding + overflowVolumeSlider.visualPosition * (overflowVolumeSlider.availableWidth - width)
-                                            y: overflowVolumeSlider.topPadding + overflowVolumeSlider.availableHeight / 2 - height / 2
-                                            width: 12
-                                            height: 12
-                                            radius: width / 2
-                                            color: ThemeTokens.Palette.primary
-                                            opacity: root.muted ? 0.35 : 1
-                                        }
                                     }
                                 }
                             }
@@ -631,44 +599,12 @@ Rectangle {
                 onClicked: root.muteToggleRequested()
             }
 
-            Slider {
-                id: volumeSlider
-
-                Layout.fillWidth: true
+            VolumeSlider {
                 Layout.preferredHeight: 18
-                from: 0
-                to: 1
                 value: root.volume
-                Accessible.name: qsTr("音量")
+                muted: root.muted
                 // 静音时填充/手柄降权提示无声; 拖动即解除静音 (controller 侧处理)
                 onMoved: root.volumeRequested(value)
-
-                background: Rectangle {
-                    x: volumeSlider.leftPadding
-                    y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
-                    width: volumeSlider.availableWidth
-                    height: 4
-                    radius: height / 2
-                    color: ThemeTokens.Palette.outline
-
-                    Rectangle {
-                        width: volumeSlider.visualPosition * parent.width
-                        height: parent.height
-                        radius: parent.radius
-                        color: ThemeTokens.Palette.primary
-                        opacity: root.muted ? 0.35 : 1
-                    }
-                }
-
-                handle: Rectangle {
-                    x: volumeSlider.leftPadding + volumeSlider.visualPosition * (volumeSlider.availableWidth - width)
-                    y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
-                    width: 12
-                    height: 12
-                    radius: width / 2
-                    color: ThemeTokens.Palette.primary
-                    opacity: root.muted ? 0.35 : 1
-                }
             }
         }
     }
@@ -728,6 +664,46 @@ Rectangle {
             color: ThemeTokens.Palette.surfaceText
             font.pixelSize: ThemeTokens.TypeScale.bodySm
             elide: Text.ElideRight
+        }
+    }
+
+    // 音量滑条: 主播放器 + 溢出菜单两处共用样式 (轨道 4px / 手柄 12px / 静音降权).
+    // 仅 Layout.preferredHeight 因位置而异, 由使用处覆盖; muted 透传降权, onMoved 透传请求.
+    component VolumeSlider: Slider {
+        id: volSlider
+
+        property bool muted: false
+
+        Layout.fillWidth: true
+        from: 0
+        to: 1
+        Accessible.name: qsTr("音量")
+
+        background: Rectangle {
+            x: volSlider.leftPadding
+            y: volSlider.topPadding + volSlider.availableHeight / 2 - height / 2
+            width: volSlider.availableWidth
+            height: 4
+            radius: height / 2
+            color: ThemeTokens.Palette.outline
+
+            Rectangle {
+                width: volSlider.visualPosition * parent.width
+                height: parent.height
+                radius: parent.radius
+                color: ThemeTokens.Palette.primary
+                opacity: volSlider.muted ? 0.35 : 1
+            }
+        }
+
+        handle: Rectangle {
+            x: volSlider.leftPadding + volSlider.visualPosition * (volSlider.availableWidth - width)
+            y: volSlider.topPadding + volSlider.availableHeight / 2 - height / 2
+            width: 12
+            height: 12
+            radius: width / 2
+            color: ThemeTokens.Palette.primary
+            opacity: volSlider.muted ? 0.35 : 1
         }
     }
 }

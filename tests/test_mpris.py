@@ -7,8 +7,13 @@ D-Bus 实际发送在集成测试范围 (启动 session bus + playerctl 查). �
 
 from __future__ import annotations
 
+import pytest
+
+from quaverq import resources
 from quaverq.core.models import Singer, Song
 from quaverq.core.mpris import (
+    MprisCallbacks,
+    _build_interfaces,
     normalize_loop_status,
     normalize_shuffle,
     normalize_status,
@@ -126,3 +131,23 @@ def test_normalize_shuffle():
     assert normalize_shuffle("sequence") is False
     assert normalize_shuffle("repeat_all") is False
     assert normalize_shuffle(None) is False
+
+
+# ============================================================== root interface
+
+
+def test_desktop_entry_names_shipped_desktop_file():
+    """回归: MPRIS DesktopEntry 必须 == 安装的 `{APP_ID}.desktop` 的 basename.
+
+    桌面环境据此找 .desktop -> 读 Icon= 解析 Now Playing 卡片的应用图标. 取值曾漂移
+    (误为 "quaverq", 实际安装的是 io.github.jinzhongjia.quaverq.desktop), GNOME 找不到
+    -> 卡片显示默认图标.
+    """
+    pytest.importorskip("dbus_next")  # 无 D-Bus 环境 (Windows) 跳过
+
+    root_cls, _player_cls = _build_interfaces(MprisCallbacks())
+    entry = root_cls().DesktopEntry  # @dbus_property 是 property 描述符, 访问即取值
+
+    assert entry == resources.APP_ID
+    assert resources.desktop_file().name == f"{entry}.desktop"
+    assert resources.desktop_file().exists()

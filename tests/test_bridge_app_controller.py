@@ -593,3 +593,52 @@ async def test_refresh_returning_none_without_cache_stays_empty():
 
     assert controller.nickname == ""
     assert changes == []
+
+
+class _PollingFakeService(_FakeServiceController):
+    """login_by_qrcode 阻塞在轮询循环里 (像真 service), 统计并发活跃数."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.live = 0  # 当前在跑的轮询循环数
+        self.peak = 0  # 历史最大并发数
+
+    async def login_by_qrcode(self, on_qrcode, on_status=None, login_type="qq") -> bool:
+        on_qrcode(b"qr-bytes", login_type, "image/png")
+        self.live += 1
+        self.peak = max(self.peak, self.live)
+        try:
+            while True:
+                if on_status is not None:
+                    on_status("waiting")
+                await asyncio.sleep(0.01)
+        finally:
+            self.live -= 1
+
+
+async def test_rapid_login_type_switch_keeps_single_poll_loop():
+    """回归: 快速切换 QQ/微信 二维码不得遗留孤儿轮询循环.
+
+    复现: 多个 login_by_qrcode_async 并发启动时, 旧实现各自把 _login_task 覆写成自己
+    (后者覆盖前者), 前一个轮询 task 无人持有 -> 登录成功后仍在后台刷"等待扫码".
+    修复后任意时刻只有一个轮询循环存活, 切走的全部被取消.
+    """
+    service = _PollingFakeService()
+    controller = AppController(service)  # type: ignore[arg-type]
+
+    a = asyncio.ensure_future(controller.login_by_qrcode_async("qq"))
+    await asyncio.sleep(0.03)  # 让 A 进入轮询
+    # 快速连切: 微信 -> QQ, 并发启动触发竞态
+    b = asyncio.ensure_future(controller.login_by_qrcode_async("wx"))
+    c = asyncio.ensure_future(controller.login_by_qrcode_async("qq"))
+    await asyncio.sleep(0.05)  # 让抢占 / 取消落定
+
+    assert service.peak == 1, f"出现 {service.peak} 个并发轮询循环 (孤儿未取消)"
+    assert service.live == 1, "应恰有一个活跃轮询循环"
+
+    controller.cancelLogin()
+    for task in (a, b, c):
+        task.cancel()
+    await asyncio.gather(a, b, c, return_exceptions=True)
+    await asyncio.sleep(0.02)
+    assert service.live == 0, "取消后不得有遗留轮询循环"

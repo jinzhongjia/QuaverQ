@@ -343,97 +343,70 @@ class SettingsController(QObject):
             self._available_lyric_fonts = _collect_cjk_font_families()
         return self._available_lyric_fonts
 
-    @Slot(str)
-    def setThemeMode(self, mode: str) -> None:
-        value = mode if mode in _THEME_MODES else "system"
-        if self._theme_mode == value:
+    def _apply(self, attr: str, key: str, value: object) -> None:
+        """单字段 setter 的公共写入路径.
+
+        ``value is None`` 表示归一化拒绝 (保留旧值, 不落盘不发信号); 值未变则跳过.
+        变更时落盘 (setValue + sync) 并 emit ``settingsChanged``. 仅用于走
+        ``settingsChanged`` 的单字段 setter —— ``setAudioOutputDevice`` (双字段) /
+        ``setCoverCacheMaxBytes`` (走 ``cacheChanged`` + 缓存副作用) / ``reset*`` (批量)
+        不走此助手.
+        """
+        if value is None or getattr(self, attr) == value:
             return
-        self._theme_mode = value
-        self._settings.setValue("ui/themeMode", value)
+        setattr(self, attr, value)
+        self._settings.setValue(key, value)
         self._settings.sync()
         self.settingsChanged.emit()
+
+    @Slot(str)
+    def setThemeMode(self, mode: str) -> None:
+        self._apply("_theme_mode", "ui/themeMode", mode if mode in _THEME_MODES else "system")
 
     @Slot(bool)
     def setReduceMotion(self, reduce: bool) -> None:
-        value = bool(reduce)
-        if self._reduce_motion == value:
-            return
-        self._reduce_motion = value
-        self._settings.setValue("ui/reduceMotion", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_reduce_motion", "ui/reduceMotion", bool(reduce))
 
     @Slot(str)
     def setQualityPreference(self, preference: str) -> None:
-        value = preference if preference in _QUALITY_PREFERENCES else "balanced"
-        if self._quality_preference == value:
-            return
-        self._quality_preference = value
-        self._settings.setValue("playback/qualityPreference", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_quality_preference",
+            "playback/qualityPreference",
+            preference if preference in _QUALITY_PREFERENCES else "balanced",
+        )
 
     @Slot(str)
     def setDownloadQuality(self, quality: str) -> None:
-        value = quality if quality in _DOWNLOAD_QUALITIES else "balanced"
-        if self._download_quality == value:
-            return
-        self._download_quality = value
-        self._settings.setValue("download/quality", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_download_quality",
+            "download/quality",
+            quality if quality in _DOWNLOAD_QUALITIES else "balanced",
+        )
 
     @Slot(str)
     def setDownloadDirectory(self, directory: str) -> None:
-        value = _download_directory_from_input(directory)
-        if not value:
-            return
-        if self._download_directory == value:
-            return
-        self._download_directory = value
-        self._settings.setValue("download/directory", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        # 归一化后空串 = 拒绝 (blank / 解析失败), 转成 None 让 _apply 跳过保留旧值.
+        self._apply(
+            "_download_directory",
+            "download/directory",
+            _download_directory_from_input(directory) or None,
+        )
 
     @Slot(bool)
     def setDownloadWithLyric(self, enabled: bool) -> None:
-        value = bool(enabled)
-        if self._download_with_lyric == value:
-            return
-        self._download_with_lyric = value
-        self._settings.setValue("download/withLyric", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_download_with_lyric", "download/withLyric", bool(enabled))
 
     @Slot(bool)
     def setDownloadWithCover(self, enabled: bool) -> None:
-        value = bool(enabled)
-        if self._download_with_cover == value:
-            return
-        self._download_with_cover = value
-        self._settings.setValue("download/withCover", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_download_with_cover", "download/withCover", bool(enabled))
 
     @Slot(bool)
     def setDownloadEmbedTags(self, enabled: bool) -> None:
-        value = bool(enabled)
-        if self._download_embed_tags == value:
-            return
-        self._download_embed_tags = value
-        self._settings.setValue("download/embedTags", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_download_embed_tags", "download/embedTags", bool(enabled))
 
     @Slot(bool)
     def setFadeEnabled(self, enabled: bool) -> None:
-        value = bool(enabled)
-        if self._fade_enabled == value:
-            return
-        self._fade_enabled = value
-        self._settings.setValue("playback/fadeEnabled", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_fade_enabled", "playback/fadeEnabled", bool(enabled))
 
     @Slot(int)
     def setFadeDurationMs(self, duration_ms: int) -> None:
@@ -442,12 +415,7 @@ class SettingsController(QObject):
         except (TypeError, ValueError):
             return
         value = max(_FADE_DURATION_MIN_MS, min(_FADE_DURATION_MAX_MS, value))
-        if self._fade_duration_ms == value:
-            return
-        self._fade_duration_ms = value
-        self._settings.setValue("playback/fadeDurationMs", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_fade_duration_ms", "playback/fadeDurationMs", value)
 
     @Slot(str, str)
     def setAudioOutputDevice(self, device_id: str, label: str) -> None:
@@ -485,13 +453,7 @@ class SettingsController(QObject):
 
     @Slot(str)
     def setLyricFontFamily(self, family: str) -> None:
-        value = str(family or "").strip()
-        if self._lyric_font_family == value:
-            return
-        self._lyric_font_family = value
-        self._settings.setValue("lyrics/fontFamily", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_lyric_font_family", "lyrics/fontFamily", str(family or "").strip())
 
     @Slot(int)
     def setLyricFontSize(self, size: int) -> None:
@@ -500,74 +462,41 @@ class SettingsController(QObject):
         except (TypeError, ValueError):
             return
         value = max(_LYRIC_FONT_SIZE_MIN, min(_LYRIC_FONT_SIZE_MAX, value))
-        if self._lyric_font_size == value:
-            return
-        self._lyric_font_size = value
-        self._settings.setValue("lyrics/fontSize", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_lyric_font_size", "lyrics/fontSize", value)
 
     @Slot(str)
     def setLyricFontWeight(self, weight: str) -> None:
-        value = weight if weight in _LYRIC_FONT_WEIGHTS else "medium"
-        if self._lyric_font_weight == value:
-            return
-        self._lyric_font_weight = value
-        self._settings.setValue("lyrics/fontWeight", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_lyric_font_weight",
+            "lyrics/fontWeight",
+            weight if weight in _LYRIC_FONT_WEIGHTS else "medium",
+        )
 
     @Slot(bool)
     def setLyricFontItalic(self, italic: bool) -> None:
-        value = bool(italic)
-        if self._lyric_font_italic == value:
-            return
-        self._lyric_font_italic = value
-        self._settings.setValue("lyrics/italic", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_lyric_font_italic", "lyrics/italic", bool(italic))
 
     @Slot(bool)
     def setLyricTranslationVisible(self, visible: bool) -> None:
-        value = bool(visible)
-        if self._lyric_translation_visible == value:
-            return
-        self._lyric_translation_visible = value
-        self._settings.setValue("lyrics/translationVisible", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_lyric_translation_visible", "lyrics/translationVisible", bool(visible))
 
     # ------------------------------------------------------------------ 桌面悬浮歌词 setters
 
     @Slot(bool)
     def setDesktopLyricsEnabled(self, enabled: bool) -> None:
-        value = bool(enabled)
-        if self._desktop_lyrics_enabled == value:
-            return
-        self._desktop_lyrics_enabled = value
-        self._settings.setValue("desktopLyrics/enabled", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_desktop_lyrics_enabled", "desktopLyrics/enabled", bool(enabled))
 
     @Slot(bool)
     def setDesktopLyricsLocked(self, locked: bool) -> None:
-        value = bool(locked)
-        if self._desktop_lyrics_locked == value:
-            return
-        self._desktop_lyrics_locked = value
-        self._settings.setValue("desktopLyrics/locked", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_desktop_lyrics_locked", "desktopLyrics/locked", bool(locked))
 
     @Slot(str)
     def setDesktopLyricsFontFamily(self, family: str) -> None:
-        value = str(family or "").strip()
-        if self._desktop_lyrics_font_family == value:
-            return
-        self._desktop_lyrics_font_family = value
-        self._settings.setValue("desktopLyrics/fontFamily", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_desktop_lyrics_font_family",
+            "desktopLyrics/fontFamily",
+            str(family or "").strip(),
+        )
 
     @Slot(int)
     def setDesktopLyricsFontSize(self, size: int) -> None:
@@ -576,62 +505,39 @@ class SettingsController(QObject):
         except (TypeError, ValueError):
             return
         value = max(_DESKTOP_LYRIC_FONT_SIZE_MIN, min(_DESKTOP_LYRIC_FONT_SIZE_MAX, value))
-        if self._desktop_lyrics_font_size == value:
-            return
-        self._desktop_lyrics_font_size = value
-        self._settings.setValue("desktopLyrics/fontSize", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_desktop_lyrics_font_size", "desktopLyrics/fontSize", value)
 
     @Slot(bool)
     def setDesktopLyricsBold(self, bold: bool) -> None:
-        value = bool(bold)
-        if self._desktop_lyrics_bold == value:
-            return
-        self._desktop_lyrics_bold = value
-        self._settings.setValue("desktopLyrics/bold", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_desktop_lyrics_bold", "desktopLyrics/bold", bool(bold))
 
     @Slot(bool)
     def setDesktopLyricsItalic(self, italic: bool) -> None:
-        value = bool(italic)
-        if self._desktop_lyrics_italic == value:
-            return
-        self._desktop_lyrics_italic = value
-        self._settings.setValue("desktopLyrics/italic", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply("_desktop_lyrics_italic", "desktopLyrics/italic", bool(italic))
 
     @Slot(str)
     def setDesktopLyricsOrientation(self, orientation: str) -> None:
-        value = orientation if orientation in _DESKTOP_LYRIC_ORIENTATIONS else "horizontal"
-        if self._desktop_lyrics_orientation == value:
-            return
-        self._desktop_lyrics_orientation = value
-        self._settings.setValue("desktopLyrics/orientation", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_desktop_lyrics_orientation",
+            "desktopLyrics/orientation",
+            orientation if orientation in _DESKTOP_LYRIC_ORIENTATIONS else "horizontal",
+        )
 
     @Slot(str)
     def setDesktopLyricsColorBase(self, color: str) -> None:
-        value = _normalize_hex_color(color)
-        if value is None or self._desktop_lyrics_color_base == value:
-            return
-        self._desktop_lyrics_color_base = value
-        self._settings.setValue("desktopLyrics/colorBase", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_desktop_lyrics_color_base",
+            "desktopLyrics/colorBase",
+            _normalize_hex_color(color),
+        )
 
     @Slot(str)
     def setDesktopLyricsColorHighlight(self, color: str) -> None:
-        value = _normalize_hex_color(color)
-        if value is None or self._desktop_lyrics_color_highlight == value:
-            return
-        self._desktop_lyrics_color_highlight = value
-        self._settings.setValue("desktopLyrics/colorHighlight", value)
-        self._settings.sync()
-        self.settingsChanged.emit()
+        self._apply(
+            "_desktop_lyrics_color_highlight",
+            "desktopLyrics/colorHighlight",
+            _normalize_hex_color(color),
+        )
 
     @Slot(str, result=str)
     def pickDesktopLyricsColor(self, role: str) -> str:

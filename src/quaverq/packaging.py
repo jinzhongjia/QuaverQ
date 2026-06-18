@@ -291,21 +291,6 @@ def _desktop_file_text_for_package() -> str:
     return text.replace("Exec=QuaverQ\n", "Exec=quaverq\n")
 
 
-def linux_package_layout(root_dir: str | Path) -> dict[Path, str | Path]:
-    """Linux 安装包根目录内的固定文件映射。
-
-    ``/opt/quaverq`` 下的 Nuitka bundle 由 :func:`prepare_linux_package_root`
-    递归复制；这里仅描述桌面集成文件与启动器。
-    """
-    base = Path(root_dir)
-    return {
-        base / _LINUX_LAUNCHER.relative_to("/"): f"{_LINUX_INSTALL_PREFIX}/QuaverQ",
-        base / "usr/share/applications" / f"{APP_ID}.desktop": resources.desktop_file(),
-        base / "usr/share/icons/hicolor/scalable/apps" / f"{APP_ID}.svg": resources.icon_file(),
-        base / "usr/share/metainfo" / f"{APP_ID}.metainfo.xml": resources.metainfo_file(),
-    }
-
-
 def prepare_linux_package_root(root_dir: str | Path, dist_dir: str | Path) -> None:
     """把 Nuitka standalone 产物整理成 deb/rpm/pacman 共用的安装根。"""
     root = Path(root_dir)

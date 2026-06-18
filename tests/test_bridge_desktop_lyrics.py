@@ -551,7 +551,8 @@ def test_fill_brush_for_gradient(qapp):
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
-    brush = w._fill_brush(highlight=True)
+    w._ensure_brush_cache()
+    brush = w._cached_brush_highlight
     # 渐变 brush 的 style != SolidPattern
     assert brush.style() == Qt_.BrushStyle.LinearGradientPattern
 
