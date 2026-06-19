@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -82,19 +83,17 @@ DEFAULTS: dict[str, Any] = {
 
 def load() -> dict[str, Any]:
     """加载并合并配置（默认 + 文件）."""
-    config = DEFAULTS.copy()
+    if not CONFIG_FILE.exists():
+        return deepcopy(DEFAULTS)
 
-    if CONFIG_FILE.exists():
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib  # type: ignore[no-redef]
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
 
-        with open(CONFIG_FILE, "rb") as f:
-            user = tomllib.load(f)
-        config = _deep_merge(config, user)
-
-    return config
+    with open(CONFIG_FILE, "rb") as f:
+        user = tomllib.load(f)
+    return _deep_merge(DEFAULTS, user)
 
 
 def save(config: dict[str, Any]) -> None:
@@ -106,12 +105,12 @@ def save(config: dict[str, Any]) -> None:
         tomli_w.dump(config, f)
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """深度合并两个 dict，override 优先."""
-    result = base.copy()
+    result = deepcopy(base)
     for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+        if isinstance(result.get(key), dict) and isinstance(value, dict):
             result[key] = _deep_merge(result[key], value)
         else:
-            result[key] = value
+            result[key] = deepcopy(value)
     return result
