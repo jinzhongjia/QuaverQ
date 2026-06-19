@@ -12,7 +12,7 @@ from quaverq.perf import log_elapsed
 
 def test_log_elapsed_records_duration_and_fields(caplog, monkeypatch):
     monkeypatch.delenv("QUAVERQ_PERF_LOG", raising=False)
-    monkeypatch.setattr(perf, "_is_packaged", lambda: False)
+    monkeypatch.setattr(perf, "is_packaged", lambda: False)
     ticks = iter([10.0, 10.125])
     monkeypatch.setattr("quaverq.perf.time.perf_counter", lambda: next(ticks))
     logger = logging.getLogger("tests.perf")
@@ -29,7 +29,7 @@ def test_log_elapsed_records_duration_and_fields(caplog, monkeypatch):
 
 def test_log_elapsed_records_error_status(caplog, monkeypatch):
     monkeypatch.delenv("QUAVERQ_PERF_LOG", raising=False)
-    monkeypatch.setattr(perf, "_is_packaged", lambda: False)
+    monkeypatch.setattr(perf, "is_packaged", lambda: False)
     ticks = iter([10.0, 10.25])
     monkeypatch.setattr("quaverq.perf.time.perf_counter", lambda: next(ticks))
     logger = logging.getLogger("tests.perf")
@@ -47,7 +47,7 @@ def test_log_elapsed_records_error_status(caplog, monkeypatch):
 
 def test_log_elapsed_is_disabled_by_default_in_packaged_build(caplog, monkeypatch):
     monkeypatch.delenv("QUAVERQ_PERF_LOG", raising=False)
-    monkeypatch.setattr(perf, "_is_packaged", lambda: True)
+    monkeypatch.setattr(perf, "is_packaged", lambda: True)
     monkeypatch.setattr(
         "quaverq.perf.time.perf_counter",
         lambda: pytest.fail("disabled perf logging should not read the clock"),
@@ -63,7 +63,7 @@ def test_log_elapsed_is_disabled_by_default_in_packaged_build(caplog, monkeypatc
 
 def test_log_elapsed_can_be_enabled_by_env_in_packaged_build(caplog, monkeypatch):
     monkeypatch.setenv("QUAVERQ_PERF_LOG", "1")
-    monkeypatch.setattr(perf, "_is_packaged", lambda: True)
+    monkeypatch.setattr(perf, "is_packaged", lambda: True)
     ticks = iter([10.0, 10.01])
     monkeypatch.setattr("quaverq.perf.time.perf_counter", lambda: next(ticks))
     logger = logging.getLogger("tests.perf")

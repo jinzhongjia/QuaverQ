@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
+from quaverq.runtime import is_packaged
+
 _PERF_LOG_ENV = "QUAVERQ_PERF_LOG"
 _TRUTHY = {"1", "true", "yes", "on"}
-
-
-def _is_packaged() -> bool:
-    return bool(getattr(sys, "frozen", False) or globals().get("__compiled__") is not None)
 
 
 def perf_logging_enabled() -> bool:
@@ -23,7 +20,7 @@ def perf_logging_enabled() -> bool:
     override = os.getenv(_PERF_LOG_ENV)
     if override is not None:
         return override.strip().lower() in _TRUTHY
-    return not _is_packaged()
+    return not is_packaged()
 
 
 def _format_value(value: Any) -> str:

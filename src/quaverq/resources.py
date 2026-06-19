@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from quaverq.runtime import is_packaged
+
 APP_ID = "io.github.jinzhongjia.quaverq"
 
 
@@ -25,11 +27,9 @@ def assets_dir() -> Path:
       assets 与 quaverq/ 同级，由 ``--include-data-dir=assets=assets`` 放置）。
     """
     here = Path(__file__).resolve()
-    for base in (here.parents[2], here.parents[1]):
-        candidate = base / "assets"
-        if candidate.is_dir():
-            return candidate
-    return project_root() / "assets"
+    if is_packaged():
+        return here.parents[1] / "assets"
+    return here.parents[2] / "assets"
 
 
 def desktop_file() -> Path:

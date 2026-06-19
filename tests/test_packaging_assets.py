@@ -19,6 +19,32 @@ def test_assets_dir_exists() -> None:
     assert resources.assets_dir().is_dir()
 
 
+def test_assets_dir_uses_source_layout(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "repo"
+    assets = root / "assets"
+    assets.mkdir(parents=True)
+    module = root / "src" / "quaverq" / "resources.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("", encoding="utf-8")
+    monkeypatch.setattr(resources, "__file__", str(module))
+    monkeypatch.setattr("quaverq.resources.is_packaged", lambda: False)
+
+    assert resources.assets_dir() == assets
+
+
+def test_assets_dir_uses_packaged_layout(tmp_path, monkeypatch) -> None:
+    dist = tmp_path / "quaverq_entry.dist"
+    assets = dist / "assets"
+    assets.mkdir(parents=True)
+    module = dist / "quaverq" / "resources.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("", encoding="utf-8")
+    monkeypatch.setattr(resources, "__file__", str(module))
+    monkeypatch.setattr("quaverq.resources.is_packaged", lambda: True)
+
+    assert resources.assets_dir() == assets
+
+
 def test_desktop_file_present_and_valid() -> None:
     path = resources.desktop_file()
     assert path.is_file()
