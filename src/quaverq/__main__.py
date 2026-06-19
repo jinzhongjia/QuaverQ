@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from typing import Any, Protocol, cast
 
 import qasync
 from PySide6.QtCore import QSettings, QtMsgType, QUrl, qInstallMessageHandler
@@ -41,6 +42,16 @@ from .perf import log_elapsed
 from .platform import get_platform
 
 logger = logging.getLogger("quaverq")
+
+
+class _AsyncStoppable(Protocol):
+    async def stop_async(self) -> None: ...
+
+
+class _TrayRefHolder(Protocol):
+    _desktop_lyrics_enable_action: Any
+    _desktop_lyrics_lock_action: Any
+    _menu: Any
 
 
 def _open_settings_ini() -> QSettings:
@@ -231,13 +242,14 @@ def _setup_tray(
 
         desktop_lyrics_settings.settingsChanged.connect(_sync_tray_state)
         _sync_tray_state()  # 启动期同步一次置灰态
-        tray._desktop_lyrics_enable_action = enable_action  # 持有引用, 防 QAction 被 GC
-        tray._desktop_lyrics_lock_action = lock_action
+        tray_refs = cast(_TrayRefHolder, tray)
+        tray_refs._desktop_lyrics_enable_action = enable_action  # 持有引用, 防 QAction 被 GC
+        tray_refs._desktop_lyrics_lock_action = lock_action
 
     menu.addSeparator()
     menu.addAction("退出 QuaverQ").triggered.connect(lambda *_: app.quit())
     tray.setContextMenu(menu)
-    tray._menu = menu  # 持有引用, 防 QMenu 被 GC
+    cast(_TrayRefHolder, tray)._menu = menu  # 持有引用, 防 QMenu 被 GC
 
     def _on_activated(reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -280,8 +292,8 @@ def _save_exit_snapshot(player_controller: PlayerController) -> None:
 
 
 async def _shutdown(
-    mpris_controller: object | None,
-    lyrics_dbus_controller: object | None,
+    mpris_controller: _AsyncStoppable | None,
+    lyrics_dbus_controller: _AsyncStoppable | None,
     cover_cache: CoverCache,
 ) -> None:
     """关窗后清理 (run_forever 返回后, 趁 loop 未关 / QObject 仍存活时跑):
@@ -523,7 +535,8 @@ def main() -> None:
         roots = engine.rootObjects()
         if not roots:
             return 0
-        wid = roots[0].winId()
+        window = cast(Any, roots[0])
+        wid = window.winId()
         return int(wid) if wid else 0
 
     taskbar = pal.taskbar(player_controller, _main_window_hwnd, cover_cache=cover_cache)
