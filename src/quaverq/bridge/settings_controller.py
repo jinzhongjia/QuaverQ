@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import urllib.parse
-from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QSettings, QStandardPaths, QUrl, Signal, Slot
@@ -112,13 +111,11 @@ class SettingsController(QObject):
         *,
         settings: QSettings | None = None,
         cover_cache: CoverCache | None = None,
-        orphan_cleanup: Callable[[], list[Path]] | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._settings = settings or QSettings()
         self._cover_cache = cover_cache
-        self._orphan_cleanup = orphan_cleanup
         self._theme_mode = self._read_str("ui/themeMode", "system", _THEME_MODES)
         # 减少动效 (无障碍): Qt 6.x 没有系统级 prefers-reduced-motion 接口, 走应用级设置;
         # 灌进 Motion singleton 后各处过渡时长归零、Marquee 横滚停用
@@ -633,7 +630,6 @@ class SettingsController(QObject):
 
     @Slot()
     def clearCoverCache(self) -> None:
-        self._run_orphan_cleanup()
         if self._cover_cache is None:
             self._set_cover_cache_size_text(self._format_bytes(0))
             return
@@ -646,20 +642,6 @@ class SettingsController(QObject):
             return
         logger.info("cleared cover cache: %s", self._format_bytes(removed))
         self._set_cover_cache_size_text(self._format_bytes(self._cover_cache_bytes()))
-
-    def _run_orphan_cleanup(self) -> None:
-        if self._orphan_cleanup is None:
-            return
-        try:
-            removed = self._orphan_cleanup()
-        except Exception:
-            logger.exception("orphan cache cleanup failed")
-            return
-        if removed:
-            logger.info(
-                "removed orphan caches: %s",
-                ", ".join(str(path) for path in removed),
-            )
 
     def _cover_cache_bytes(self) -> int:
         if self._cover_cache is None:

@@ -248,36 +248,16 @@ def test_invalid_stored_max_bytes_falls_back_to_default(tmp_path):
     assert controller.coverCacheMaxBytes == _DEFAULT_COVER_MAX_BYTES
 
 
-# ============================================================== orphan cleanup
-
-
-def test_clear_cover_cache_runs_orphan_cleanup(tmp_path):
+def test_clear_cover_cache_clears_cover_files(tmp_path):
     cache = CoverCache(tmp_path / "covers")
     cache.dir.mkdir(parents=True)
     (cache.dir / "a.jpg").write_bytes(b"abc")
-    calls: list[bool] = []
     controller = SettingsController(
         settings=_settings(tmp_path / "settings.ini"),
         cover_cache=cache,
-        orphan_cleanup=lambda: (calls.append(True), [])[1],
     )
 
     controller.clearCoverCache()
-
-    assert calls  # orphan cleanup invoked alongside the cover cache clear
-    assert cache.size_bytes() == 0
-
-
-def test_clear_cover_cache_without_orphan_cleanup_is_fine(tmp_path):
-    cache = CoverCache(tmp_path / "covers")
-    cache.dir.mkdir(parents=True)
-    (cache.dir / "a.jpg").write_bytes(b"abc")
-    controller = SettingsController(
-        settings=_settings(tmp_path / "settings.ini"),
-        cover_cache=cache,
-    )
-
-    controller.clearCoverCache()  # no orphan_cleanup -> no crash
 
     assert cache.size_bytes() == 0
 

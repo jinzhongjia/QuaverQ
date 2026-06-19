@@ -32,7 +32,7 @@ from .bridge import (
     SongDetailController,
 )
 from .bridge.stream_proxy import StreamProxy
-from .config import CACHE_DIR, CONFIG_DIR, load as load_config, purge_orphan_caches
+from .config import CACHE_DIR, CONFIG_DIR, load as load_config
 from .core.cover_cache import CoverCache
 from .core.download_store import DownloadStore
 from .core.home_cache import HomeCache
@@ -350,12 +350,6 @@ def main() -> None:
 
         set_app_user_model_id(resources.APP_ID)
     load_config()
-    orphan_caches = purge_orphan_caches()
-    if orphan_caches:
-        logger.info(
-            "清理旧架构遗留缓存: %s",
-            ", ".join(str(path) for path in orphan_caches),
-        )
     # D-Bus 仅 Linux 桌面适用 (Windows 走 SMTC / macOS 走 NowPlayingInfoCenter);
     # 非 Linux 跳过此检查避免误报 "未检测到 D-Bus 会话总线" warning.
     for diag in diagnostics.run_diagnostics(include_dbus=sys.platform == "linux"):
@@ -417,7 +411,6 @@ def main() -> None:
     settings_controller = SettingsController(
         settings=_open_settings_ini(),
         cover_cache=cover_cache,
-        orphan_cleanup=purge_orphan_caches,
     )
     # 系统主题: Linux 走 freedesktop portal; Windows / macOS 暂返回 None.
     # QML 端 (Main.qml) 已 null-guard systemTheme, None 时退化为"跟随 Qt palette".
