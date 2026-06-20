@@ -3,7 +3,6 @@
 
 使用方法:
     uv run python build.py              # Nuitka standalone → dist/quaverq.dist/
-    uv run python build.py --onefile    # 单文件 exe
     uv run python build.py --appimage   # standalone + AppImage（Linux, 需 linuxdeploy）
     uv run python build.py --deb        # standalone + deb（Linux, 需 dpkg-deb）
     uv run python build.py --rpm        # standalone + rpm（Linux, 需 rpmbuild）

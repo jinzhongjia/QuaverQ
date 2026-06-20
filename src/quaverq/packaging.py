@@ -158,12 +158,12 @@ def project_version() -> str:
 
 
 def nuitka_command(
-    mode: str = "standalone",
     *,
     version: str | None = None,
     output_dir: str = "dist",
     python: str | None = None,
     icon_path: Path | None = None,
+    target_platform: str = sys.platform,
 ) -> list[str]:
     """组装 Nuitka 编译命令（不执行）。
 
@@ -179,13 +179,13 @@ def nuitka_command(
     # Linux 才追加 dbus_next 等 Linux-only 包; Windows / macOS 上没装 -> Nuitka 报
     # "failed to locate package" 直接 FATAL.
     force_packages: list[str] = list(_FORCE_INCLUDE_PACKAGES)
-    if sys.platform == "linux":
+    if target_platform == "linux":
         force_packages.extend(_LINUX_ONLY_PACKAGES)
     cmd = [
         python,
         "-m",
         "nuitka",
-        f"--{mode}",
+        "--standalone",
         "--assume-yes-for-downloads",
         f"--output-dir={output_dir}",
         "--enable-plugin=pyside6",
@@ -214,10 +214,10 @@ def nuitka_command(
         # 编译成功后清掉 .build 中间目录 (.o 文件等约 500MB-1GB), 只留 .dist 产物.
         "--remove-output",
     ]
-    if sys.platform == "win32":
+    if target_platform == "win32":
         # GUI 应用: 双击启动不弹黑色 cmd 窗口. attach (默认) 会跟父 console
         # 关联打印 logging, 但用户从资源管理器 / 开始菜单启动时凭空蹦个终端,
-        # 极差体验. CI 调试用 onefile 想看日志就改回 force.
+        # 极差体验.
         cmd.append("--windows-console-mode=disable")
         # 显式声明带 VC++ runtime (vcruntime140 / msvcp140), 让没装 VC++ Redist
         # 的用户也能跑 portable. Nuitka 默认就这么干, 显式声明只是消掉提醒.
@@ -369,7 +369,7 @@ def _ensure_linux_dist(output_dir: str, *, rebuild: bool, label: str) -> Path | 
     root = resources.project_root()
     dist_dir = root / output_dir / _NUITKA_DIST_DIRNAME
     if rebuild or not (dist_dir / "QuaverQ").exists():
-        rc = build("standalone", output_dir=output_dir)
+        rc = build(output_dir=output_dir)
         if rc != 0:
             return None
     else:
@@ -481,7 +481,7 @@ def _pyside6_wheel_lib_dir() -> Path | None:
         return None
 
 
-def build(mode: str = "standalone", *, output_dir: str = "dist") -> int:
+def build(*, output_dir: str = "dist") -> int:
     clean_stray_qt_objects()
     root = resources.project_root()
     # 渲染 ICO 嵌入 exe 资源段 (任务栏 / 资源管理器图标). Linux 上 Nuitka 仍接受
@@ -492,10 +492,10 @@ def build(mode: str = "standalone", *, output_dir: str = "dist") -> int:
     except Exception as exc:
         print(f"[build] WARN: ICO 渲染失败, 跳过图标嵌入: {exc}", file=sys.stderr)
         ico_path = None
-    cmd = nuitka_command(mode, output_dir=output_dir, icon_path=ico_path)
+    cmd = nuitka_command(output_dir=output_dir, icon_path=ico_path)
     print("[build]", " ".join(shlex.quote(c) for c in cmd))
     rc = subprocess.run(cmd, cwd=root).returncode
-    if rc == 0 and mode == "standalone" and sys.platform == "linux":
+    if rc == 0 and sys.platform == "linux":
         # 构建机装有系统 Qt 时 Nuitka 会漏拷二阶 Qt 依赖, 见 heal_qt_bundle docstring
         bundle_dir = root / output_dir / _NUITKA_DIST_DIRNAME
         wheel_lib = _pyside6_wheel_lib_dir()
@@ -590,7 +590,7 @@ def build_msi(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     # 1) Nuitka standalone (build() 内部已经渲染 ICO + 嵌入 exe).
     # rebuild=False 时跳过 (用于调 WiX 模板迭代, 不动 Python 代码)
     if rebuild or not (dist_dir / "QuaverQ.exe").exists():
-        rc = build("standalone", output_dir=output_dir)
+        rc = build(output_dir=output_dir)
         if rc != 0:
             return rc
     else:
@@ -681,7 +681,7 @@ def build_portable(output_dir: str = "dist", *, rebuild: bool = True) -> int:
     expected_exe = "QuaverQ.exe" if sys.platform == "win32" else "QuaverQ"
 
     if rebuild or (dist_platform is None and not (dist_dir / expected_exe).exists()):
-        rc = build("standalone", output_dir=output_dir)
+        rc = build(output_dir=output_dir)
         if rc != 0:
             return rc
         dist_platform = sys.platform
@@ -728,7 +728,7 @@ def build_portable(output_dir: str = "dist", *, rebuild: bool = True) -> int:
 def build_appimage(output_dir: str = "dist") -> int:
     """standalone 编译 → 组装 AppDir → linuxdeploy 产出 AppImage。"""
     root = resources.project_root()
-    rc = build("standalone")
+    rc = build()
     if rc != 0:
         return rc
     dist = root / output_dir / _NUITKA_DIST_DIRNAME
@@ -959,7 +959,6 @@ def smoke_test(binary: str | Path, *, timeout: float = 20.0) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="QuaverQ 打包")
-    parser.add_argument("--onefile", action="store_true", help="编译为单文件")
     parser.add_argument("--appimage", action="store_true", help="standalone + AppImage")
     parser.add_argument(
         "--msi", action="store_true", help="standalone + WiX 5 -> Windows MSI 安装包 (仅 Windows)"
@@ -1007,7 +1006,7 @@ def main() -> None:
         sys.exit(build_archlinux(rebuild=not args.no_rebuild))
     if args.portable:
         sys.exit(build_portable(rebuild=not args.no_rebuild))
-    sys.exit(build("onefile" if args.onefile else "standalone"))
+    sys.exit(build())
 
 
 if __name__ == "__main__":

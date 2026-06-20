@@ -33,6 +33,14 @@ def test_nuitka_command_force_includes_dynamic_import_packages():
         assert f"--include-package={pkg}" in cmd
 
 
+def test_nuitka_command_includes_dbus_next_only_on_linux():
+    linux_cmd = packaging.nuitka_command(target_platform="linux")
+    windows_cmd = packaging.nuitka_command(target_platform="win32")
+
+    assert "--include-package=dbus_next" in linux_cmd
+    assert "--include-package=dbus_next" not in windows_cmd
+
+
 def test_nuitka_command_includes_qml_qt_plugins():
     # QtQuick / Layouts (qml) + QMediaPlayer FFmpeg 后端 (multimedia) 都必须带,
     # 否则 Windows 上启动报 "No QtMultimedia backends found" 不能播放.
@@ -50,9 +58,19 @@ def test_nuitka_command_injects_version():
     assert "--file-version=9.9.9" in cmd
 
 
-def test_nuitka_command_modes_and_entrypoint():
-    assert "--standalone" in packaging.nuitka_command("standalone")
-    assert "--onefile" in packaging.nuitka_command("onefile")
+def test_nuitka_command_adds_windows_options_only_on_windows():
+    windows_cmd = packaging.nuitka_command(target_platform="win32")
+    linux_cmd = packaging.nuitka_command(target_platform="linux")
+
+    assert "--windows-console-mode=disable" in windows_cmd
+    assert "--include-windows-runtime-dlls=yes" in windows_cmd
+    assert "--windows-console-mode=disable" not in linux_cmd
+    assert "--include-windows-runtime-dlls=yes" not in linux_cmd
+
+
+def test_nuitka_command_uses_standalone_and_entrypoint():
+    assert "--standalone" in packaging.nuitka_command()
+    assert "--onefile" not in packaging.nuitka_command()
     cmd = packaging.nuitka_command()
     # 入口走包外 shim ``src/quaverq_entry.py`` (避开 -m 与 --include-package=quaverq
     # 的 __main__ 去重警告); 不再有 --python-flag=-m.
