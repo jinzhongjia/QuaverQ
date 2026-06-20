@@ -266,7 +266,7 @@ def linuxdeploy_command(
 
 _PACKAGE_NAME = "quaverq"
 _PACKAGE_SUMMARY = "QQ 音乐桌面客户端"
-_PACKAGE_MAINTAINER = "Jin <mail@nvimer.org>"
+_PACKAGE_MAINTAINER = "jinzhongjia <mail@nvimer.org>"
 _LINUX_INSTALL_PREFIX = Path("/opt/quaverq")
 _LINUX_LAUNCHER = Path("/usr/bin/quaverq")
 _DEB_DEPENDS = (
