@@ -20,6 +20,7 @@ import os
 import platform
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 from collections.abc import Callable
@@ -30,6 +31,7 @@ import tomllib
 from . import resources
 
 APP_ID = resources.APP_ID
+_ICO_SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
 
 # Nuitka standalone 产物目录名 = 入口脚本 basename + ".dist". 我们入口是
 # ``src/quaverq_entry.py`` (包外 shim, 见 nuitka_command 注释), 因此 dist 子目录
@@ -84,16 +86,42 @@ _EXCLUDE_QT_DLL_PATTERNS = (
 )
 
 
+def _write_ico_from_png_frames(ico_path: Path, frames: list[tuple[int, bytes]]) -> None:
+    header = struct.pack("<HHH", 0, 1, len(frames))
+    offset = len(header) + 16 * len(frames)
+    entries = bytearray()
+    payload = bytearray()
+    for size, data in frames:
+        # ICO 的宽高字段只有 1 byte, 0 表示 >=256; PNG IHDR 内仍保留真实尺寸 (含 512).
+        dimension = size if size < 256 else 0
+        entries.extend(
+            struct.pack(
+                "<BBBBHHII",
+                dimension,
+                dimension,
+                0,
+                0,
+                1,
+                32,
+                len(data),
+                offset,
+            )
+        )
+        payload.extend(data)
+        offset += len(data)
+    ico_path.write_bytes(header + entries + payload)
+
+
 def render_ico_from_svg(svg_path: Path, ico_path: Path, *, size: int = 256) -> None:
-    """把 SVG 光栅化成 ``size x size`` 的 ICO. 没 ``QGuiApplication`` 时启个 offscreen 的.
+    """把 SVG 光栅化成多尺寸 ICO. 没 ``QGuiApplication`` 时启个 offscreen 的.
 
     用于打包 (Nuitka --windows-icon-from-ico + MSI ARPPRODUCTICON 都需要 .ico).
-    Windows Shell 会自动缩放单尺寸 ICO 到 16/32/48/256 各尺寸, 视觉损失可接受;
-    需要多分辨率 ICO 的话再升级 (例如用 Pillow 写多帧 ICO).
+    ICO 内包含 16/24/32/48/64/128/256/512 多个 PNG 帧, Windows Shell / 安装器可按
+    场景选择最接近尺寸, 避免由单张大图缩小导致小图标发糊.
     """
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtCore import QSize, Qt
-    from PySide6.QtGui import QGuiApplication, QImage, QPainter
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QSize, Qt
+    from PySide6.QtGui import QGuiApplication, QImage, QImageWriter, QPainter
     from PySide6.QtSvg import QSvgRenderer
 
     app = QGuiApplication.instance() or QGuiApplication(["build"])
@@ -101,16 +129,27 @@ def render_ico_from_svg(svg_path: Path, ico_path: Path, *, size: int = 256) -> N
     renderer = QSvgRenderer(str(svg_path))
     if not renderer.isValid():
         raise ValueError(f"SVG 加载失败: {svg_path}")
-    img = QImage(QSize(size, size), QImage.Format.Format_ARGB32)
-    img.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(img)
-    try:
-        renderer.render(painter)
-    finally:
-        painter.end()
+    sizes = tuple(dict.fromkeys((*_ICO_SIZES, size)))
+    frames: list[tuple[int, bytes]] = []
+    for frame_size in sizes:
+        img = QImage(QSize(frame_size, frame_size), QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        try:
+            renderer.render(painter)
+        finally:
+            painter.end()
+
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        writer = QImageWriter(buffer, b"PNG")
+        if not writer.write(img):
+            raise ValueError(f"PNG 渲染失败: {svg_path} ({frame_size}x{frame_size})")
+        frames.append((frame_size, bytes(data.data())))
+
     ico_path.parent.mkdir(parents=True, exist_ok=True)
-    if not img.save(str(ico_path), "ICO"):
-        raise ValueError(f"ICO 写入失败: {ico_path}")
+    _write_ico_from_png_frames(ico_path, frames)
 
 
 def project_version() -> str:
@@ -139,7 +178,7 @@ def nuitka_command(
     python = python or sys.executable
     # Linux 才追加 dbus_next 等 Linux-only 包; Windows / macOS 上没装 -> Nuitka 报
     # "failed to locate package" 直接 FATAL.
-    force_packages = list(_FORCE_INCLUDE_PACKAGES)
+    force_packages: list[str] = list(_FORCE_INCLUDE_PACKAGES)
     if sys.platform == "linux":
         force_packages.extend(_LINUX_ONLY_PACKAGES)
     cmd = [
@@ -910,7 +949,9 @@ def smoke_test(binary: str | Path, *, timeout: float = 20.0) -> bool:
         def _text(value: object) -> str:
             if isinstance(value, bytes):
                 return value.decode("utf-8", "replace")
-            return value or ""
+            if isinstance(value, str):
+                return value
+            return ""
 
         output = _text(exc.stdout) + _text(exc.stderr)
     return smoke_output_ok(output)

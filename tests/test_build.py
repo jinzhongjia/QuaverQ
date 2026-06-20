@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import struct
+
 import tomllib
 
 from quaverq import packaging, resources
@@ -61,6 +63,27 @@ def test_nuitka_command_modes_and_entrypoint():
 def test_project_version_matches_pyproject():
     data = tomllib.loads((resources.project_root() / "pyproject.toml").read_text(encoding="utf-8"))
     assert packaging.project_version() == data["project"]["version"]
+
+
+def test_render_ico_from_svg_writes_multi_size_png_frames(tmp_path):
+    ico_path = tmp_path / "quaverq.ico"
+
+    packaging.render_ico_from_svg(resources.icon_file(), ico_path)
+
+    data = ico_path.read_bytes()
+    reserved, ico_type, count = struct.unpack_from("<HHH", data, 0)
+    assert (reserved, ico_type, count) == (0, 1, 8)
+
+    sizes = []
+    for index in range(count):
+        offset = 6 + index * 16
+        image_size, image_offset = struct.unpack_from("<II", data, offset + 8)
+        png = data[image_offset : image_offset + image_size]
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", png[16:24])
+        sizes.append((width, height))
+
+    assert sizes == [(size, size) for size in (16, 24, 32, 48, 64, 128, 256, 512)]
 
 
 def test_appdir_layout_maps_desktop_icon_metainfo():
