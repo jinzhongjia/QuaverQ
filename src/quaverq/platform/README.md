@@ -22,7 +22,7 @@
 | `desktop_lyrics(...)` | ❌ None (Wayland 跨 compositor 不一致, 走 MPRIS 接现成工具) | ✅ Qt frameless + transparent + input-passthrough (`DesktopLyricsController`) | ❌ None |
 | `power_saver(player)` | ❌ None (PulseAudio / DE 已自动 inhibit) | ✅ `SetThreadExecutionState` 阻止待机 (`WindowsPowerSaver`) | ❌ None (Stage 4 IOPMAssertion) |
 
-返回 `None` 表示能力不可用，调用方必须容忍（应用功能降级，不能崩）。
+返回 `None` 表示该平台没有对应能力，调用方必须容忍（应用功能降级，不能崩）。Linux 是例外：D-Bus session bus 属于最低运行要求，启动自检缺失时会直接退出，不进入 PAL 初始化阶段。
 
 `lyric_publisher(..., settings_controller=...)` 在 Linux 把设置层的歌词翻译可见性传给 `LyricsDBusController`；Windows / macOS 仍无歌词外发能力。
 
@@ -41,6 +41,7 @@ mpris = pal.media_session(player_ctrl)     # QObject | None  (start_async/stop_a
 调用约定：
 
 - **必须容忍 None**：每次调用都要 `if x is not None: ...`，不允许 `assert pal.x() is not None`。
+- **Linux D-Bus 必需**：Linux 平台的单实例、MPRIS、歌词外发都依赖 D-Bus；`diagnostics.run_diagnostics(include_dbus=True)` 会在缺失时返回 critical，入口拒绝启动。
 - **持有引用**：返回的 QObject 必须有 Python 端引用（变量或 attribute），否则 Qt 会 GC 掉它，signal slot 断开。
 - **生命周期**：返回的对象的 `start_async()` 由调用方挂到 qasync event loop；`stop_async()` / `release()` 由调用方在 `aboutToQuit` 钩子里清理。
 

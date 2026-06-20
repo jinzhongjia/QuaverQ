@@ -28,10 +28,10 @@ def test_multimedia_critical_when_probe_raises() -> None:
     assert d.severity == diagnostics.CRITICAL
 
 
-def test_dbus_warning_when_unavailable() -> None:
+def test_dbus_critical_when_unavailable() -> None:
     d = diagnostics.check_dbus(probe=lambda: False)
     assert not d.ok
-    assert d.severity == diagnostics.WARNING  # 非致命，可降级
+    assert d.severity == diagnostics.CRITICAL
 
 
 def test_dbus_ok_when_available() -> None:
@@ -57,12 +57,12 @@ def test_has_critical_detects_multimedia_failure() -> None:
     assert diagnostics.has_critical(results)
 
 
-def test_has_critical_false_when_only_warnings() -> None:
+def test_has_critical_detects_dbus_failure() -> None:
     results = diagnostics.run_diagnostics(
         multimedia_probe=lambda: True,
         dbus_probe=lambda: False,
     )
-    assert not diagnostics.has_critical(results)
+    assert diagnostics.has_critical(results)
 
 
 def test_format_diagnostics_includes_each_check() -> None:

@@ -3,7 +3,8 @@
 检测播放与桌面集成的关键依赖是否就绪，缺失时给出明确提示而非静默崩溃：
 
 - ``multimedia``：Qt 多媒体后端（QtMultimedia / FFmpeg 插件）—— 缺失为 ``critical``，播放不可用。
-- ``dbus``：D-Bus 会话总线（MPRIS 媒体键）—— 缺失为 ``warning``，可降级运行。
+- ``dbus``：D-Bus 会话总线（MPRIS 媒体键 / 单实例 / 歌词外发）—— 缺失为 ``critical``，
+  Linux 桌面环境不满足最低运行要求。
   仅 Linux 桌面适用；Windows 走 SMTC、macOS 走 NowPlayingInfoCenter，
   调用方应当通过 ``include_dbus=False`` 跳过此检查 (见 ``__main__.py``)。
 
@@ -55,6 +56,7 @@ def _default_multimedia_probe() -> bool:
     from PySide6.QtCore import QLibraryInfo
 
     plugins_dir = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath))
+    # pathlib 风格
     multimedia_dir = plugins_dir / "multimedia"
     if not multimedia_dir.is_dir():
         return False
@@ -88,8 +90,8 @@ def check_dbus(probe: Probe | None = None) -> Diagnostic:
     return Diagnostic(
         "dbus",
         False,
-        WARNING,
-        "未检测到 D-Bus 会话总线，桌面媒体键 / MPRIS 不可用（不影响播放）",
+        CRITICAL,
+        "未检测到 D-Bus 会话总线，Linux 桌面集成能力不可用，应用拒绝启动",
     )
 
 

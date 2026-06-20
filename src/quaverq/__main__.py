@@ -352,12 +352,16 @@ def main() -> None:
     load_config()
     # D-Bus 仅 Linux 桌面适用 (Windows 走 SMTC / macOS 走 NowPlayingInfoCenter);
     # 非 Linux 跳过此检查避免误报 "未检测到 D-Bus 会话总线" warning.
-    for diag in diagnostics.run_diagnostics(include_dbus=sys.platform == "linux"):
+    diagnostic_results = diagnostics.run_diagnostics(include_dbus=sys.platform == "linux")
+    for diag in diagnostic_results:
         level = {
             diagnostics.CRITICAL: logging.ERROR,
             diagnostics.WARNING: logging.WARNING,
         }.get(diag.severity, logging.INFO)
         logger.log(level, "启动自检 [%s]: %s", diag.name, diag.detail)
+    if diagnostics.has_critical(diagnostic_results):
+        logger.error("启动自检发现致命问题, 应用退出")
+        sys.exit(1)
 
     QQuickStyle.setStyle("Basic")
 
