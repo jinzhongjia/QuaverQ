@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 
 import pytest
 
@@ -10,8 +11,14 @@ import pytest
 @pytest.fixture
 def restore_excepthook():
     saved = sys.excepthook
+    saved_thread = threading.excepthook
+    from quaverq import diagnostics_crash
+
+    saved_installed = diagnostics_crash._installed
     yield
     sys.excepthook = saved
+    threading.excepthook = saved_thread
+    diagnostics_crash._installed = saved_installed
 
 
 def test_install_crash_logger_writes_traceback(tmp_path, monkeypatch, restore_excepthook):
@@ -66,3 +73,54 @@ def test_install_crash_logger_does_not_swallow_default_behavior(
 
     captured = capsys.readouterr()
     assert "KeyError" in captured.err or "chained" in captured.err
+
+
+def test_install_crash_logger_is_idempotent(tmp_path, monkeypatch, restore_excepthook):
+    from quaverq import diagnostics_crash
+
+    monkeypatch.setattr(diagnostics_crash, "CACHE_DIR", tmp_path)
+    diagnostics_crash.install_crash_logger()
+    diagnostics_crash.install_crash_logger()
+    try:
+        raise RuntimeError("once")
+    except RuntimeError:
+        sys.excepthook(*sys.exc_info())
+
+    content = (tmp_path / "crash.log").read_text(encoding="utf-8")
+    assert content.count("=" * 70) == 1
+    assert "RuntimeError: once" in content
+
+
+def test_install_crash_logger_records_thread_exception(tmp_path, monkeypatch, restore_excepthook):
+    from quaverq import diagnostics_crash
+
+    monkeypatch.setattr(diagnostics_crash, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(threading, "excepthook", lambda _args: None)
+    diagnostics_crash.install_crash_logger()
+
+    def boom() -> None:
+        raise RuntimeError("thread crash")
+
+    thread = threading.Thread(target=boom)
+    thread.start()
+    thread.join()
+
+    content = (tmp_path / "crash.log").read_text(encoding="utf-8")
+    assert "RuntimeError" in content
+    assert "thread crash" in content
+
+
+def test_install_crash_logger_rotates_large_log(tmp_path, monkeypatch, restore_excepthook):
+    from quaverq import diagnostics_crash
+
+    monkeypatch.setattr(diagnostics_crash, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(diagnostics_crash, "_MAX_LOG_BYTES", 8)
+    (tmp_path / "crash.log").write_text("x" * 16, encoding="utf-8")
+    diagnostics_crash.install_crash_logger()
+    try:
+        raise ValueError("rotated")
+    except ValueError:
+        sys.excepthook(*sys.exc_info())
+
+    assert (tmp_path / "crash.log.1").read_text(encoding="utf-8") == "x" * 16
+    assert "rotated" in (tmp_path / "crash.log").read_text(encoding="utf-8")
