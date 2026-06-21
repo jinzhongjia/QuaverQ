@@ -22,7 +22,7 @@ from .models import (
 from .mpris_controller import MprisController
 from .player_controller import PlayerController
 from .service_controller import ServiceController
-from .settings_controller import SettingsController
+from .settings_controller import SettingsController, open_settings_ini
 from .song_detail_controller import SongDetailController
 
 __all__ = [
@@ -42,6 +42,7 @@ __all__ = [
     "PlayerController",
     "ServiceController",
     "SettingsController",
+    "open_settings_ini",
     "SongDetailController",
     "CardListModel",
     "LyricLineListModel",

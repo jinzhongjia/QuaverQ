@@ -9,9 +9,17 @@ from pathlib import Path
 from PySide6.QtCore import Property, QObject, QSettings, QStandardPaths, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication
 
+from quaverq.config import CONFIG_DIR
 from quaverq.core.cover_cache import CoverCache
 
 logger = logging.getLogger(__name__)
+
+
+def open_settings_ini() -> QSettings:
+    """打开用户偏好文件 ``CONFIG_DIR/settings.ini``."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return QSettings(str(CONFIG_DIR / "settings.ini"), QSettings.Format.IniFormat)
+
 
 _THEME_MODES = {"system", "light", "dark"}
 _QUALITY_PREFERENCES = {"standard", "balanced", "high"}

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 import qasync
-from PySide6.QtCore import QSettings, QtMsgType, QUrl, qInstallMessageHandler
+from PySide6.QtCore import QtMsgType, QUrl, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -30,6 +30,7 @@ from .bridge import (
     ServiceController,
     SettingsController,
     SongDetailController,
+    open_settings_ini,
 )
 from .bridge.stream_proxy import StreamProxy
 from .config import CACHE_DIR, CONFIG_DIR, load as load_config
@@ -54,12 +55,6 @@ class _TrayRefHolder(Protocol):
     _menu: Any
 
 
-def _open_settings_ini() -> QSettings:
-    """所有用户设置统一落在 CONFIG_DIR/settings.ini, 与 state.json / config.toml 同目录."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    return QSettings(str(CONFIG_DIR / "settings.ini"), QSettings.Format.IniFormat)
-
-
 def _should_suppress_qt_message(message: str) -> bool:
     return (
         (
@@ -72,9 +67,6 @@ def _should_suppress_qt_message(message: str) -> bool:
         # 位图字体会反复报 "CreateFontFaceFromHDC() failed". Qt 内部已自动 fallback 到
         # 默认 monospace, 不影响功能; 但每次切歌 / 字体枚举都刷屏 -> 屏蔽掉.
         or ("DirectWrite: CreateFontFaceFromHDC() failed" in message and "Fixedsys" in message)
-        # Qt 多媒体后端初始化打的 banner ("Using Qt multimedia with FFmpeg version X.Y"),
-        # 启动期纯报喜信息无诊断价值, 屏蔽.
-        or "Using Qt multimedia with FFmpeg version" in message
     )
 
 
@@ -413,7 +405,7 @@ def main() -> None:
     home_cache = HomeCache(CACHE_DIR / "home.json")
     lyric_cache = LyricCache(CACHE_DIR / "lyrics")
     settings_controller = SettingsController(
-        settings=_open_settings_ini(),
+        settings=open_settings_ini(),
         cover_cache=cover_cache,
     )
     # 系统主题: Linux 走 freedesktop portal; Windows / macOS 暂返回 None.

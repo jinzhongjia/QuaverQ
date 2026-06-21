@@ -16,6 +16,7 @@ from quaverq.bridge.settings_controller import (
     _LYRIC_FONT_SIZE_MAX,
     _LYRIC_FONT_SIZE_MIN,
     SettingsController,
+    open_settings_ini,
 )
 from quaverq.core.cover_cache import CoverCache
 
@@ -24,6 +25,18 @@ def _settings(path: Path) -> QSettings:
     settings = QSettings(str(path), QSettings.Format.IniFormat)
     settings.clear()
     return settings
+
+
+def test_open_settings_ini_uses_config_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr("quaverq.bridge.settings_controller.CONFIG_DIR", tmp_path)
+
+    settings = open_settings_ini()
+    settings.setValue("ui/themeMode", "dark")
+    settings.sync()
+
+    assert (tmp_path / "settings.ini").is_file()
+    reloaded = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    assert reloaded.value("ui/themeMode") == "dark"
 
 
 def test_settings_controller_uses_defaults_for_missing_values(tmp_path):
