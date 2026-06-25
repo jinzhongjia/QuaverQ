@@ -25,7 +25,7 @@
 
 | 组件 | 作用 |
 | --- | --- |
-| `SearchField.qml` | 搜索框 `FocusScope`。`searchRequested(text)` / `editingCancelled()` 信号，`loading` 时显示状态。 |
+| `SearchField.qml` | 搜索框 `FocusScope`。`searchRequested(text)` / `editingCancelled()` 信号，`loading` 时显示状态。**输入联想下拉**：`suggestions` 注入候选词，输入后 `suggestDebounceMs`(默认 220ms) debounce 发 `suggestRequested(text)`，悬浮 `Popup`（不抢焦点）列出候选；↑↓ 移动高亮、Enter 选中、Esc 先收下拉、点击/选中发 `suggestionChosen(text)`。 |
 | `SearchChip.qml` | 药丸状可点搜索词 chip（综合搜索相关词 + 空页热门搜索共用）：`text` 显示词、`clicked()` 信号，hover 变色。 |
 | `TabRow.qml` | **文字 + 2px 品牌绿下划线 tab 行**（QQ 音乐样式），统一收编搜索/资料库/详情三处复制实现。`tabs` 接受字符串或 `{label}` 对象数组，`currentIndex` 受控、点击/Enter/Space 发 `activated(index)` 由调用方决定切换（受控组件，不自持状态）。命中区经 Handler `margin` 外扩（不动布局对齐），键盘焦点环统一。 |
 | `AppIcon.qml` | 单色 SVG 图标：白色源图（[`../icons/`](../icons/README.md)）经 `MultiEffect.colorization` 按 `color` 染色，亮暗主题 / 选中 / 禁用态一份资产通吃。`size` 控制渲染尺寸（48px 栅格化保证高 DPI 锐利）。 |

@@ -61,6 +61,7 @@ class ServiceController(QObject):
     relatedWordsChanged = Signal()
     directHitChanged = Signal()
     hotSearchesChanged = Signal()
+    searchSuggestionsChanged = Signal()
     noticeRaised = Signal(str)
 
     def __init__(
@@ -77,6 +78,8 @@ class ServiceController(QObject):
         self._direct_hit: dict[str, Any] | None = None
         self._hot_searches: list[str] = []
         self._hot_searches_loaded = False
+        self._search_suggestions: list[str] = []
+        self._suggest_generation = 0
         self._loading = False
         self._has_next_page = False
         self._search_keyword = ""
@@ -118,6 +121,11 @@ class ServiceController(QObject):
     def hotSearches(self) -> list[str]:
         """热搜词列表 (空搜索页展示); 经 load_hot_searches_async 懒加载。"""
         return self._hot_searches
+
+    @Property("QVariant", notify=searchSuggestionsChanged)
+    def searchSuggestions(self) -> list[str]:
+        """输入联想候选词 (搜索框下拉); 经 request_suggest_async 拉取, debounce 在 QML。"""
+        return self._search_suggestions
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
@@ -255,6 +263,35 @@ class ServiceController(QObject):
             return
         self._hot_searches = list(words or [])
         self.hotSearchesChanged.emit()
+
+    @asyncSlot(str)
+    async def requestSuggest(self, keyword: str) -> None:
+        await self.request_suggest_async(keyword)
+
+    async def request_suggest_async(self, keyword: str) -> None:
+        """拉输入联想候选词。空词直接清空不打网络; 用 generation 保证只有最新一次生效。"""
+        self._suggest_generation += 1
+        generation = self._suggest_generation
+        kw = (keyword or "").strip()
+        if not kw:
+            self._set_search_suggestions([])
+            return
+        try:
+            words = await self.call_service(
+                lambda service: service.get_search_suggest(kw),
+                operation_name=f"suggest {kw}",
+            )
+        except Exception as exc:
+            log_bridge_error(logger, f"suggest failed: {kw}", exc)
+            return
+        if generation != self._suggest_generation:
+            return  # 已被更新的输入取代, 丢弃迟到结果
+        self._set_search_suggestions(list(words or []))
+
+    @Slot()
+    def clearSuggestions(self) -> None:
+        self._suggest_generation += 1  # 作废在途请求
+        self._set_search_suggestions([])
 
     @asyncSlot(str)
     async def search(self, keyword: str) -> None:
@@ -673,6 +710,12 @@ class ServiceController(QObject):
             return
         self._direct_hit = value
         self.directHitChanged.emit()
+
+    def _set_search_suggestions(self, value: list[str]) -> None:
+        if self._search_suggestions == value:
+            return
+        self._search_suggestions = value
+        self.searchSuggestionsChanged.emit()
 
     def _set_error_message(self, value: str) -> None:
         if self._error_message == value:

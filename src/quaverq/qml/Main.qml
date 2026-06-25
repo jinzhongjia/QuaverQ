@@ -228,11 +228,14 @@ ApplicationWindow {
     }
 
     function searchAndOpen(keyword) {
+        // 先退焦再写入文本: 避免程序化改 text 又触发联想 debounce 把下拉重新弹出
+        root.releaseTextFocus()
         searchField.text = keyword
         root.navigate("search")
-        root.releaseTextFocus()
-        if (root.serviceController)
+        if (root.serviceController) {
+            root.serviceController.clearSuggestions()
             root.serviceController.search(keyword)
+        }
     }
 
     function releaseTextFocus() {
@@ -677,7 +680,15 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 placeholderText: qsTr("搜索歌曲、歌手、专辑")
                 loading: root.serviceController ? root.serviceController.loading : false
+                suggestions: root.serviceController ? root.serviceController.searchSuggestions : []
                 onSearchRequested: function(keyword) {
+                    root.searchAndOpen(keyword)
+                }
+                onSuggestRequested: function(keyword) {
+                    if (root.serviceController)
+                        root.serviceController.requestSuggest(keyword)
+                }
+                onSuggestionChosen: function(keyword) {
                     root.searchAndOpen(keyword)
                 }
                 onEditingCancelled: root.releaseTextFocus()

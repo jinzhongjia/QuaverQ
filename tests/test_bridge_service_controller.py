@@ -96,6 +96,9 @@ class _FakeService:
         self.hot_search_calls = getattr(self, "hot_search_calls", 0) + 1
         return ["周杰伦", "林俊杰", "七里香"]
 
+    async def get_search_suggest(self, keyword: str, *, limit: int = 10) -> list[str]:
+        return [f"{keyword}杰伦", f"{keyword}深"]
+
 
 class _FakeAuthService(_FakeService):
     def __init__(self) -> None:
@@ -599,6 +602,56 @@ async def test_load_hot_searches_is_idempotent():
     await controller.load_hot_searches_async()
     # 已加载后不再重复打网络 (服务层虽有缓存, 控制器也不该重复请求)
     assert service.hot_search_calls == 1
+
+
+async def test_request_suggest_populates_suggestions():
+    controller = ServiceController(service=_FakeService())
+    assert controller.searchSuggestions == []
+    await controller.request_suggest_async("周")
+    assert controller.searchSuggestions == ["周杰伦", "周深"]
+
+
+async def test_request_suggest_empty_keyword_clears_without_fetch():
+    service = _FakeService()
+    controller = ServiceController(service=service)
+    await controller.request_suggest_async("周")
+    assert controller.searchSuggestions
+    service.connected = False
+    await controller.request_suggest_async("   ")
+    assert controller.searchSuggestions == []
+    # 空词不该再打网络 (connect 不被触发)
+    assert service.connected is False
+
+
+async def test_clear_suggestions_empties():
+    controller = ServiceController(service=_FakeService())
+    await controller.request_suggest_async("周")
+    assert controller.searchSuggestions
+    controller.clearSuggestions()
+    assert controller.searchSuggestions == []
+
+
+async def test_stale_suggest_result_is_ignored():
+    """快速连打: 旧关键词的迟到结果不能覆盖新关键词。"""
+
+    class _SlowSuggest(_FakeService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.gate = asyncio.Event()
+
+        async def get_search_suggest(self, keyword: str, *, limit: int = 10) -> list[str]:
+            if keyword == "old":
+                await self.gate.wait()  # 让 old 卡住直到 new 完成
+            return [f"{keyword}-1"]
+
+    service = _SlowSuggest()
+    controller = ServiceController(service=service)
+    first = asyncio.create_task(controller.request_suggest_async("old"))
+    await asyncio.sleep(0)
+    await controller.request_suggest_async("new")
+    service.gate.set()
+    await first
+    assert controller.searchSuggestions == ["new-1"]
 
 
 async def test_switching_away_from_general_clears_related_and_direct():
