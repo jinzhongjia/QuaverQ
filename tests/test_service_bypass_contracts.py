@@ -46,6 +46,30 @@ async def test_vkey_happy_path_builds_cdn_url():
     )
 
 
+async def test_vkey_purl_already_full_url_used_as_is():
+    # 真机偶发: vkey 把 purl 返成完整 URL (含 host) 而非裸路径; 旧实现无脑拼
+    # isure 前缀 → https://isure.../http://ws6... 垃圾 URL → CDN 401.
+    # 修复: 已是完整 URL 直接用 (http 升 https 走 curl_cffi JA3). mid=002rRaZH0MOSun 实测.
+    svc = _svc()
+    full = "http://ws6.stream.qqmusic.qq.com/F000abcabc.flac?guid=g&vkey=XYZ"
+    _stub(svc, {"midurlinfo": [{"purl": full}]})
+
+    result = await svc._try_bypass_urls("abc", ("FLAC",))
+    assert result["FLAC"] == (
+        "https://ws6.stream.qqmusic.qq.com/F000abcabc.flac?guid=g&vkey=XYZ",
+        None,
+    )
+
+
+async def test_vkey_purl_full_https_url_preserved():
+    svc = _svc()
+    full = "https://ws6.stream.qqmusic.qq.com/F000abcabc.flac?vkey=XYZ"
+    _stub(svc, {"midurlinfo": [{"purl": full}]})
+
+    result = await svc._try_bypass_urls("abc", ("FLAC",))
+    assert result["FLAC"] == (full, None)
+
+
 async def test_vkey_unknown_quality_label_short_circuits():
     svc = _svc()
     calls = _stub(svc, {"midurlinfo": [{"purl": "x"}]})

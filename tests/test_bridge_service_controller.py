@@ -126,6 +126,25 @@ class _FakeAuthService(_FakeService):
         return self.credential_path
 
 
+def test_reset_risk_fingerprint_calls_service_and_emits_notice():
+    service = _FakeService()
+    service.reset_calls = 0
+
+    def _reset() -> int:
+        service.reset_calls += 1
+        return 7
+
+    service.reset_risk_fingerprint = _reset
+    controller = ServiceController(service=service)
+    notices: list[str] = []
+    controller.noticeRaised.connect(notices.append)
+
+    controller.resetRiskFingerprint()
+
+    assert service.reset_calls == 1
+    assert len(notices) == 1 and notices[0], "应给用户一条提示"
+
+
 async def test_search_async_starts_service_and_populates_model():
     service = _FakeService()
     controller = ServiceController(service=service)

@@ -13,6 +13,7 @@ ScrollView {
     property string routeName: "settings"
     property var appController
     property var settingsController
+    property var serviceController
     property var downloadController
     property var audioDeviceController
 
@@ -459,6 +460,26 @@ ScrollView {
                 actionText: qsTr("清理")
                 showSeparator: false
                 onActionRequested: clearCacheDialog.open()
+            }
+        }
+
+        SettingsSection {
+            Layout.fillWidth: true
+            Layout.leftMargin: ThemeTokens.Spacing.s6
+            Layout.rightMargin: ThemeTokens.Spacing.s6
+            title: qsTr("高级")
+
+            // 实际是重抽取流用的 ct 值 (反风控指纹); 部分歌曲取流被风控/无法播放时可尝试
+            SettingsRow {
+                Layout.fillWidth: true
+                title: qsTr("重置风控指纹")
+                value: qsTr("遇到部分歌曲无法播放时可尝试更换，立即生效")
+                actionText: qsTr("重置")
+                showSeparator: false
+                onActionRequested: {
+                    if (root.serviceController)
+                        root.serviceController.resetRiskFingerprint()
+                }
             }
         }
 

@@ -55,6 +55,7 @@ class ServiceController(QObject):
     authStateChanged = Signal()
     credentialExpired = Signal(str)
     searchTypeChanged = Signal()
+    noticeRaised = Signal(str)
 
     def __init__(
         self,
@@ -357,6 +358,23 @@ class ServiceController(QObject):
         finally:
             if self._is_current_search(generation):
                 self._set_loading(False)
+
+    @Slot()
+    def resetRiskFingerprint(self) -> None:
+        """重置风控指纹 (重抽并落盘 vkey 用的 ct 值, 立即生效); 见 service.reset_risk_fingerprint。
+
+        本地文件写 + 内存赋值, 不联网, 无需 _ensure_started。
+        """
+        reset = getattr(self._service, "reset_risk_fingerprint", None)
+        if not callable(reset):
+            return
+        try:
+            reset()
+        except Exception as exc:  # noqa: BLE001 - 反馈给用户即可, 不崩 UI
+            logger.warning("重置风控指纹失败: %s", exc)
+            self.errorRaised.emit("重置风控指纹失败")
+            return
+        self.noticeRaised.emit("已重置风控指纹，下次播放生效")
 
     @Slot()
     def clear(self) -> None:

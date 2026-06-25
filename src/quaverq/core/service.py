@@ -4,10 +4,11 @@
 - 用 0.6.x Client 类 + pydantic 返回模型
 - get_song_url 走 **bypass 路径**: 自拼 musicu.fcg JSON, 不经过库的 get_song_urls,
   避免 0.6 默认 ct=11 触发地区版权风控.
-- ct 在 service 启动时从合法白名单 random.choice 选一个, 实例生命周期固定,
+- ct 走持久"风控指纹": 首次从合法白名单随机落盘 (config.risk_ct), 之后复用
+  (像固定设备, 不再每次启动随机抽); 设置页可 reset_risk_fingerprint 手动重置.
   既避免高风险值 (1/3/4/11/18/23/27/46), 也防止固定值被未来收紧.
 
-ct 风控背景见 findings.md 第三节.
+ct 风控背景见 findings.md 第三节; 持久化背景见 docs/plan/search-persist-resettable-ct.md.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import random
 import re
 import time
 import uuid
@@ -311,11 +311,25 @@ class QuaverService:
     async def __aexit__(self, *args: object) -> None:
         await self.disconnect()
 
+    def _load_risk_ct(self) -> int:
+        """读持久"风控指纹"ct (首次落盘, 之后复用); 见 config.risk_ct。"""
+        from ..config import risk_ct
+
+        return risk_ct(self._SAFE_CT_VALUES)
+
+    def reset_risk_fingerprint(self) -> int:
+        """重抽 ct 并落盘 + 立即更新内存值 (设置页"重置风控指纹"); 返回新值。"""
+        from ..config import reset_risk_ct
+
+        self._ct_value = reset_risk_ct(self._SAFE_CT_VALUES)
+        logger.info("已重置风控指纹 (ct=%d)", self._ct_value)
+        return self._ct_value
+
     async def connect(self) -> None:
-        """初始化 Client + 随机选定本次会话用的 ct 值."""
+        """初始化 Client + 载入持久 ct 风控指纹."""
         self._client = Client(credential=self.credential)
-        # 反风控: 每次启动从合法池中随机, 但实例生命周期内固定一个
-        self._ct_value = random.choice(self._SAFE_CT_VALUES)
+        # 反风控: ct 落盘复用 (像固定设备, 不再每次启动随机抽), 设置页可重置
+        self._ct_value = self._load_risk_ct()
         if not self._device_guid:
             from ..config import device_guid
 
@@ -844,6 +858,15 @@ class QuaverService:
         第一个可播档 —— 旧实现按档串行降级最多 3 次往返, 是切歌延迟大头之一
         (issue #11). 实测响应保序回显 filename, 见 scripts/debug_vkey_batch.py.
         """
+        # 取流前过期守卫: musickey 3 天 TTL 过期后 vkey 返 104003 (被当成灰色歌曲, 不触发
+        # 续期), 整段播不了. 用本地 is_expired() (零网络) 判定, 过期就先续期再取流.
+        # 见 memory: project-musickey-expiry-104003. 不靠"104003 就重试"——灰色歌曲合法返
+        # 104003, 那样每首灰歌都白白多一次续期往返.
+        cred = self._effective_credential()
+        if cred is not None and getattr(cred, "is_expired", None) and cred.is_expired():
+            logger.info("取流前检测到凭据过期, 尝试续期")
+            await self._try_refresh_credential()
+
         order = self._QUALITY_PROFILES.get(
             quality_preference, self._QUALITY_PROFILES[self._DEFAULT_QUALITY]
         )
@@ -1054,7 +1077,16 @@ class QuaverService:
             # 返回真实 CDN https url：由 bridge 的 StreamProxy 用 curl_cffi 官方 TLS
             # 指纹 (impersonate) 拉流，经本机回环 http 喂给 FFmpeg。FFmpeg 自身的 TLS
             # 指纹会被 CDN 风控 (https→401/403)，故不让它直连；明文只在本机回环。
-            results[label] = (f"https://isure.stream.qqmusic.qq.com/{purl}", None)
+            # purl 有两种形态: 多数是裸路径 (F000xxx.flac?vkey=...), 个别直接返完整
+            # URL (含 ws6 等 host)。完整 URL 必须原样用 (http 升 https 走 JA3),
+            # 无脑拼 isure 前缀会拼出 .../http://ws6... 垃圾 URL → CDN 401 (实测偶发主因)。
+            if purl.startswith("https://"):
+                full_url = purl
+            elif purl.startswith("http://"):
+                full_url = "https://" + purl[len("http://") :]
+            else:
+                full_url = f"https://isure.stream.qqmusic.qq.com/{purl}"
+            results[label] = (full_url, None)
         return results
 
     # ------------------------------------------------------------------

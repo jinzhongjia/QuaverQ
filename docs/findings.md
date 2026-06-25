@@ -104,6 +104,21 @@ payload = {
 
 更具体的客户端 ID 反而启动版权策略.
 
+### purl → 播放 URL 拼接: 有两种形态, 不能无脑拼 host (2026-06-26 实测)
+
+`midurlinfo[].purl` 实测有**两种返回形态**, 由服务端 CDN 调度决定:
+
+| 形态 | 例子 | 出现频率 |
+|------|------|---------|
+| **裸路径** | `F000{mid}{mid}.flac?guid=...&vkey=...` | 多数歌 |
+| **完整 URL** (含 host) | `http://ws6.stream.qqmusic.qq.com/F000{mid}{mid}.flac?guid=...&vkey=...` | 个别歌 |
+
+- 配套的 `sip` (CDN 根地址列表) 字段**两种形态下实测都是空 `[]`**。
+- 形态切换跟请求参数**无关**: 实测加 `uin` + `ctx` (照 qqmusic-api `get_song_urls` 的写法) purl 形态不变, 纯服务端按文件/账号/区域/时刻的 CDN 调度决定。
+- **坑**: 旧实现无脑 `f"https://isure.stream.qqmusic.qq.com/{purl}"`, 遇到完整-URL 形态拼出 `https://isure.../http://ws6.../F000...` 垃圾 URL → CDN 返 **HTTP 401** (拉流层, 不是 vkey 层; `命中 FLAC` 日志说明 vkey 已成功)。这是"大多数能播、个别 401"的真正主因 (实测 mid=`002rRaZH0MOSun` 花寂寥/程潇 FLAC 必现; 完整 purl 直接拉返 206)。
+- **修复** (`service.py` `_try_bypass_urls`): purl `startswith("https://")` 原样用, `http://` 升 https (走 curl_cffi JA3), 否则才拼 `isure` 默认 host。回归测试见 `tests/test_service_bypass_contracts.py::test_vkey_purl_already_full_url_used_as_is`。
+- **qqmusic-api 库不替你拼 URL**: 当前 git pin 版 `song.get_song_urls` 只返回 `UrlinfoItem(purl, vkey, ekey, result)` 原始片段, `get_cdn_dispatch` 单独返 `sip`, 拼接全留给调用方; 库里的 `_SONG_URL_FALLBACK_DOMAIN = "https://isure.stream.qqmusic.qq.com/"` 常量**定义了却未被引用** (死代码)。库的意图模式 `sip[i] + purl` 同样**没处理完整-URL 形态**, 照抄会踩同样的坑——我们的"按形态分支"比它更稳。`sip` 一直为空, 故暂不实现 sip 选路 (YAGNI; 若将来遇到 sip 非空 + 裸路径在 isure 上 401, 再读 `sip[0]`)。
+
 ## 六、备用通道 (多通道冗余)
 
 ### 6.1 主路径

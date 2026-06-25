@@ -977,6 +977,7 @@ ApplicationWindow {
         Views.SettingsView {
             appController: root.appController
             settingsController: root.settingsController
+            serviceController: root.serviceController
             downloadController: root.downloadController
             audioDeviceController: root.audioDeviceController
             onLoginRequested: loginDialog.open()
@@ -1166,6 +1167,7 @@ ApplicationWindow {
     Connections {
         target: root.serviceController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+        function onNoticeRaised(message) { globalSnackbar.show(message, "info") }
     }
     Connections {
         target: root.homeController

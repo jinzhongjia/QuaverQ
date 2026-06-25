@@ -23,6 +23,43 @@ def test_device_guid_regenerates_on_blank_file(tmp_path):
     assert path.read_text(encoding="utf-8").strip() == g
 
 
+_POOL = (2, 5, 7, 13, 16, 30)
+
+
+def test_risk_ct_generates_and_persists(tmp_path):
+    path = tmp_path / "risk_ct"
+    c1 = config.risk_ct(_POOL, path)
+    assert c1 in _POOL
+    assert path.read_text(encoding="utf-8").strip() == str(c1)
+    # 二次调用复用落盘值, 不重抽 (像固定设备指纹)
+    c2 = config.risk_ct(_POOL, path)
+    assert c2 == c1
+
+
+def test_risk_ct_rerolls_when_persisted_value_not_in_pool(tmp_path):
+    # 池子缩小后 (如某 ct 被加黑剔除), 旧落盘值失效 → 自动重抽, 不把用户钉死
+    path = tmp_path / "risk_ct"
+    path.write_text("99", encoding="utf-8")
+    c = config.risk_ct(_POOL, path)
+    assert c in _POOL
+    assert path.read_text(encoding="utf-8").strip() == str(c)
+
+
+def test_risk_ct_rerolls_on_garbage_file(tmp_path):
+    path = tmp_path / "risk_ct"
+    path.write_text("not-an-int\n", encoding="utf-8")
+    c = config.risk_ct(_POOL, path)
+    assert c in _POOL
+
+
+def test_reset_risk_ct_writes_new_value_in_pool(tmp_path):
+    path = tmp_path / "risk_ct"
+    config.risk_ct(_POOL, path)
+    new = config.reset_risk_ct(_POOL, path)
+    assert new in _POOL
+    assert path.read_text(encoding="utf-8").strip() == str(new)
+
+
 def test_load_without_file_returns_independent_defaults(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "missing.toml")
 

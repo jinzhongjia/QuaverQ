@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import random
 import uuid
+from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -67,6 +69,35 @@ def device_guid(path: Path | None = None) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(guid, encoding="utf-8")
     return guid
+
+
+def _risk_ct_file() -> Path:
+    return _config_dir() / "risk_ct"
+
+
+def risk_ct(allowed: Sequence[int], path: Path | None = None) -> int:
+    """持久"风控指纹"(vkey 接口 ct 值): 首次从 allowed 随机落盘, 之后复用。
+
+    像固定设备一样——真实客户端不会每次启动换 ct。落盘值若已不在 allowed
+    (池子缩小/某 ct 被加黑剔除) 或文件损坏, 自动重抽, 不把用户钉死在失效值上。
+    """
+    target = path or _risk_ct_file()
+    try:
+        existing = int(target.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, OSError, ValueError):
+        existing = None
+    if existing is not None and existing in allowed:
+        return existing
+    return reset_risk_ct(allowed, target)
+
+
+def reset_risk_ct(allowed: Sequence[int], path: Path | None = None) -> int:
+    """强制重抽一个 ct 并落盘 (设置页"重置风控指纹"); 返回新值。"""
+    target = path or _risk_ct_file()
+    value = random.choice(list(allowed))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(str(value), encoding="utf-8")
+    return value
 
 
 # 默认配置
