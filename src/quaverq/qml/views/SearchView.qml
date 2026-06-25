@@ -466,18 +466,60 @@ ColumnLayout {
                     font.weight: ThemeTokens.TypeScale.bold
                 }
 
-                Flow {
+                // 编号榜单 (QQ 音乐风): 前 3 名序号品牌绿, 行 hover 高亮; 宽屏两列
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: ThemeTokens.Spacing.s2
+                    columns: width >= 680 ? 2 : 1
+                    columnSpacing: ThemeTokens.Spacing.s6
+                    rowSpacing: 0
 
                     Repeater {
                         model: root.hotSearchesData
 
-                        delegate: Components.SearchChip {
+                        delegate: Rectangle {
+                            id: hotRow
+
+                            required property int index
                             required property var modelData
 
-                            text: modelData
-                            onClicked: root.searchRequested(modelData)
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.preferredHeight: 40
+                            radius: ThemeTokens.Spacing.radiusSm
+                            color: hotRowArea.containsMouse ? ThemeTokens.Palette.stateHover : "transparent"
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: ThemeTokens.Spacing.s3
+                                anchors.rightMargin: ThemeTokens.Spacing.s3
+                                spacing: ThemeTokens.Spacing.s4
+
+                                Label {
+                                    Layout.preferredWidth: 20
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: hotRow.index + 1
+                                    color: hotRow.index < 3 ? ThemeTokens.Palette.primary : ThemeTokens.Palette.surfaceVariantText
+                                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                    font.weight: hotRow.index < 3 ? ThemeTokens.TypeScale.bold : ThemeTokens.TypeScale.medium
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: hotRow.modelData
+                                    color: ThemeTokens.Palette.surfaceText
+                                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            MouseArea {
+                                id: hotRowArea
+
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.searchRequested(hotRow.modelData)
+                            }
                         }
                     }
                 }
