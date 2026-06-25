@@ -396,6 +396,108 @@ async def test_search_playlists_returns_playlist_list():
     assert playlists[0].name == "P"
 
 
+# ----------------------------------------------------------- 综合搜索 (general_search)
+
+
+def _stub_general_search(*, songs=(), singers=(), albums=(), related=(), direct_list=()):
+    """模拟 client.search.general_search 的 GeneralSearchResponse 形态。
+
+    真实结构 (见 scripts 实测): song/singer/album/songlist/related 均为含 .items 的桶,
+    direct 为 list[group], 每个 group 有 direct_list, 条目带 restype/id/title 但无 mid。
+    """
+
+    async def fake_general_search(keyword, num=30, **kwargs):
+        return SimpleNamespace(
+            song=SimpleNamespace(items=list(songs)),
+            singer=SimpleNamespace(items=list(singers)),
+            album=SimpleNamespace(items=list(albums)),
+            songlist=SimpleNamespace(items=[]),
+            related=SimpleNamespace(items=list(related)),
+            direct=[{"direct_list": list(direct_list)}],
+        )
+
+    return SimpleNamespace(
+        search=SimpleNamespace(general_search=fake_general_search),
+        credential=None,
+    )
+
+
+async def test_general_search_returns_songs_and_related():
+    svc = QuaverService()
+    svc._client = _stub_general_search(
+        songs=[_raw_song(mid="m1", name="七里香"), _raw_song(mid="m2", name="晴天")],
+        related=[
+            SimpleNamespace(display="<em>周杰伦</em>", search="周杰伦"),
+            SimpleNamespace(display="七里香", search="七里香"),
+        ],
+    )
+    result = await svc.general_search("周杰伦")
+    assert [s.name for s in result.songs] == ["七里香", "晴天"]
+    assert [(w.display, w.keyword) for w in result.related] == [
+        ("周杰伦", "周杰伦"),  # <em> 标签被清洗
+        ("七里香", "七里香"),
+    ]
+
+
+async def test_general_search_resolves_direct_singer_mid_via_items():
+    """direct_list 只给 numeric id, mid 靠响应内 singer.items 交叉解析。"""
+    svc = QuaverService()
+    svc._client = _stub_general_search(
+        # typed item id 是 int, direct_list id 是字符串 -> 解析必须 str() 归一.
+        singers=[SimpleNamespace(id=4558, mid="0025NhlN2yWrP4", name="周杰伦", pic="p.jpg")],
+        direct_list=[
+            {"restype": "ring_tone", "type": 13, "id": "1", "title": "铃声"},  # 噪音, 跳过
+            {"restype": "singer", "type": 1, "id": "4558", "title": "歌手: 周杰伦"},
+        ],
+    )
+    result = await svc.general_search("周杰伦")
+    assert result.direct is not None
+    assert result.direct.kind == "singer"
+    assert result.direct.mid == "0025NhlN2yWrP4"
+    assert result.direct.name == "周杰伦"
+
+
+async def test_general_search_resolves_direct_album_mid_via_items():
+    svc = QuaverService()
+    svc._client = _stub_general_search(
+        albums=[
+            SimpleNamespace(
+                id=20612, mid="003DFRzD192KKD", name="七里香", pic="c.jpg", singer_list=[]
+            )
+        ],
+        direct_list=[{"restype": "album", "type": 2, "id": "20612", "title": "七里香"}],
+    )
+    result = await svc.general_search("七里香")
+    assert result.direct is not None
+    assert result.direct.kind == "album"
+    assert result.direct.mid == "003DFRzD192KKD"
+    assert result.direct.cover_url == "c.jpg"
+
+
+async def test_general_search_direct_none_when_unresolvable():
+    """direct 命中专辑但 album.items 里没有对应 id -> 无法拿 mid -> direct=None。"""
+    svc = QuaverService()
+    svc._client = _stub_general_search(
+        albums=[SimpleNamespace(id=999, mid="zzz", name="别的专辑", singer_list=[])],
+        direct_list=[{"restype": "album", "type": 2, "id": 20612, "title": "七里香"}],
+    )
+    result = await svc.general_search("七里香")
+    assert result.direct is None
+
+
+async def test_general_search_empty_keyword_no_request():
+    svc = QuaverService()
+
+    async def boom(*a, **k):  # 不应被调用
+        raise AssertionError("空关键词不该发请求")
+
+    svc._client = SimpleNamespace(search=SimpleNamespace(general_search=boom))
+    result = await svc.general_search("   ")
+    assert result.songs == []
+    assert result.related == []
+    assert result.direct is None
+
+
 # ============================================================== get_song_url (bypass)
 # issue #11 Stage A1: 全部降级档批量塞进单个 UrlGetVkey 请求 (实测保序回显 filename,
 # 见 scripts/debug_vkey_batch.py), get_song_url 本地按偏好顺序挑第一个可播档.
@@ -1105,16 +1207,16 @@ async def test_get_recommend_new_songs_uses_memo_cache():
     assert call_count[0] == 1
 
 
-async def test_get_daily_recommend_songs_from_radar():
+async def test_get_daily_recommend_songs_from_guess():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_radar(page=1):
+    async def fake_guess(*, credential=None):
         return SimpleNamespace(
             songs=[_raw_song(mid=f"m{i}", name=f"每日{i}") for i in range(5)],
         )
 
-    svc._client = SimpleNamespace(recommend=SimpleNamespace(get_radar_recommend=fake_radar))
+    svc._client = SimpleNamespace(recommend=SimpleNamespace(get_guess_recommend=fake_guess))
 
     songs = await svc.get_daily_recommend_songs(limit=5)
 
@@ -1123,27 +1225,18 @@ async def test_get_daily_recommend_songs_from_radar():
     assert songs[-1].name == "每日4"
 
 
-async def test_get_daily_recommend_songs_falls_back_to_guess():
+async def test_get_daily_recommend_songs_empty_on_failure():
     svc = QuaverService()
     svc.credential = Credential(musicid=1, musickey="k")
 
-    async def fake_radar(page=1):
-        raise RuntimeError("radar unavailable")
-
     async def fake_guess(*, credential=None):
-        return SimpleNamespace(songs=[_raw_song(mid="g1", name="猜你喜欢")])
+        raise RuntimeError("guess unavailable")
 
-    svc._client = SimpleNamespace(
-        recommend=SimpleNamespace(
-            get_radar_recommend=fake_radar,
-            get_guess_recommend=fake_guess,
-        ),
-    )
+    svc._client = SimpleNamespace(recommend=SimpleNamespace(get_guess_recommend=fake_guess))
 
     songs = await svc.get_daily_recommend_songs(limit=5)
 
-    assert len(songs) == 1
-    assert songs[0].name == "猜你喜欢"
+    assert songs == []
 
 
 def test_clean_text_removes_br_tags():

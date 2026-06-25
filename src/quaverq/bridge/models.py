@@ -16,7 +16,16 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from quaverq.core.models import Album, LyricLine, Playlist, Singer, Song, TopList
+from quaverq.core.models import (
+    Album,
+    DirectHit,
+    LyricLine,
+    Playlist,
+    RelatedWord,
+    Singer,
+    Song,
+    TopList,
+)
 
 
 def _format_duration(seconds: int) -> str:
@@ -281,6 +290,30 @@ def singer_to_card(singer: Singer) -> dict[str, Any]:
             "meta": "",
         }
     )
+
+
+# 综合搜索"直达"的 kind -> detailRequested 导航 kind (singer 走 artist 详情页).
+_DIRECT_KIND_TO_DETAIL = {"singer": "artist", "album": "album"}
+_DIRECT_KIND_LABEL = {"singer": "歌手", "album": "专辑"}
+
+
+def direct_hit_to_map(hit: DirectHit) -> dict[str, Any]:
+    """综合搜索直达 -> card 形态 (kind 已映射成 detailRequested 用的 artist/album)。"""
+    return card_to_map(
+        {
+            "kind": _DIRECT_KIND_TO_DETAIL.get(hit.kind, hit.kind),
+            "id": hit.mid,
+            "title": hit.name,
+            "subtitle": _DIRECT_KIND_LABEL.get(hit.kind, ""),
+            "coverUrl": hit.cover_url,
+            "meta": "",
+        }
+    )
+
+
+def related_word_to_map(word: RelatedWord) -> dict[str, Any]:
+    """综合搜索相关词 -> {display, keyword} (可点 chip)。"""
+    return {"display": str(word.display or ""), "keyword": str(word.keyword or "")}
 
 
 def top_to_card(top: TopList) -> dict[str, Any]:

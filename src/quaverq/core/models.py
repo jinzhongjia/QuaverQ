@@ -156,6 +156,37 @@ class Playlist:
 
 
 @dataclass
+class DirectHit:
+    """综合搜索"直达"结果 (歌手 / 专辑命中)。
+
+    kind ∈ {"singer", "album"}; mid 由响应内 typed items 交叉解析得到
+    (direct_list 只给 numeric id, 不带 mid, 不能直接导航详情页)。
+    """
+
+    kind: str
+    mid: str
+    name: str
+    cover_url: str = ""
+
+
+@dataclass
+class RelatedWord:
+    """综合搜索相关搜索词 (可点 chip): display 展示文案, keyword 实际再搜词。"""
+
+    display: str
+    keyword: str
+
+
+@dataclass
+class GeneralSearchResult:
+    """综合搜索聚合结果: 单曲列表 + 直达 + 相关词 (精简版综合页用)。"""
+
+    songs: list[Song] = field(default_factory=list)
+    related: list[RelatedWord] = field(default_factory=list)
+    direct: DirectHit | None = None
+
+
+@dataclass
 class UserProfile:
     """登录账号画像 (侧栏身份区: 昵称 / 头像 / VIP 徽章)."""
 
@@ -180,4 +211,7 @@ __all__ = [
     "ProducerGroup",
     "TopList",
     "UserProfile",
+    "DirectHit",
+    "RelatedWord",
+    "GeneralSearchResult",
 ]

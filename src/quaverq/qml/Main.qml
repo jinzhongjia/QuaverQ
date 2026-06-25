@@ -924,6 +924,9 @@ ApplicationWindow {
             libraryController: root.libraryController
             coverController: root.coverController
             songDetailController: root.songDetailController
+            onSearchRequested: function(keyword) {
+                root.searchAndOpen(keyword)
+            }
             onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
                 root.pushDetail(kind, detailId, title, subtitle, coverUrl)
             }

@@ -26,7 +26,9 @@ from .models import (
     CardListModel,
     SongListModel,
     album_to_card,
+    direct_hit_to_map,
     playlist_to_card,
+    related_word_to_map,
     singer_to_card,
     song_from_map,
 )
@@ -35,7 +37,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-_SEARCH_TYPES = ("songs", "singers", "albums", "playlists")
+# "general" (综合) 是默认 + 首个 tab; 其余按类型分流到歌曲列表 / 卡片网格.
+_SEARCH_TYPES = ("general", "songs", "singers", "albums", "playlists")
 _CARD_CONVERTERS = {
     "singers": singer_to_card,
     "albums": album_to_card,
@@ -55,6 +58,8 @@ class ServiceController(QObject):
     authStateChanged = Signal()
     credentialExpired = Signal(str)
     searchTypeChanged = Signal()
+    relatedWordsChanged = Signal()
+    directHitChanged = Signal()
     noticeRaised = Signal(str)
 
     def __init__(
@@ -66,7 +71,9 @@ class ServiceController(QObject):
         self._service = service or QuaverService()
         self._song_results = SongListModel(self)
         self._card_results = CardListModel(self)
-        self._search_type = "songs"
+        self._search_type = "general"
+        self._related_words: list[dict[str, Any]] = []
+        self._direct_hit: dict[str, Any] | None = None
         self._loading = False
         self._has_next_page = False
         self._search_keyword = ""
@@ -93,6 +100,16 @@ class ServiceController(QObject):
     @Property(str, notify=searchTypeChanged)
     def searchType(self) -> str:
         return self._search_type
+
+    @Property("QVariant", notify=relatedWordsChanged)
+    def relatedWords(self) -> list[dict[str, Any]]:
+        """综合搜索相关词 [{display, keyword}]; 非综合 tab 为空。"""
+        return self._related_words
+
+    @Property("QVariant", notify=directHitChanged)
+    def directHit(self) -> dict[str, Any] | None:
+        """综合搜索直达 card (kind/id/title/subtitle/coverUrl); 无则 None。"""
+        return self._direct_hit
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
@@ -232,9 +249,13 @@ class ServiceController(QObject):
             self._reset_search_state()
             self._song_results.clear()
             self._card_results.clear()
+            self._set_related_words([])
+            self._set_direct_hit(None)
             self._set_loading(False)
             return
-        if self._search_type == "songs":
+        if self._search_type == "general":
+            await self._load_general_search(kw, generation)
+        elif self._search_type == "songs":
             await self._load_search_page(kw, 1, generation)
         else:
             await self._load_card_search(kw, generation, self._search_type)
@@ -244,7 +265,7 @@ class ServiceController(QObject):
         await self.set_search_type_async(search_type)
 
     async def set_search_type_async(self, search_type: str) -> None:
-        value = search_type if search_type in _SEARCH_TYPES else "songs"
+        value = search_type if search_type in _SEARCH_TYPES else "general"
         if self._search_type == value:
             return
         self._search_type = value
@@ -252,6 +273,8 @@ class ServiceController(QObject):
         keyword = self._search_keyword
         self._song_results.clear()
         self._card_results.clear()
+        self._set_related_words([])
+        self._set_direct_hit(None)
         if keyword:
             await self.search_async(keyword)
         else:
@@ -289,6 +312,33 @@ class ServiceController(QObject):
         if search_type == "albums":
             return service.search_albums(keyword, limit=self._page_size)
         return service.search_playlists(keyword, limit=self._page_size)
+
+    async def _load_general_search(self, keyword: str, generation: int) -> None:
+        """综合搜索: 单曲灌进 songResults, 直达 + 相关词走专属 Property; 不翻页。"""
+        self._set_loading(True)
+        self._set_error_message("")
+        try:
+            result = await self.call_service(
+                lambda service: service.general_search(keyword, limit=self._page_size),
+                operation_name=f"general search {keyword}",
+            )
+            if not self._is_current_search(generation):
+                return
+            self._search_keyword = keyword
+            self._song_results.set_songs(result.songs)
+            self._set_related_words([related_word_to_map(w) for w in result.related])
+            self._set_direct_hit(direct_hit_to_map(result.direct) if result.direct else None)
+            self._set_current_page(1 if result.songs or result.related or result.direct else 0)
+            self._set_has_next_page(False)
+        except Exception as exc:
+            if not self._is_current_search(generation):
+                return
+            message = log_bridge_error(logger, f"general search failed: {keyword}", exc)
+            self._set_error_message(message)
+            self.errorRaised.emit(message)
+        finally:
+            if self._is_current_search(generation):
+                self._set_loading(False)
 
     @asyncSlot()
     async def nextPage(self) -> None:
@@ -383,6 +433,8 @@ class ServiceController(QObject):
         self._reset_search_state()
         self._song_results.clear()
         self._card_results.clear()
+        self._set_related_words([])
+        self._set_direct_hit(None)
         self._set_loading(False)
 
     async def get_song_url(
@@ -580,6 +632,18 @@ class ServiceController(QObject):
         self._search_keyword = ""
         self._set_current_page(0)
         self._set_has_next_page(False)
+
+    def _set_related_words(self, value: list[dict[str, Any]]) -> None:
+        if self._related_words == value:
+            return
+        self._related_words = value
+        self.relatedWordsChanged.emit()
+
+    def _set_direct_hit(self, value: dict[str, Any] | None) -> None:
+        if self._direct_hit == value:
+            return
+        self._direct_hit = value
+        self.directHitChanged.emit()
 
     def _set_error_message(self, value: str) -> None:
         if self._error_message == value:

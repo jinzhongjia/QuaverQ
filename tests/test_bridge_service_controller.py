@@ -8,7 +8,18 @@ import logging
 import pytest
 
 from quaverq.bridge.service_controller import ServiceController
-from quaverq.core.models import Album, Lyric, LyricLine, Playlist, Singer, Song, UserProfile
+from quaverq.core.models import (
+    Album,
+    DirectHit,
+    GeneralSearchResult,
+    Lyric,
+    LyricLine,
+    Playlist,
+    RelatedWord,
+    Singer,
+    Song,
+    UserProfile,
+)
 from quaverq.core.service import CredentialExpiredError
 
 
@@ -73,6 +84,13 @@ class _FakeService:
         self, keyword: str, *, page: int = 1, limit: int = 30
     ) -> list[Playlist]:
         return [Playlist(pid="pl1", name="华语精选", creator="DJ", song_count=50)]
+
+    async def general_search(self, keyword: str, *, limit: int = 30) -> GeneralSearchResult:
+        return GeneralSearchResult(
+            songs=self.search_pages.get(1, []),
+            related=[RelatedWord(display="七里香", keyword="七里香")],
+            direct=DirectHit("singer", "ar1", "周杰伦", "http://a.jpg"),
+        )
 
 
 class _FakeAuthService(_FakeService):
@@ -148,6 +166,7 @@ def test_reset_risk_fingerprint_calls_service_and_emits_notice():
 async def test_search_async_starts_service_and_populates_model():
     service = _FakeService()
     controller = ServiceController(service=service)
+    controller._search_type = "songs"  # 本用例验证歌曲分页路径
 
     await controller.search_async(" 周杰伦 ")
 
@@ -202,6 +221,7 @@ async def test_search_async_cancels_in_flight_request_when_keyword_changes():
 
     service = _SlowSearchService()
     controller = ServiceController(service=service)
+    controller._search_type = "songs"  # 本用例验证歌曲搜索取消
 
     old_started = service.started.setdefault("old", asyncio.Event())
     old_released = service.released.setdefault("old", asyncio.Event())
@@ -258,6 +278,7 @@ async def test_search_async_ignores_stale_result_when_cancel_is_swallowed():
 
     service = _CancellationIgnoringSearchService()
     controller = ServiceController(service=service)
+    controller._search_type = "songs"  # 本用例验证歌曲搜索陈旧结果丢弃
 
     old_started = service.started.setdefault("old", asyncio.Event())
     old_released = service.released.setdefault("old", asyncio.Event())
@@ -292,6 +313,7 @@ async def test_search_async_ignores_stale_result_when_cancel_is_swallowed():
 async def test_next_page_replaces_results_and_updates_pagination():
     service = _FakeService()
     controller = ServiceController(service=service)
+    controller._search_type = "songs"
 
     await controller.search_async("周杰伦")
     await controller.next_page_async()
@@ -307,6 +329,7 @@ async def test_next_page_empty_keeps_current_page_and_disables_next():
     service = _FakeService()
     service.search_pages = {1: service.search_pages[1], 2: []}
     controller = ServiceController(service=service)
+    controller._search_type = "songs"
 
     await controller.search_async("周杰伦")
     await controller.next_page_async()
@@ -320,6 +343,7 @@ async def test_next_page_empty_keeps_current_page_and_disables_next():
 async def test_previous_page_replaces_results_with_previous_page():
     service = _FakeService()
     controller = ServiceController(service=service)
+    controller._search_type = "songs"
 
     await controller.search_async("周杰伦")
     await controller.next_page_async()
@@ -340,6 +364,7 @@ async def test_next_page_ignores_when_no_next_page():
     service = _FakeService()
     service.search_pages = {1: [Song(mid="m1", name="晴天")]}
     controller = ServiceController(service=service)
+    controller._search_type = "songs"
 
     await controller.search_async("周杰伦")
     await controller.next_page_async()
@@ -493,9 +518,9 @@ async def test_login_by_qrcode_forwards_qrcode_and_saves_credential():
     assert service.on_login_status is None
 
 
-async def test_default_search_type_is_songs():
+async def test_default_search_type_is_general():
     controller = ServiceController(service=_FakeAuthService())
-    assert controller.searchType == "songs"
+    assert controller.searchType == "general"
 
 
 async def test_search_singers_fills_card_results_as_artist():
@@ -530,9 +555,47 @@ async def test_search_playlists_fills_card_results():
 
 async def test_songs_search_still_fills_song_results():
     controller = ServiceController(service=_FakeAuthService())
+    await controller.set_search_type_async("songs")
     await controller.search_async("x")
     assert controller.songResults.count == 30
     assert controller.cardResults.count == 0
+
+
+async def test_general_search_populates_songs_related_and_direct():
+    controller = ServiceController(service=_FakeService())
+    assert controller.searchType == "general"  # 默认即综合
+    await controller.search_async("周杰伦")
+    assert controller.songResults.count == 30
+    assert controller.cardResults.count == 0
+    assert controller.relatedWords == [{"display": "七里香", "keyword": "七里香"}]
+    # 直达歌手 kind 映射成 detailRequested 用的 "artist", id=mid
+    assert controller.directHit == {
+        "kind": "artist",
+        "id": "ar1",
+        "title": "周杰伦",
+        "subtitle": "歌手",
+        "coverUrl": "http://a.jpg",
+        "meta": "",
+    }
+    assert controller.hasNextPage is False
+
+
+async def test_switching_away_from_general_clears_related_and_direct():
+    controller = ServiceController(service=_FakeService())
+    await controller.search_async("周杰伦")
+    assert controller.directHit is not None
+    await controller.set_search_type_async("singers")
+    assert controller.relatedWords == []
+    assert controller.directHit is None
+
+
+async def test_empty_keyword_clears_related_and_direct():
+    controller = ServiceController(service=_FakeService())
+    await controller.search_async("周杰伦")
+    assert controller.directHit is not None
+    await controller.search_async("")
+    assert controller.relatedWords == []
+    assert controller.directHit is None
 
 
 async def test_set_search_type_reruns_with_current_keyword():
@@ -544,10 +607,10 @@ async def test_set_search_type_reruns_with_current_keyword():
     assert controller.songResults.count == 0
 
 
-async def test_invalid_search_type_falls_back_to_songs():
+async def test_invalid_search_type_falls_back_to_general():
     controller = ServiceController(service=_FakeAuthService())
     await controller.set_search_type_async("bogus")
-    assert controller.searchType == "songs"
+    assert controller.searchType == "general"
 
 
 async def test_logout_async_clears_credential_cache(tmp_path, caplog):

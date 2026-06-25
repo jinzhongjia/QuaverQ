@@ -18,9 +18,15 @@ ColumnLayout {
     property string routeName: "search"
 
     signal detailRequested(string kind, string detailId, string title, string subtitle, string coverUrl)
+    signal searchRequested(string keyword)
 
-    readonly property string searchType: root.serviceController ? root.serviceController.searchType : "songs"
+    readonly property string searchType: root.serviceController ? root.serviceController.searchType : "general"
+    readonly property bool isGeneral: root.searchType === "general"
     readonly property bool isSongs: root.searchType === "songs"
+    // 综合 + 歌曲 都用歌曲列表渲染 songResults; 其余(歌手/专辑/歌单)走卡片网格
+    readonly property bool showsList: root.isGeneral || root.isSongs
+    readonly property var directHitData: root.serviceController ? root.serviceController.directHit : null
+    readonly property var relatedWordsData: root.serviceController ? root.serviceController.relatedWords : []
     readonly property bool hasSearched: root.serviceController
         && root.serviceController.currentPage > 0
     readonly property bool canGoPrevious: root.serviceController
@@ -31,6 +37,7 @@ ColumnLayout {
         && !root.serviceController.loading
 
     readonly property var searchTabs: [
+        { key: "general", label: qsTr("综合") },
         { key: "songs", label: qsTr("歌曲") },
         { key: "singers", label: qsTr("歌手") },
         { key: "albums", label: qsTr("专辑") },
@@ -40,7 +47,7 @@ ColumnLayout {
     function resultCount() {
         if (!root.serviceController)
             return 0
-        return root.isSongs
+        return root.showsList
             ? root.serviceController.songResults.count
             : root.serviceController.cardResults.count
     }
@@ -49,6 +56,8 @@ ColumnLayout {
         if (!root.serviceController)
             return ""
         if (root.resultCount() > 0) {
+            if (root.isGeneral)
+                return qsTr("综合 · %1 首").arg(root.serviceController.songResults.count)
             return root.isSongs
                 ? qsTr("第 %1 页 · 本页 %2 首")
                     .arg(root.serviceController.currentPage)
@@ -133,10 +142,123 @@ ColumnLayout {
             ListView {
                 id: resultList
                 anchors.fill: parent
-                visible: root.isSongs
+                visible: root.showsList
                 clip: true
                 spacing: ThemeTokens.Spacing.s2
                 model: root.serviceController ? root.serviceController.songResults : null
+
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                // 综合页头: 直达卡 + 相关搜索词 chips (随列表滚动); 其他 tab 无头部
+                header: ColumnLayout {
+                    width: resultList.width
+                    visible: root.isGeneral && (!!root.directHitData || root.relatedWordsData.length > 0)
+                    height: visible ? implicitHeight : 0
+                    spacing: ThemeTokens.Spacing.s3
+
+                    // 直达
+                    Rectangle {
+                        objectName: "searchDirectHit"
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: ThemeTokens.Spacing.s2
+                        Layout.preferredHeight: visible ? 64 : 0
+                        visible: !!root.directHitData
+                        radius: ThemeTokens.Spacing.radiusMd
+                        color: directHitArea.containsMouse ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: ThemeTokens.Spacing.s3
+                            anchors.rightMargin: ThemeTokens.Spacing.s4
+                            spacing: ThemeTokens.Spacing.s3
+
+                            Components.AlbumArt {
+                                Layout.preferredWidth: 44
+                                Layout.preferredHeight: 44
+                                compact: true
+                                circular: !!root.directHitData && root.directHitData.kind === "artist"
+                                coverUrl: root.directHitData ? root.directHitData.coverUrl : ""
+                                coverController: root.coverController
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                Label {
+                                    text: qsTr("★ 直达 · %1").arg(root.directHitData ? root.directHitData.subtitle : "")
+                                    color: ThemeTokens.Palette.primary
+                                    font.pixelSize: ThemeTokens.TypeScale.caption
+                                    font.weight: ThemeTokens.TypeScale.medium
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: root.directHitData ? root.directHitData.title : ""
+                                    color: ThemeTokens.Palette.surfaceText
+                                    font.pixelSize: ThemeTokens.TypeScale.body
+                                    font.weight: ThemeTokens.TypeScale.bold
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Label {
+                                text: "→"
+                                color: ThemeTokens.Palette.surfaceVariantText
+                                font.pixelSize: ThemeTokens.TypeScale.h2
+                            }
+                        }
+
+                        MouseArea {
+                            id: directHitArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (root.directHitData)
+                                    root.detailRequested(root.directHitData.kind, root.directHitData.id, root.directHitData.title, root.directHitData.subtitle, root.directHitData.coverUrl)
+                            }
+                        }
+                    }
+
+                    // 相关搜索词 chips
+                    Flow {
+                        objectName: "searchRelatedChips"
+                        Layout.fillWidth: true
+                        visible: root.relatedWordsData.length > 0
+                        spacing: ThemeTokens.Spacing.s2
+
+                        Repeater {
+                            model: root.relatedWordsData
+
+                            delegate: Rectangle {
+                                id: chip
+
+                                required property var modelData
+
+                                radius: ThemeTokens.Spacing.radiusPill
+                                height: 30
+                                width: chipLabel.implicitWidth + ThemeTokens.Spacing.s5 * 2
+                                color: chipArea.containsMouse ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
+
+                                Label {
+                                    id: chipLabel
+                                    anchors.centerIn: parent
+                                    text: chip.modelData.display
+                                    color: ThemeTokens.Palette.surfaceText
+                                    font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                }
+
+                                MouseArea {
+                                    id: chipArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.searchRequested(chip.modelData.keyword)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 delegate: Components.SongRow {
                     width: ListView.view.width
@@ -231,7 +353,7 @@ ColumnLayout {
                 id: cardGrid
 
                 anchors.fill: parent
-                visible: !root.isSongs
+                visible: !root.showsList
                 clip: true
 
                 readonly property int cols: Math.max(2, Math.min(8, Math.floor(width / 180)))
@@ -279,6 +401,11 @@ ColumnLayout {
                     if (root.serviceController && root.serviceController.loading) {
                         resultList.positionViewAtBeginning()
                         cardGrid.positionViewAtBeginning()
+                    } else {
+                        // 结果就绪后综合页 header (直达/相关词) 才拿到最终高度; ListView 会
+                        // 锚定首个 item 导致 header 被顶到视口上方 (看着像自动下滚). 延后到
+                        // 布局结算后再归位一次, 让 header 完整露出.
+                        Qt.callLater(function() { resultList.positionViewAtBeginning() })
                     }
                 }
             }
@@ -288,7 +415,7 @@ ColumnLayout {
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                visible: root.isSongs
+                visible: root.showsList
                     && root.serviceController
                     && root.serviceController.loading
                     && root.serviceController.songResults.count === 0
@@ -312,7 +439,7 @@ ColumnLayout {
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                visible: !root.isSongs
+                visible: !root.showsList
                     && root.serviceController
                     && root.serviceController.loading
                     && root.serviceController.cardResults.count === 0
@@ -340,6 +467,7 @@ ColumnLayout {
                     && !root.serviceController.loading
                     && root.resultCount() === 0
                     && root.serviceController.errorMessage.length === 0
+                    && !(root.isGeneral && (root.directHitData || root.relatedWordsData.length > 0))
                 text: root.hasSearched ? qsTr("没有搜索结果") : qsTr("输入关键词开始搜索")
                 color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body

@@ -37,10 +37,13 @@ from .lyric import parse_lrc, parse_qrc
 from .models import (
     Album,
     ArtistDetail,
+    DirectHit,
+    GeneralSearchResult,
     Lyric,
     LyricLine,
     Playlist,
     ProducerGroup,
+    RelatedWord,
     Singer,
     Song,
     SongInfo,
@@ -512,6 +515,62 @@ class QuaverService:
 
     async def search(self, keyword: str, *, page: int = 1, limit: int = 30) -> list[Song]:
         return await self.search_songs(keyword, page=page, limit=limit)
+
+    # 综合搜索"直达"里能导航的类型 -> 用哪个响应桶交叉解析 mid (direct_list 不带 mid).
+    _DIRECT_RESOLVABLE = ("singer", "album")
+
+    async def general_search(self, keyword: str, *, limit: int = 30) -> GeneralSearchResult:
+        """综合搜索: 单曲列表 + 直达 (歌手/专辑) + 相关搜索词。
+
+        ``general_search`` 一次返回多分类桶 (song/singer/album/.../related) 与 direct
+        营销分组。精简版综合页只取: ``song.items`` 单曲、``related.items`` 相关词、
+        以及 direct_list 里首个可解析的歌手/专辑直达。direct 条目只给 numeric id 不带
+        mid, 用同响应的 singer/album items 按 id 交叉解析出 mid 才能导航详情。
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            return GeneralSearchResult()
+
+        resp = await self.client.search.general_search(kw, num=limit)
+
+        songs = [
+            self._to_song(s) for s in (self._g(self._g(resp, "song", None), "items", None) or [])
+        ]
+        related = [
+            RelatedWord(display=_clean_text(self._g(w, "display", ""), max_len=40), keyword=kw_word)
+            for w in (self._g(self._g(resp, "related", None), "items", None) or [])
+            if (kw_word := (self._g(w, "search", "") or "").strip())
+        ]
+        direct = self._resolve_direct_hit(resp)
+        return GeneralSearchResult(songs=songs, related=related, direct=direct)
+
+    def _resolve_direct_hit(self, resp: Any) -> DirectHit | None:
+        """从 direct_list 里挑首个歌手/专辑直达, 用响应内 typed items 把 id 解析成 mid。
+
+        注意: direct_list 的 id 是字符串 ("4558"), typed items 的 .id 是 int (4558),
+        索引键与查找都 str() 归一, 否则类型不符永远匹配不上 (实测踩过)。
+        """
+        singers = {
+            str(self._g(s, "id", "")): s
+            for s in (self._g(self._g(resp, "singer", None), "items", None) or [])
+        }
+        albums = {
+            str(self._g(a, "id", "")): a
+            for a in (self._g(self._g(resp, "album", None), "items", None) or [])
+        }
+        for group in self._g(resp, "direct", None) or []:
+            for entry in self._g(group, "direct_list", None) or []:
+                restype = self._g(entry, "restype", "")
+                if restype not in self._DIRECT_RESOLVABLE:
+                    continue
+                eid = str(self._g(entry, "id", ""))
+                if restype == "singer" and eid in singers:
+                    s = self._to_singer(singers[eid])
+                    return DirectHit("singer", s.mid, s.name, s.avatar_url)
+                if restype == "album" and eid in albums:
+                    a = self._to_album_brief(albums[eid])
+                    return DirectHit("album", a.mid, a.name, a.cover_url)
+        return None
 
     # ------------------------------------------------------------------
     # 详情拉取
@@ -1269,7 +1328,7 @@ class QuaverService:
         return out
 
     async def get_daily_recommend_songs(self, *, limit: int = 5) -> list[Song]:
-        """每日推荐歌曲. 优先取雷达推荐, 失败时回退猜你喜欢."""
+        """每日推荐歌曲. 走猜你喜欢 (雷达推荐暂不使用)."""
         if limit <= 0:
             return []
 
@@ -1282,7 +1341,9 @@ class QuaverService:
         seen: set[str] = set()
 
         try:
-            resp = await self.client.recommend.get_radar_recommend()
+            resp = await self.client.recommend.get_guess_recommend(
+                credential=self.credential,
+            )
             for raw in resp.songs:
                 song = self._to_song(raw)
                 if not song.mid or song.mid in seen:
@@ -1292,23 +1353,7 @@ class QuaverService:
                 if len(out) >= limit:
                     break
         except Exception as exc:
-            logger.warning("get_radar_recommend 失败: %s", exc)
-
-        if not out:
-            try:
-                resp = await self.client.recommend.get_guess_recommend(
-                    credential=self.credential,
-                )
-                for raw in resp.songs:
-                    song = self._to_song(raw)
-                    if not song.mid or song.mid in seen:
-                        continue
-                    seen.add(song.mid)
-                    out.append(song)
-                    if len(out) >= limit:
-                        break
-            except Exception as exc:
-                logger.warning("get_guess_recommend 失败: %s", exc)
+            logger.warning("get_guess_recommend 失败: %s", exc)
 
         self._memo_put(cache_key, out)
         return out[:limit]
