@@ -92,6 +92,10 @@ class _FakeService:
             direct=DirectHit("singer", "ar1", "周杰伦", "http://a.jpg"),
         )
 
+    async def get_hot_search(self, *, limit: int = 12) -> list[str]:
+        self.hot_search_calls = getattr(self, "hot_search_calls", 0) + 1
+        return ["周杰伦", "林俊杰", "七里香"]
+
 
 class _FakeAuthService(_FakeService):
     def __init__(self) -> None:
@@ -578,6 +582,23 @@ async def test_general_search_populates_songs_related_and_direct():
         "meta": "",
     }
     assert controller.hasNextPage is False
+
+
+async def test_load_hot_searches_populates_list():
+    service = _FakeService()
+    controller = ServiceController(service=service)
+    assert controller.hotSearches == []
+    await controller.load_hot_searches_async()
+    assert controller.hotSearches == ["周杰伦", "林俊杰", "七里香"]
+
+
+async def test_load_hot_searches_is_idempotent():
+    service = _FakeService()
+    controller = ServiceController(service=service)
+    await controller.load_hot_searches_async()
+    await controller.load_hot_searches_async()
+    # 已加载后不再重复打网络 (服务层虽有缓存, 控制器也不该重复请求)
+    assert service.hot_search_calls == 1
 
 
 async def test_switching_away_from_general_clears_related_and_direct():

@@ -60,6 +60,7 @@ class ServiceController(QObject):
     searchTypeChanged = Signal()
     relatedWordsChanged = Signal()
     directHitChanged = Signal()
+    hotSearchesChanged = Signal()
     noticeRaised = Signal(str)
 
     def __init__(
@@ -74,6 +75,8 @@ class ServiceController(QObject):
         self._search_type = "general"
         self._related_words: list[dict[str, Any]] = []
         self._direct_hit: dict[str, Any] | None = None
+        self._hot_searches: list[str] = []
+        self._hot_searches_loaded = False
         self._loading = False
         self._has_next_page = False
         self._search_keyword = ""
@@ -110,6 +113,11 @@ class ServiceController(QObject):
     def directHit(self) -> dict[str, Any] | None:
         """综合搜索直达 card (kind/id/title/subtitle/coverUrl); 无则 None。"""
         return self._direct_hit
+
+    @Property("QVariant", notify=hotSearchesChanged)
+    def hotSearches(self) -> list[str]:
+        """热搜词列表 (空搜索页展示); 经 load_hot_searches_async 懒加载。"""
+        return self._hot_searches
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
@@ -226,6 +234,27 @@ class ServiceController(QObject):
                 )
                 raise CredentialExpiredError("登录已过期，请重新扫码") from exc
             raise
+
+    @asyncSlot()
+    async def loadHotSearches(self) -> None:
+        await self.load_hot_searches_async()
+
+    async def load_hot_searches_async(self) -> None:
+        """懒加载热搜词 (空搜索页用); 已加载则跳过, 不重复打网络。失败静默。"""
+        if self._hot_searches_loaded:
+            return
+        self._hot_searches_loaded = True
+        try:
+            words = await self.call_service(
+                lambda service: service.get_hot_search(),
+                operation_name="hot search",
+            )
+        except Exception as exc:
+            self._hot_searches_loaded = False  # 失败允许下次重试
+            log_bridge_error(logger, "load hot searches failed", exc)
+            return
+        self._hot_searches = list(words or [])
+        self.hotSearchesChanged.emit()
 
     @asyncSlot(str)
     async def search(self, keyword: str) -> None:

@@ -27,6 +27,12 @@ ColumnLayout {
     readonly property bool showsList: root.isGeneral || root.isSongs
     readonly property var directHitData: root.serviceController ? root.serviceController.directHit : null
     readonly property var relatedWordsData: root.serviceController ? root.serviceController.relatedWords : []
+    readonly property var hotSearchesData: root.serviceController ? root.serviceController.hotSearches : []
+    // 未搜索 + 非加载 + 有热搜词 -> 空状态展示热门搜索
+    readonly property bool showsHotSearch: root.serviceController
+        && !root.hasSearched
+        && !root.serviceController.loading
+        && root.hotSearchesData.length > 0
     readonly property bool hasSearched: root.serviceController
         && root.serviceController.currentPage > 0
     readonly property bool canGoPrevious: root.serviceController
@@ -65,6 +71,12 @@ ColumnLayout {
                 : qsTr("%1 个结果").arg(root.serviceController.cardResults.count)
         }
         return root.hasSearched ? qsTr("没有结果") : qsTr("输入关键词后按 Enter")
+    }
+
+    // 进搜索页懒加载热搜词 (服务层带 10 分钟缓存, 重复进入开销极小)
+    Component.onCompleted: {
+        if (root.serviceController)
+            root.serviceController.loadHotSearches()
     }
 
     spacing: 0
@@ -230,31 +242,11 @@ ColumnLayout {
                         Repeater {
                             model: root.relatedWordsData
 
-                            delegate: Rectangle {
-                                id: chip
-
+                            delegate: Components.SearchChip {
                                 required property var modelData
 
-                                radius: ThemeTokens.Spacing.radiusPill
-                                height: 30
-                                width: chipLabel.implicitWidth + ThemeTokens.Spacing.s5 * 2
-                                color: chipArea.containsMouse ? ThemeTokens.Palette.stateHover : ThemeTokens.Palette.surfaceVariant
-
-                                Label {
-                                    id: chipLabel
-                                    anchors.centerIn: parent
-                                    text: chip.modelData.display
-                                    color: ThemeTokens.Palette.surfaceText
-                                    font.pixelSize: ThemeTokens.TypeScale.bodySm
-                                }
-
-                                MouseArea {
-                                    id: chipArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.searchRequested(chip.modelData.keyword)
-                                }
+                                text: modelData.display
+                                onClicked: root.searchRequested(modelData.keyword)
                             }
                         }
                     }
@@ -458,6 +450,39 @@ ColumnLayout {
                 }
             }
 
+            // 空搜索页热门搜索
+            ColumnLayout {
+                objectName: "searchHotPanel"
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: root.showsHotSearch
+                spacing: ThemeTokens.Spacing.s4
+
+                Label {
+                    text: qsTr("热门搜索")
+                    color: ThemeTokens.Palette.surfaceText
+                    font.pixelSize: ThemeTokens.TypeScale.h2
+                    font.weight: ThemeTokens.TypeScale.bold
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: ThemeTokens.Spacing.s2
+
+                    Repeater {
+                        model: root.hotSearchesData
+
+                        delegate: Components.SearchChip {
+                            required property var modelData
+
+                            text: modelData
+                            onClicked: root.searchRequested(modelData)
+                        }
+                    }
+                }
+            }
+
             Label {
                 anchors.centerIn: parent
                 width: parent.width - ThemeTokens.Spacing.s8
@@ -468,6 +493,7 @@ ColumnLayout {
                     && root.resultCount() === 0
                     && root.serviceController.errorMessage.length === 0
                     && !(root.isGeneral && (root.directHitData || root.relatedWordsData.length > 0))
+                    && !root.showsHotSearch
                 text: root.hasSearched ? qsTr("没有搜索结果") : qsTr("输入关键词开始搜索")
                 color: ThemeTokens.Palette.surfaceVariantText
                 font.pixelSize: ThemeTokens.TypeScale.body

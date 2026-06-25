@@ -26,6 +26,7 @@
 | 组件 | 作用 |
 | --- | --- |
 | `SearchField.qml` | 搜索框 `FocusScope`。`searchRequested(text)` / `editingCancelled()` 信号，`loading` 时显示状态。 |
+| `SearchChip.qml` | 药丸状可点搜索词 chip（综合搜索相关词 + 空页热门搜索共用）：`text` 显示词、`clicked()` 信号，hover 变色。 |
 | `TabRow.qml` | **文字 + 2px 品牌绿下划线 tab 行**（QQ 音乐样式），统一收编搜索/资料库/详情三处复制实现。`tabs` 接受字符串或 `{label}` 对象数组，`currentIndex` 受控、点击/Enter/Space 发 `activated(index)` 由调用方决定切换（受控组件，不自持状态）。命中区经 Handler `margin` 外扩（不动布局对齐），键盘焦点环统一。 |
 | `AppIcon.qml` | 单色 SVG 图标：白色源图（[`../icons/`](../icons/README.md)）经 `MultiEffect.colorization` 按 `color` 染色，亮暗主题 / 选中 / 禁用态一份资产通吃。`size` 控制渲染尺寸（48px 栅格化保证高 DPI 锐利）。 |
 | `IconButton.qml` | 统一的工具按钮：≥44 px 命中区、焦点环（`visualFocus`，仅键盘聚焦显示）、Enter/Space 触发；`text` 同时当无障碍名和 hover ToolTip（经 `AppToolTip`）。图标走 `iconSource`（SVG，经 `AppIcon` 染 `iconColor`），`iconText` 字形作后备。 |

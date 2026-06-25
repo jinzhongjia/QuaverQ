@@ -41,6 +41,9 @@ class _FakeService:
             direct=DirectHit("singer", "0025NhlN2yWrP4", "周杰伦", ""),
         )
 
+    async def get_hot_search(self, *, limit: int = 12) -> list[str]:
+        return ["周杰伦", "林俊杰", "邓紫棋"]
+
 
 @pytest.fixture
 def qapp():
@@ -83,6 +86,32 @@ def test_default_tab_is_general(search_view):
     item, _controller, _app, _warnings = search_view
     assert item.property("searchType") == "general"
     assert item.property("isGeneral") is True
+
+
+async def test_hot_search_panel_shows_before_searching(search_view):
+    item, controller, app, _warnings = search_view
+
+    # SearchView.Component.onCompleted 会触发懒加载, 等它落地
+    await controller.load_hot_searches_async()
+    _process(app)
+
+    panel = item.findChild(QObject, "searchHotPanel")
+    assert panel is not None and panel.property("visible") is True
+    assert item.property("showsHotSearch") is True
+
+
+async def test_hot_search_panel_hides_after_searching(search_view):
+    item, controller, app, _warnings = search_view
+    await controller.load_hot_searches_async()
+    _process(app)
+    assert item.property("showsHotSearch") is True
+
+    await controller.search_async("周杰伦")
+    _process(app)
+
+    panel = item.findChild(QObject, "searchHotPanel")
+    assert item.property("showsHotSearch") is False
+    assert panel is None or panel.property("visible") is False
 
 
 async def test_general_results_render_direct_and_chips(search_view):
