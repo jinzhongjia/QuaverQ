@@ -50,7 +50,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_QUALITY_PREFERENCES = {"standard", "balanced", "high", "master"}
+# 下载可选档位与播放统一为同三档 (master 臻品母带已下线 UI; _QUALITY_TEXT 仍保留
+# MASTER/ATMOS_2 显示名供历史记录展示)
+_QUALITY_PREFERENCES = {"standard", "balanced", "high"}
 _COVER_SIZE = 500
 # 进度回调节流: 每收到 ~256KB 才往主线程发一次 model 更新, 防 UI 刷爆
 _PROGRESS_EMIT_STEP = 256 * 1024

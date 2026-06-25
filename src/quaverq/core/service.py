@@ -272,8 +272,9 @@ class QuaverService:
 
     # vkey 接口 filename 前缀 + 扩展名 (mid 双拼)
     # 见 findings 第五节: filename=`{prefix}{mid}{mid}.{ext}`
-    # MASTER (臻品母带 24Bit/192kHz) / ATMOS_2 (臻品全景声) 仅下载档位使用,
-    # 播放 profile 不含它们 (161MB 级文件拉流浪费带宽; 见 findings 第 4.2 节)
+    # MASTER (臻品母带 24Bit/192kHz) / ATMOS_2 (臻品全景声) 服务端有档位, 但已不再
+    # UI 暴露 (播放/下载统一三档, 见 SettingsController); 仅 "master" profile 内部保留,
+    # 便于将来需要时重新开放 (161MB 级文件; 见 findings 第 4.2 节)
     _QUALITY_FILE: dict[str, tuple[str, str]] = field(
         default_factory=lambda: {
             "MASTER": ("AI00", "flac"),
@@ -288,7 +289,7 @@ class QuaverService:
     )
 
     # 各档音质偏好的降级顺序 (字符串 label, 不依赖 qqmusic SongFileType)
-    # "master" 档仅供下载侧选择 (SettingsController._DOWNLOAD_QUALITIES)
+    # "master" 档不再 UI 暴露 (保留供将来重新开放; 当前播放/下载只用 high/balanced/standard)
     _QUALITY_PROFILES = {
         "master": ("MASTER", "ATMOS_2", "FLAC", "MP3_320", "OGG_192", "MP3_128"),
         "high": ("FLAC", "MP3_320", "OGG_192", "MP3_128"),

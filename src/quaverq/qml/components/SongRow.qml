@@ -230,14 +230,6 @@ Rectangle {
                         root.downloadController.downloadSongWithQuality(root.song, "high")
                 }
             }
-
-            StyledMenuItem {
-                text: qsTr("臻品母带")
-                onTriggered: {
-                    if (root.downloadController && root.song && root.song.mid)
-                        root.downloadController.downloadSongWithQuality(root.song, "master")
-                }
-            }
         }
 
         StyledMenuSeparator {}

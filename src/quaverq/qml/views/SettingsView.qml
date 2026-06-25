@@ -93,7 +93,7 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("音质偏好")
-                model: [qsTr("标准"), qsTr("均衡"), qsTr("高品质")]
+                model: [qsTr("标准（128K）"), qsTr("高品质（320K）"), qsTr("无损（FLAC）")]
                 values: ["standard", "balanced", "high"]
                 currentValue: root.settingsController ? root.settingsController.qualityPreference : "balanced"
                 onValueRequested: function(value) {
@@ -150,8 +150,8 @@ ScrollView {
             ChoiceRow {
                 Layout.fillWidth: true
                 title: qsTr("下载音质")
-                model: [qsTr("标准（128K）"), qsTr("高品质（320K）"), qsTr("无损（FLAC 优先）"), qsTr("臻品母带（优先）")]
-                values: ["standard", "balanced", "high", "master"]
+                model: [qsTr("标准（128K）"), qsTr("高品质（320K）"), qsTr("无损（FLAC）")]
+                values: ["standard", "balanced", "high"]
                 currentValue: root.settingsController ? root.settingsController.downloadQuality : "balanced"
                 onValueRequested: function(value) {
                     if (root.settingsController)

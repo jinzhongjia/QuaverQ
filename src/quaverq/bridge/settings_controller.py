@@ -42,9 +42,10 @@ _LYRIC_FONT_SIZE_MIN = 12
 _LYRIC_FONT_SIZE_MAX = 48
 _LYRIC_FONT_SIZE_DEFAULT = 22
 
-# 下载音质 = 播放三档 + "master" (臻品母带优先, MASTER→ATMOS_2→FLAC→... 降级);
-# master 不开放给播放 (161MB 级文件拉流浪费带宽)
-_DOWNLOAD_QUALITIES = {"standard", "balanced", "high", "master"}
+# 下载与播放可选档位统一为同一套三档 (标准/均衡(320K)/高品质(无损 FLAC)).
+# 别名同一集合, 保证两侧选项永远一致 (用户诉求: 下载可选 == 播放可选).
+# master(臻品母带)/ATMOS_2 服务端仍有档位 (service._QUALITY_FILE), 但不再 UI 暴露.
+_DOWNLOAD_QUALITIES = _QUALITY_PREFERENCES
 
 # 切歌淡入淡出 (issue #11): 200ms 以下听感同硬切, 2s 以上拖沓; 默认 500ms 对齐
 # QQ 官方桌面端的衔接节奏. 这是音频包络时长, 与 reduceMotion (视觉动效) 无关.

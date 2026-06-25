@@ -634,14 +634,19 @@ def test_download_embed_tags_defaults_on_and_persists(tmp_path):
     assert reloaded.downloadEmbedTags is False
 
 
-def test_download_quality_accepts_master_tier(tmp_path):
-    # 下载比播放多一档 "master" (臻品母带); 播放音质仍只有三档
+def test_download_and_playback_quality_options_match(tmp_path):
+    # 播放与下载可选档位统一为同三档 (standard/balanced/high); master 两侧都不再接受
     controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
 
-    controller.setDownloadQuality("master")
-    assert controller.downloadQuality == "master"
+    for q in ("standard", "balanced", "high"):
+        controller.setDownloadQuality(q)
+        assert controller.downloadQuality == q
+        controller.setQualityPreference(q)
+        assert controller.qualityPreference == q
 
-    controller.setQualityPreference("master")  # 播放侧不认, 回退默认
+    controller.setDownloadQuality("master")  # 已去掉, 回退默认
+    assert controller.downloadQuality == "balanced"
+    controller.setQualityPreference("master")  # 播放侧同样不认
     assert controller.qualityPreference == "balanced"
 
 
