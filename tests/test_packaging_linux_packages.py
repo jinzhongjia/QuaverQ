@@ -69,7 +69,7 @@ def test_build_deb_writes_control_and_invokes_dpkg_deb(tmp_path, monkeypatch):
     assert "Package: quaverq" in control
     assert "Version: 1.2.3" in control
     assert "Architecture: amd64" in control
-    assert "Maintainer: Jin <mail@nvimer.org>" in control
+    assert "Maintainer: jinzhongjia <mail@nvimer.org>" in control
     assert "Depends: libc6" in control
     assert calls == [
         [
@@ -99,7 +99,7 @@ def test_arch_pkgbuild_uses_project_maintainer_and_package_root(monkeypatch):
 
     pkgbuild = packaging._arch_pkgbuild_text("1.2.3")
 
-    assert "# Maintainer: Jin <mail@nvimer.org>" in pkgbuild
+    assert "# Maintainer: jinzhongjia <mail@nvimer.org>" in pkgbuild
     assert "pkgname=quaverq" in pkgbuild
     assert "pkgver=1.2.3" in pkgbuild
     assert "arch=('x86_64')" in pkgbuild

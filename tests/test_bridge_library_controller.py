@@ -139,7 +139,8 @@ async def test_refresh_liked_async_logs_elapsed(caplog):
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(
-        message.startswith("perf library.refresh_section elapsed_ms=")
+        "event=library.refresh_section" in message
+        and "elapsed_ms=" in message
         and "section=liked" in message
         for message in messages
     )

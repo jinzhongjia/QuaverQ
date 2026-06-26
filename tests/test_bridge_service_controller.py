@@ -401,7 +401,9 @@ async def test_start_logs_elapsed(caplog):
         await controller.start()
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any(message.startswith("perf service.start elapsed_ms=") for message in messages)
+    assert any(
+        "event=service.start" in message and "elapsed_ms=" in message for message in messages
+    )
 
 
 async def test_start_rejects_expired_cached_credential(tmp_path):

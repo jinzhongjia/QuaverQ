@@ -118,7 +118,9 @@ async def test_home_refresh_logs_section_elapsed(tmp_path: Path, caplog) -> None
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(
-        message.startswith("perf home.refresh_section elapsed_ms=") and "section=tops" in message
+        "event=home.refresh_section" in message
+        and "elapsed_ms=" in message
+        and "section=tops" in message
         for message in messages
     )
 
