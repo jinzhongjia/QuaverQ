@@ -10,6 +10,8 @@ QuaverQ 的 Python 包根目录。包含应用入口、配置/资源/诊断/打�
 | `__main__.py` | **应用入口** (`uv run quaverq` / `python -m quaverq`)。装配 `QApplication` + `qasync` 事件循环，实例化所有 `bridge` 控制器，加载 `qml/Main.qml`，挂上系统托盘、MPRIS/SMTC 等平台能力，并在退出时按顺序清理。`StreamProxy` 只构造不立即启动，等在线播放或 Windows SMTC 本地封面真正需要回环 HTTP 时懒启动，避免未播放用户启动期多占一个 server 线程和 curl session。启动关键段（系统主题、SWR prime、QML load）会记录 `perf ... elapsed_ms=...` 耗时日志。 |
 | `config.py` | 解析 `config.toml`，给出 `CONFIG_DIR` / `CACHE_DIR` 等路径常量（通过 `platformdirs` 跨平台：Linux 走 XDG / `~/.config`、`~/.cache`，Windows 走 `%APPDATA%` / `%LOCALAPPDATA%`，macOS 走 `~/Library/...`）。反风控持久标识：`device_guid()`（设备 GUID，落盘 `device_id`）与 `risk_ct(allowed)` / `reset_risk_ct(allowed)`（vkey 用的 ct 风控指纹，落盘 `risk_ct`、值失效自动重抽）。 |
 | `diagnostics.py` | 启动自检：QtMultimedia/FFmpeg 后端、Linux D-Bus 会话总线等关键依赖是否就绪；critical 项会让应用拒绝启动。 |
+| `diagnostics_crash.py` | 崩溃日志：`install_crash_logger()` 装 `sys.excepthook` / `threading.excepthook`，把未处理异常 traceback 追加写到 `CACHE_DIR/crash.log`（带轮转），再链回原 hook。死锁不抛异常抓不到——那是 `diagnostics_hang.py` 的活。 |
+| `diagnostics_hang.py` | GUI 假死抓栈：`install_hang_watchdog(app)` 在 GUI 线程挂心跳 QTimer + 独立 daemon 看门狗线程（`threading.Event.wait` 阻塞休眠，非忙等，静止期几乎零 CPU）。心跳连续停顿超阈值（默认 6s）即用 `faulthandler.dump_traceback(all_threads=True)` 把全线程 Python 栈写到 `CACHE_DIR/hang.log`，定位死锁点；同一次假死只 dump 一次，恢复后重新武装。 |
 | `perf.py` | 轻量性能日志 helper：`log_elapsed(logger, event, **fields)` 统一输出 `perf event=<name> status=<ok/error> elapsed_ms=<n> key=value`，供启动与刷新路径定位真实耗时。源码运行默认开启，Nuitka 打包产物默认关闭；可用 `QUAVERQ_PERF_LOG=1/0` 强制覆盖。 |
 | `resources.py` | 定位 `assets/`（`.desktop` / 图标 / metainfo），同时兼容源码布局与 Nuitka bundle 布局；`APP_ID` 常量在这里。 |
 | `runtime.py` | 运行时环境判断，例如 `is_packaged()` 用于区分源码运行与 PyInstaller / Nuitka 打包产物。 |

@@ -15,7 +15,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from . import diagnostics, diagnostics_crash, resources
+from . import diagnostics, diagnostics_crash, diagnostics_hang, resources
 from .bridge import (
     AppController,
     AudioDeviceController,
@@ -551,6 +551,11 @@ def main() -> None:
     else:
         logger.info("系统托盘不可用, 关闭窗口将退出程序")
     logger.info("QuaverQ started with QML: %s", qml_path)
+    # GUI 假死看门狗: 死锁不抛异常 (crash.log 抓不到), 靠心跳停顿检测 GUI 线程卡住,
+    # 卡住时把全线程 Python 栈 dump 到 CACHE_DIR/hang.log 一锤定音定位卡死点。
+    # 装在所有同步启动 (engine.load / 预载 / 媒体会话绑定) 之后、事件循环长跑之前,
+    # 避免把慢启动误判成假死。必须持有引用 (内部已单例持有, 此处再存一份显式防 GC)。
+    _hang_watchdog = diagnostics_hang.install_hang_watchdog(app)  # noqa: F841 - 防 GC
     with loop:
         loop.create_task(
             _load_initial_state(
