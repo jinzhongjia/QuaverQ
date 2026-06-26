@@ -34,7 +34,7 @@ import logging
 import time
 from typing import Any, NamedTuple
 
-from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QTimer, Slot
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -86,25 +86,6 @@ _VCOL_GAP = 12  # 竖排双列间距 (歌词右列 + 翻译左列)
 _SCROLL_EDGE_PADDING = 8  # 超长歌词滚动到首尾时给描边/抗锯齿留一点余量
 
 
-def _has_cjk(text: str) -> bool:
-    """含 CJK 表意字 / 假名 / 谚文 -> 竖排逐字堆叠; 纯拉丁文 -> 旋转 90°.
-
-    只检测实际文字 (汉字 / 平片假名 / 韩文音节), 不计 CJK 标点——
-    避免纯英文歌词里混入一个全角逗号就被误判成 CJK.
-    """
-    for c in text:
-        cp = ord(c)
-        if (
-            0x4E00 <= cp <= 0x9FFF
-            or 0x3400 <= cp <= 0x4DBF
-            or 0x3040 <= cp <= 0x309F
-            or 0x30A0 <= cp <= 0x30FF
-            or 0xAC00 <= cp <= 0xD7AF
-        ):
-            return True
-    return False
-
-
 def _is_vertical_char(c: str) -> bool:
     """竖排中应直立堆叠的字符: CJK 表意字 / 假名 / 谚文 / 全角标点."""
     cp = ord(c)
@@ -120,20 +101,14 @@ def _is_vertical_char(c: str) -> bool:
     )
 
 
-def _should_stack_latin_vertically(word: str) -> bool:
-    """CJK 竖排里的短大写缩写逐字符直立, 避免旋转成横向字块."""
-    word = word.strip()
-    if not 1 <= len(word) <= 3:
-        return False
-    return all("A" <= c <= "Z" or "0" <= c <= "9" for c in word)
-
-
 def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
-    """将文本拆分为 (段文字, 是否直立竖排) 对, 用于混排竖向布局.
+    """将文本拆分为 (段文字, 是否直立竖排) 对, 用于竖向块布局.
 
-    CJK + 全角标点 → True (逐字堆叠)
-    短大写 ASCII 缩写 / 数字 (DJ / QQ / VIP / 1E) → True (逐字堆叠)
-    普通 Latin/ASCII → False, 按单词拆分后每个词旋转 90°
+    竖排只有一条规则 (无脑化, 消除各类边界 case):
+    - CJK 表意字 / 假名 / 谚文 / 全角标点 → True (正立逐字堆叠)
+    - 其余一切 (拉丁 / 数字 / ASCII 标点 / 空格) → False, 整段连续作为一个块旋转 90°
+
+    非竖排段去首尾空白; 全空白段 (如 CJK 之间的孤立空格) 丢弃.
     """
     if not text:
         return []
@@ -154,45 +129,10 @@ def _segment_for_vertical(text: str) -> list[tuple[str, bool]]:
         if is_vert:
             result.append((seg_text, True))
         else:
-            for word in seg_text.split():
-                result.append((word, _should_stack_latin_vertically(word)))
+            stripped = seg_text.strip()
+            if stripped:
+                result.append((stripped, False))
     return result
-
-
-_CREDIT_ASCII_PREFIXES = ("OP", "SP", "CP")
-_CREDIT_CJK_PREFIXES = (
-    "词",
-    "曲",
-    "作词",
-    "作曲",
-    "编曲",
-    "制作人",
-    "出品",
-    "发行",
-    "版权所有",
-    "唱片公司",
-    "监制",
-    "混音",
-    "母带",
-    "录音",
-)
-
-
-def _is_credit_line(text: str) -> bool:
-    """制作/版权信息行在竖排桌面歌词里整行旋转, 不做歌词式混排."""
-    s = text.strip()
-    if not s:
-        return False
-    upper = s.upper()
-    for prefix in _CREDIT_ASCII_PREFIXES:
-        rest = upper[len(prefix) :] if upper.startswith(prefix) else ""
-        if rest.lstrip().startswith((":", "：")):
-            return True
-    for prefix in _CREDIT_CJK_PREFIXES:
-        rest = s[len(prefix) :] if s.startswith(prefix) else ""
-        if rest.lstrip().startswith((":", "：")):
-            return True
-    return False
 
 
 def _normalize_path_x(path: QPainterPath, outline_width: int) -> tuple[QPainterPath, float]:
@@ -214,7 +154,7 @@ class _WordInfo(NamedTuple):
 
 
 class _VBlock(NamedTuple):
-    """混排竖向布局中的一个视觉块."""
+    """竖向布局中的一个视觉块 (CJK 正立堆叠块 / 非 CJK 旋转块)."""
 
     path: QPainterPath
     v_height: float
@@ -268,6 +208,9 @@ class DesktopLyricsWindow(QWidget):
         Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
     )
 
+    # 用户拖动结束后发: (orientation, x, y, w, h). Controller 接住写入 SettingsController.
+    geometryEdited = Signal(str, int, int, int, int)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -286,6 +229,11 @@ class DesktopLyricsWindow(QWidget):
         self._color_base = QColor(_DEFAULT_COLOR_BASE)
         self._color_highlight = QColor(_DEFAULT_COLOR_HIGHLIGHT)
         self._drag_origin: QPoint | None = None
+        # 被拖动后记住的位置 (横 / 竖各一份); None = 该方向尚无记忆, 用默认几何.
+        self._saved_geometries: dict[str, QRect | None] = {
+            "horizontal": None,
+            "vertical": None,
+        }
 
         # 预处理: 消除热路径 dict.get / int() 开销
         self._word_infos: list[_WordInfo] = []
@@ -309,14 +257,8 @@ class DesktopLyricsWindow(QWidget):
         self._h_word_xs: list[float] = []
         self._h_word_widths: list[float] = []
         self._h_total_w: float = 0.0
-        # 竖向 (纯 CJK 堆叠)
-        self._v_word_paths: list[QPainterPath] = []
-        self._v_word_char_counts: list[int] = []
+        # 竖向: CJK 正立逐字堆叠 + 非 CJK 段整段旋转 90°, 统一块模型
         self._v_line_h: float = 0.0
-        self._v_total_chars: int = 0
-        self._v_rotated: bool = False
-        # 竖向混排 (CJK 堆叠 + Latin 旋转 90°)
-        self._v_mixed: bool = False
         self._v_word_blocks: list[list[_VBlock]] = []
         self._v_word_v_heights: list[float] = []
         self._v_total_v_height: float = 0.0
@@ -334,7 +276,6 @@ class DesktopLyricsWindow(QWidget):
         self._trans_fm: QFontMetrics | None = None
         self._trans_path = QPainterPath()
         self._trans_total_w: float = 0.0
-        self._v_trans_line_h: float = 0.0
         # 画刷缓存: color/height 变化时重建
         self._cached_brush_base: QBrush | None = None
         self._cached_brush_highlight: QBrush | None = None
@@ -345,7 +286,7 @@ class DesktopLyricsWindow(QWidget):
         self._outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
         self._apply_window_flags()
-        self._set_default_geometry()
+        self._apply_geometry_for_current()
 
     # ------------------------------------------------------------------ 状态查询
     def is_locked(self) -> bool:
@@ -483,10 +424,14 @@ class DesktopLyricsWindow(QWidget):
             return
         self._locked = locked
         was_visible = self.isVisible()
+        # setWindowFlags 在部分平台 (Windows) 会复位窗口位置, 先存当前几何, 之后恢复,
+        # 否则锁 / 解锁一下就把用户拖好的位置丢了.
+        saved_geo = self.geometry()
         self._apply_window_flags()
         if was_visible:
             # setWindowFlags 后 Qt 会隐藏窗口, 需要重 show.
             self.show()
+        self.setGeometry(saved_geo)
         self.update()
 
     def set_font_config(
@@ -512,14 +457,15 @@ class DesktopLyricsWindow(QWidget):
         self.update()
 
     def set_orientation(self, orientation: str) -> None:
-        """方向: ``horizontal`` 横向 (默认) / ``vertical`` 竖向 (每字独立绘制).
+        """方向: ``horizontal`` 横向 (默认) / ``vertical`` 竖向.
 
+        竖向统一块模型: CJK (含全角标点) 正立逐字堆叠, 非 CJK 段整段旋转 90°.
         非合法值时静默忽略 (保护设置文件破损 / 老版本字段)."""
         if orientation not in _ORIENTATIONS or orientation == self._orientation:
             return
         self._orientation = orientation
-        # 切换方向后默认几何不再合适, 重新计算
-        self._set_default_geometry()
+        # 切换方向后沿用该方向已记忆的位置, 没有才回默认几何 (横竖默认差异大).
+        self._apply_geometry_for_current()
         self._rebuild_paint_cache()
         self.update()
 
@@ -578,43 +524,13 @@ class DesktopLyricsWindow(QWidget):
         self._h_total_w = x
 
     def _build_vertical_cache(self, fm: QFontMetrics) -> None:
-        full_text = "".join(w.text for w in self._display_words)
-        has_cjk_chars = _has_cjk(full_text)
-        self._v_rotated = _is_credit_line(full_text) or not has_cjk_chars
-        if self._v_rotated:
-            self._v_mixed = False
-            self._v_word_blocks = []
-            self._v_word_v_heights = []
-            self._v_total_v_height = 0.0
-            self._v_word_paths = []
-            self._v_word_char_counts = []
-            self._v_total_chars = 0
-            self._build_horizontal_cache(fm)
-            return
-        has_latin = any(not _is_vertical_char(c) for c in full_text if not c.isspace())
-        self._v_mixed = has_latin
+        """竖向统一块模型: 每个 display word 拆成 CJK 正立块 + 非 CJK 旋转块."""
         char_h = fm.ascent() + fm.descent()
         line_h = char_h + max(4, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
         self._v_line_h = float(line_h)
-        if has_latin:
-            self._build_mixed_vertical_cache(fm, line_h, char_h)
-            return
-        paths: list[QPainterPath] = []
-        char_counts: list[int] = []
-        total_chars = 0
-        for w in self._display_words:
-            path = QPainterPath()
-            for i, ch in enumerate(w.text):
-                char_w = fm.horizontalAdvance(ch)
-                path.addText(-char_w / 2.0, float(i * line_h), self._font, ch)
-            paths.append(path)
-            char_counts.append(len(w.text))
-            total_chars += len(w.text)
-        self._v_word_paths = paths
-        self._v_word_char_counts = char_counts
-        self._v_total_chars = total_chars
+        self._build_vertical_blocks(fm, line_h, char_h)
 
-    def _build_mixed_vertical_cache(self, fm: QFontMetrics, line_h: int, char_h: int) -> None:
+    def _build_vertical_blocks(self, fm: QFontMetrics, line_h: int, char_h: int) -> None:
         gap = line_h - char_h
         word_blocks: list[list[_VBlock]] = []
         word_heights: list[float] = []
@@ -668,7 +584,6 @@ class DesktopLyricsWindow(QWidget):
         char_h = tfm.ascent() + tfm.descent()
         line_h = char_h + max(3, int(char_h * _VERTICAL_CHAR_GAP_RATIO))
         gap = line_h - char_h
-        self._v_trans_line_h = float(line_h)
         blocks: list[_VBlock] = []
         total_h = 0.0
         for seg_text, is_vert in _segment_for_vertical(self._translation):
@@ -729,6 +644,66 @@ class DesktopLyricsWindow(QWidget):
             x = geo.x() + (geo.width() - width) // 2
             y = geo.y() + geo.height() - height - 60
         self.setGeometry(x, y, width, height)
+
+    def set_saved_geometries(self, horizontal: QRect | None, vertical: QRect | None) -> None:
+        """Controller 推入横 / 竖两方向记忆的位置, 并按当前方向立即应用 (没有则默认)."""
+        self._saved_geometries["horizontal"] = QRect(horizontal) if horizontal is not None else None
+        self._saved_geometries["vertical"] = QRect(vertical) if vertical is not None else None
+        self._apply_geometry_for_current()
+
+    def _apply_geometry_for_current(self) -> None:
+        """有当前方向的有效记忆位置 (clamp 到屏内) 则用它, 否则回默认几何."""
+        saved = self._saved_geometries.get(self._orientation)
+        if saved is not None:
+            clamped = self._clamp_geometry(saved)
+            if clamped is not None:
+                self.setGeometry(clamped)
+                return
+        self._set_default_geometry()
+
+    @staticmethod
+    def _clamp_geometry(rect: QRect) -> QRect | None:
+        """把记忆的几何夹到与之相交最多的屏幕可用区内; 完全离屏 / 无屏 / 尺寸非法 -> None.
+
+        防止换显示器 / 拔副屏后窗口定位到看不见的地方; 返回 None 让调用方回退默认位置.
+        """
+        if rect.width() <= 0 or rect.height() <= 0:
+            return None
+        screens = QGuiApplication.screens()
+        if not screens:
+            return None
+        best = None
+        best_area = 0
+        for screen in screens:
+            inter = screen.availableGeometry().intersected(rect)
+            area = inter.width() * inter.height()
+            if area > best_area:
+                best_area = area
+                best = screen
+        if best is None or best_area <= 0:
+            return None
+        avail = best.availableGeometry()
+        w = min(rect.width(), avail.width())
+        h = min(rect.height(), avail.height())
+        x = min(max(rect.x(), avail.x()), avail.x() + avail.width() - w)
+        y = min(max(rect.y(), avail.y()), avail.y() + avail.height() - h)
+        return QRect(x, y, w, h)
+
+    def _persist_current_geometry(self) -> None:
+        """拖动结束后把当前几何记到当前方向并发信号给 Controller 落盘."""
+        rect = self.geometry()
+        self._saved_geometries[self._orientation] = QRect(rect)
+        logger.info(
+            "桌面歌词位置记住: %s %d,%d %dx%d",
+            self._orientation,
+            rect.x(),
+            rect.y(),
+            rect.width(),
+            rect.height(),
+        )
+        self.geometryEdited.emit(
+            self._orientation, rect.x(), rect.y(), rect.width(), rect.height()
+        )
 
     @staticmethod
     def _scroll_origin(content_len: float, focus_pos: float, viewport_len: float) -> float:
@@ -801,13 +776,7 @@ class DesktopLyricsWindow(QWidget):
             return 0.0
         word = self._display_words[idx]
         fraction = self._fraction_at(word, ms)
-        if self._v_rotated:
-            focus = self._h_word_xs[idx] + self._h_word_widths[idx] * fraction
-        elif self._v_mixed:
-            focus = sum(self._v_word_v_heights[:idx]) + self._v_word_v_heights[idx] * fraction
-        else:
-            char_offset = sum(self._v_word_char_counts[:idx])
-            focus = (char_offset + self._v_word_char_counts[idx] * fraction) * self._v_line_h
+        focus = sum(self._v_word_v_heights[:idx]) + self._v_word_v_heights[idx] * fraction
         return self._clamp_pos(focus, main_h)
 
     def _horizontal_layout(self) -> _HorizontalLayout:
@@ -848,11 +817,7 @@ class DesktopLyricsWindow(QWidget):
         )
 
     def _vertical_main_height(self) -> float:
-        if self._v_rotated:
-            return self._h_total_w
-        if self._v_mixed:
-            return self._v_total_v_height
-        return self._v_line_h * self._v_total_chars
+        return self._v_total_v_height
 
     def _vertical_column_layout(self) -> _VerticalColumnLayout:
         fm = self._cached_fm
@@ -1012,12 +977,19 @@ class DesktopLyricsWindow(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            was_dragging = self._drag_origin is not None
             self._drag_origin = None
+            if was_dragging:
+                self._persist_current_geometry()
         super().mouseReleaseEvent(event)
 
     # ------------------------------------------------------------------ 显隐 + resize
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
+        # 某些平台 (Windows) 在 show() / setWindowFlags 后会把 frameless 窗口移回默认位置,
+        # 仅在 show() 之前 setGeometry 不够稳. 显示时再落实一次记忆位置, 防止重启 / 切显隐
+        # 后窗口回到原处 (无记忆位置时即默认几何, 行为不变).
+        self._apply_geometry_for_current()
         self._toggle_wipe_timer()
 
     def hideEvent(self, event: QHideEvent) -> None:
@@ -1145,116 +1117,7 @@ class DesktopLyricsWindow(QWidget):
             block_y += blk.v_height * scale
 
     def _paint_vertical(self, painter: QPainter) -> None:
-        """竖向: CJK 逐字堆叠 / 拉丁文旋转 90° 横排 + 翻译."""
-        if self._v_rotated:
-            self._paint_vertical_rotated(painter)
-            return
-        if self._v_mixed:
-            self._paint_vertical_mixed(painter)
-            return
-        if not self._display_words or not self._cached_fm:
-            return
-        fm = self._cached_fm
-        layout = self._vertical_column_layout()
-        line_h = self._v_line_h
-        has_trans = self._has_trans
-
-        ms = self._effective_ms()
-        base_brush = self._cached_brush_base
-        hi_brush = self._cached_brush_highlight
-        nopen = Qt.PenStyle.NoPen
-        scale = layout.scale
-        viewport_w = self.width() / scale
-
-        char_idx = 0
-        for i, w in enumerate(self._display_words):
-            word_path = self._v_word_paths[i]
-            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
-            first_y = layout.main_start_y + char_idx * line_h * scale
-
-            painter.save()
-            painter.translate(layout.main_cx, first_y)
-            painter.scale(scale, scale)
-
-            painter.setPen(self._outline_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(word_path)
-            painter.setPen(nopen)
-            painter.setBrush(base_brush)
-            painter.drawPath(word_path)
-
-            if fraction > 0.0:
-                n_chars = self._v_word_char_counts[i]
-                word_h = line_h * n_chars
-                clip_h = max(1, int(round(word_h * fraction)))
-                painter.save()
-                painter.setClipRect(-viewport_w, -fm.ascent(), viewport_w * 2, clip_h)
-                painter.setBrush(hi_brush)
-                painter.drawPath(word_path)
-                painter.restore()
-
-            painter.restore()
-            char_idx += self._v_word_char_counts[i]
-
-        if has_trans:
-            self._paint_trans_vertical_blocks(painter, layout)
-
-    def _paint_vertical_rotated(self, painter: QPainter) -> None:
-        """拉丁文竖排: 横向文字旋转 90° 顺时针 + 翻译 (左列)."""
-        if not self._display_words or not self._cached_fm:
-            return
-        fm = self._cached_fm
-        has_trans = self._has_trans
-
-        layout = self._vertical_column_layout()
-        scale = layout.scale
-        main_top = layout.main_start_y - fm.ascent() * scale
-        main_center_y = main_top + layout.main_h * scale / 2.0
-
-        # 主歌词: 旋转 90° 居中于右列
-        painter.save()
-        painter.translate(layout.main_cx, main_center_y)
-        painter.scale(scale, scale)
-        painter.rotate(90)
-
-        x0 = -self._h_total_w / 2.0
-        baseline = (fm.ascent() - fm.descent()) / 2.0
-        painter.translate(x0, baseline)
-
-        painter.setPen(self._outline_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(self._h_outline_path)
-
-        ms = self._effective_ms()
-        base_brush = self._cached_brush_base
-        hi_brush = self._cached_brush_highlight
-        nopen = Qt.PenStyle.NoPen
-
-        for i, w in enumerate(self._display_words):
-            word_path = self._h_word_paths[i]
-            fraction = self._fraction_at(w, ms) if self._word_infos else 1.0
-
-            painter.setPen(nopen)
-            painter.setBrush(base_brush)
-            painter.drawPath(word_path)
-
-            if fraction > 0.0:
-                word_x = self._h_word_xs[i]
-                word_w = self._h_word_widths[i]
-                clip_w = max(1.0, word_w * fraction)
-                painter.save()
-                painter.setClipRect(word_x, -_CLIP_MARGIN, clip_w, _CLIP_MARGIN * 2)
-                painter.setBrush(hi_brush)
-                painter.drawPath(word_path)
-                painter.restore()
-
-        painter.restore()
-
-        if has_trans:
-            self._paint_trans_vertical_blocks(painter, layout)
-
-    def _paint_vertical_mixed(self, painter: QPainter) -> None:
-        """竖向混排: CJK 直立堆叠 + Latin 段旋转 90°. 翻译左列."""
+        """竖向统一块模型: CJK 正立逐字堆叠 + 非 CJK 段整段旋转 90°, 翻译左列."""
         if not self._display_words or not self._cached_fm:
             return
         fm = self._cached_fm
@@ -1402,6 +1265,7 @@ class DesktopLyricsController(QObject):
         self._settings_controller = settings_controller
         self._player_controller = player_controller
         self._window = DesktopLyricsWindow()
+        self._window.geometryEdited.connect(self._on_window_geometry_edited)
         self._lyric_controller.currentLineChanged.connect(self._on_line_changed)
         # positionMsChanged 是 player tick 100ms 推一次 (LyricController 透传), 量大
         # 但窗口内部 sung_count 跨字才会真正 update(), 不抖.
@@ -1500,12 +1364,43 @@ class DesktopLyricsController(QObject):
         state = str(getattr(pc, "playbackState", "") or "")
         self._window.set_playing(state == "playing")
 
+    @Slot(str, int, int, int, int)
+    def _on_window_geometry_edited(self, orientation: str, x: int, y: int, w: int, h: int) -> None:
+        """窗口被拖动后回写位置到 SettingsController (单向, 不再触发 settingsChanged)."""
+        sc = self._settings_controller
+        if sc is None:
+            return
+        setter = getattr(sc, "setDesktopLyricsGeometry", None)
+        if callable(setter):
+            setter(orientation, int(x), int(y), int(w), int(h))
+
+    @staticmethod
+    def _parse_geometry(value: str) -> QRect | None:
+        """把 ``"x,y,w,h"`` 串解析回 QRect; 空 / 非法 -> None."""
+        if not value:
+            return None
+        parts = str(value).split(",")
+        if len(parts) != 4:
+            return None
+        try:
+            x, y, w, h = (int(p) for p in parts)
+        except (TypeError, ValueError):
+            return None
+        if w <= 0 or h <= 0:
+            return None
+        return QRect(x, y, w, h)
+
     @Slot()
     def _on_settings_changed(self) -> None:
         """SettingsController 任一字段变化都会重 emit settingsChanged; 全量拉取最简单."""
         sc = self._settings_controller
         if sc is None:
             return
+        # 先把记忆位置推给窗口 (apply_settings 里的 set_orientation 会据此定位).
+        self._window.set_saved_geometries(
+            self._parse_geometry(str(getattr(sc, "desktopLyricsGeometryHorizontal", "") or "")),
+            self._parse_geometry(str(getattr(sc, "desktopLyricsGeometryVertical", "") or "")),
+        )
         self.apply_settings(
             enabled=bool(sc.desktopLyricsEnabled),
             locked=bool(sc.desktopLyricsLocked),

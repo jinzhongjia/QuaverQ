@@ -99,6 +99,26 @@ def _normalize_hex_color(raw: str | None) -> str | None:
     return color.name().upper()  # QColor.name() 返 "#rrggbb" 小写, 统一大写
 
 
+def _normalize_geometry(raw: str | None) -> str:
+    """把窗口几何归一为 ``"x,y,w,h"`` 整数串; 格式非法 / 尺寸非正 -> 空串 (= 用默认位置).
+
+    桌面歌词被拖动后的位置按方向各存一份, 用紧凑字符串而非 QRect 便于 INI 可读 +
+    跨版本稳定. 解析失败一律回退空串, 不让破损设置把窗口定位到非法处.
+    """
+    if not raw or not isinstance(raw, str):
+        return ""
+    parts = raw.split(",")
+    if len(parts) != 4:
+        return ""
+    try:
+        x, y, w, h = (int(p) for p in parts)
+    except (TypeError, ValueError):
+        return ""
+    if w <= 0 or h <= 0:
+        return ""
+    return f"{x},{y},{w},{h}"
+
+
 def _collect_cjk_font_families() -> list[str]:
     """枚举系统里能渲染简体中文的字体族 (Han 字形 → 同时具备 UTF-8 / CJK 支持).
     没有 QGuiApplication (例如纯 logic 测试) 时返回空列表, 不抛."""
@@ -218,6 +238,13 @@ class SettingsController(QObject):
         self._desktop_lyrics_color_highlight = self._read_color(
             "desktopLyrics/colorHighlight",
             _DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT,
+        )
+        # 被拖动后的位置: 横 / 竖各存一份 (两方向默认几何差异大, 混用会错位). 空 = 用默认位置.
+        self._desktop_lyrics_geometry_horizontal = self._read_geometry(
+            "desktopLyrics/geometryHorizontal"
+        )
+        self._desktop_lyrics_geometry_vertical = self._read_geometry(
+            "desktopLyrics/geometryVertical"
         )
 
     @Property(str, notify=settingsChanged)
@@ -341,6 +368,16 @@ class SettingsController(QObject):
     def desktopLyricsColorHighlight(self) -> str:
         """已唱字色 (#RRGGBB hex 大写)."""
         return self._desktop_lyrics_color_highlight
+
+    @Property(str, notify=settingsChanged)
+    def desktopLyricsGeometryHorizontal(self) -> str:
+        """横向桌面歌词被拖动后的位置 ``"x,y,w,h"``; 空串 = 用默认位置."""
+        return self._desktop_lyrics_geometry_horizontal
+
+    @Property(str, notify=settingsChanged)
+    def desktopLyricsGeometryVertical(self) -> str:
+        """竖向桌面歌词被拖动后的位置 ``"x,y,w,h"``; 空串 = 用默认位置."""
+        return self._desktop_lyrics_geometry_vertical
 
     @Property("QStringList", constant=True)
     def availableLyricFonts(self) -> list[str]:
@@ -545,6 +582,31 @@ class SettingsController(QObject):
             _normalize_hex_color(color),
         )
 
+    def setDesktopLyricsGeometry(self, orientation: str, x: int, y: int, w: int, h: int) -> None:
+        """记住桌面歌词被拖动后的位置 (按方向各存一份).
+
+        与其它字段不同: 这是窗口 -> 设置的单向回写 (用户拖完即存), **故意不 emit
+        settingsChanged** —— 窗口已在新位置, 无需再被 ``_on_settings_changed`` 拉回去重应用,
+        否则每次拖动都触发一次全量 re-apply. 非 Slot: 仅 Python 侧 (Controller) 调用.
+        """
+        if orientation not in _DESKTOP_LYRIC_ORIENTATIONS:
+            return
+        try:
+            value = _normalize_geometry(f"{int(x)},{int(y)},{int(w)},{int(h)}")
+        except (TypeError, ValueError):
+            return
+        if not value:
+            return
+        if orientation == "vertical":
+            attr, key = "_desktop_lyrics_geometry_vertical", "desktopLyrics/geometryVertical"
+        else:
+            attr, key = "_desktop_lyrics_geometry_horizontal", "desktopLyrics/geometryHorizontal"
+        if getattr(self, attr) == value:
+            return
+        setattr(self, attr, value)
+        self._settings.setValue(key, value)
+        self._settings.sync()
+
     @Slot(str, result=str)
     def pickDesktopLyricsColor(self, role: str) -> str:
         """打开 QColorDialog 让用户选颜色, 选定后通过对应 setter 应用 + 返回 hex.
@@ -605,6 +667,15 @@ class SettingsController(QObject):
                 "desktopLyrics/colorHighlight", _DESKTOP_LYRIC_COLOR_HIGHLIGHT_DEFAULT
             )
             changed = True
+        # 记忆位置也复位 (清空 -> Controller 拉到空串后让窗口回默认几何).
+        for attr, key in (
+            ("_desktop_lyrics_geometry_horizontal", "desktopLyrics/geometryHorizontal"),
+            ("_desktop_lyrics_geometry_vertical", "desktopLyrics/geometryVertical"),
+        ):
+            if getattr(self, attr) != "":
+                setattr(self, attr, "")
+                self._settings.remove(key)
+                changed = True
         if changed:
             self._settings.sync()
             self.settingsChanged.emit()
@@ -698,6 +769,11 @@ class SettingsController(QObject):
         raw = self._settings.value(key, default)
         normalized = _normalize_hex_color(raw if isinstance(raw, str) else default)
         return normalized or default
+
+    def _read_geometry(self, key: str) -> str:
+        """读回 ``"x,y,w,h"`` 几何串; 缺失 / 格式非法 -> 空串 (= 用默认位置)."""
+        raw = self._settings.value(key, "")
+        return _normalize_geometry(raw if isinstance(raw, str) else "")
 
     def _read_bool(self, key: str, default: bool) -> bool:
         raw = self._settings.value(key, default)
