@@ -701,9 +701,7 @@ class DesktopLyricsWindow(QWidget):
             rect.width(),
             rect.height(),
         )
-        self.geometryEdited.emit(
-            self._orientation, rect.x(), rect.y(), rect.width(), rect.height()
-        )
+        self.geometryEdited.emit(self._orientation, rect.x(), rect.y(), rect.width(), rect.height())
 
     @staticmethod
     def _scroll_origin(content_len: float, focus_pos: float, viewport_len: float) -> float:
