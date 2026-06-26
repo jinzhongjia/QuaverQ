@@ -729,3 +729,60 @@ def test_fade_setters_skip_signal_on_same_value(tmp_path):
     controller.setFadeEnabled(False)
     controller.setFadeDurationMs(800)
     assert len(events) == 2
+
+
+# ============================================================== 桌面歌词记忆位置
+
+
+def test_desktop_lyrics_geometry_persists_per_orientation(tmp_path):
+    path = tmp_path / "settings.ini"
+    controller = SettingsController(settings=_settings(path))
+
+    controller.setDesktopLyricsGeometry("horizontal", 10, 20, 800, 120)
+    controller.setDesktopLyricsGeometry("vertical", 30, 40, 200, 600)
+
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.desktopLyricsGeometryHorizontal == "10,20,800,120"
+    assert reloaded.desktopLyricsGeometryVertical == "30,40,200,600"
+
+
+def test_desktop_lyrics_geometry_does_not_emit_settings_changed(tmp_path):
+    """记忆位置是窗口->设置单向回写, 不应触发 settingsChanged (否则每拖一次全量 re-apply)."""
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    events: list[bool] = []
+    controller.settingsChanged.connect(lambda: events.append(True))
+
+    controller.setDesktopLyricsGeometry("horizontal", 10, 20, 800, 120)
+    assert events == []
+
+
+def test_desktop_lyrics_geometry_rejects_invalid(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+
+    controller.setDesktopLyricsGeometry("diagonal", 1, 2, 3, 4)  # 非法方向
+    controller.setDesktopLyricsGeometry("horizontal", 1, 2, 0, 100)  # 非正尺寸
+
+    assert controller.desktopLyricsGeometryHorizontal == ""
+    assert controller.desktopLyricsGeometryVertical == ""
+
+
+def test_desktop_lyrics_geometry_reads_back_garbage_as_empty(tmp_path):
+    settings = _settings(tmp_path / "settings.ini")
+    settings.setValue("desktopLyrics/geometryHorizontal", "garbage")
+    settings.setValue("desktopLyrics/geometryVertical", "1,2,3")  # 字段数不对
+    settings.sync()
+
+    controller = SettingsController(settings=settings)
+    assert controller.desktopLyricsGeometryHorizontal == ""
+    assert controller.desktopLyricsGeometryVertical == ""
+
+
+def test_reset_desktop_lyrics_clears_geometry(tmp_path):
+    controller = SettingsController(settings=_settings(tmp_path / "settings.ini"))
+    controller.setDesktopLyricsGeometry("horizontal", 10, 20, 800, 120)
+    controller.setDesktopLyricsGeometry("vertical", 30, 40, 200, 600)
+
+    controller.resetDesktopLyrics()
+
+    assert controller.desktopLyricsGeometryHorizontal == ""
+    assert controller.desktopLyricsGeometryVertical == ""

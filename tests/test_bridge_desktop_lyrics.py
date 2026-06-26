@@ -905,11 +905,11 @@ def test_segment_for_vertical_pure_cjk():
 
 
 def test_segment_for_vertical_pure_latin():
-    """纯 Latin 文本按单词拆分, 每个词独立旋转."""
+    """纯 Latin 文本整段作为一个旋转块, 不拆词."""
     from quaverq.bridge.desktop_lyrics import _segment_for_vertical
 
     segs = _segment_for_vertical("Hello World")
-    assert segs == [("Hello", False), ("World", False)]
+    assert segs == [("Hello World", False)]
 
 
 def test_segment_for_vertical_interleaved():
@@ -921,14 +921,12 @@ def test_segment_for_vertical_interleaved():
 
 
 def test_segment_for_vertical_latin_multi_word():
-    """Latin 多词拆分: 翻译行 "Can't read my" 按单词拆."""
+    """Latin 多词整段作为一个旋转块, CJK 段正立."""
     from quaverq.bridge.desktop_lyrics import _segment_for_vertical
 
     segs = _segment_for_vertical("Can't read my 读不懂我")
     assert segs == [
-        ("Can't", False),
-        ("read", False),
-        ("my", False),
+        ("Can't read my", False),
         ("读不懂我", True),
     ]
 
@@ -941,12 +939,12 @@ def test_segment_for_vertical_latin_with_trailing_space():
     assert segs == [("Fold", False)]
 
 
-def test_segment_for_vertical_short_uppercase_acronym_stacks():
-    """CJK 竖排里的短大写缩写应逐字符直立, 不旋转成横块."""
+def test_segment_for_vertical_short_uppercase_acronym_rotates():
+    """简化后短大写缩写不再特判直立, 与普通拉丁一样整段旋转."""
     from quaverq.bridge.desktop_lyrics import _segment_for_vertical
 
     segs = _segment_for_vertical("如果我是 DJ")
-    assert segs == [("如果我是", True), ("DJ", True)]
+    assert segs == [("如果我是", True), ("DJ", False)]
 
 
 def test_segment_for_vertical_lowercase_word_still_rotates():
@@ -957,33 +955,8 @@ def test_segment_for_vertical_lowercase_word_still_rotates():
     assert segs == [("读不懂", True), ("my", False)]
 
 
-def test_vertical_mixed_mode_detected(qapp):
-    """普通歌词包含 CJK 和 Latin 时应使用混排模式."""
-    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
-
-    w = DesktopLyricsWindow()
-    w.set_orientation("vertical")
-    w.set_text("我爱你baby")
-    assert w._v_mixed is True
-    assert w._v_rotated is False
-
-
-def test_vertical_credit_line_uses_whole_line_rotation(qapp):
-    """制作信息行不应拆成 CJK/Latin 小段, 应整行旋转显示."""
-    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
-
-    w = DesktopLyricsWindow()
-    w.set_orientation("vertical")
-    w.set_text("SP：五十环音乐 Straight50 Music")
-
-    assert w._v_rotated is True
-    assert w._v_mixed is False
-    assert len(w._h_word_paths) == 1
-    assert w._h_total_w > 0
-
-
-def test_vertical_mixed_short_uppercase_acronym_not_rotated(qapp):
-    """竖排混排中 'DJ' 应按 D/J 直立堆叠, 避免右侧悬浮歌词出现横向/重叠字块."""
+def test_vertical_acronym_rotates_as_single_block(qapp):
+    """简化后竖排中 'DJ' 不再特判直立, 作为单个旋转块."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
@@ -998,7 +971,6 @@ def test_vertical_mixed_short_uppercase_acronym_not_rotated(qapp):
         ],
     )
 
-    assert w._v_mixed is True
     dj_word_blocks = [
         blocks
         for word, blocks in zip(w._display_words, w._v_word_blocks, strict=True)
@@ -1007,31 +979,32 @@ def test_vertical_mixed_short_uppercase_acronym_not_rotated(qapp):
     assert len(dj_word_blocks) == 2
     for blocks in dj_word_blocks:
         assert len(blocks) == 1
-        block = blocks[0]
-        assert block.rotated is False
-        assert block.v_height == 2 * w._v_line_h
+        assert blocks[0].rotated is True
 
 
-def test_vertical_pure_cjk_not_mixed(qapp):
-    """纯 CJK 文本不使用混排模式."""
-    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
-
-    w = DesktopLyricsWindow()
-    w.set_orientation("vertical")
-    w.set_text("离别的眼泪")
-    assert w._v_mixed is False
-    assert w._v_rotated is False
-
-
-def test_vertical_pure_latin_uses_rotated(qapp):
-    """纯拉丁文本使用旋转模式."""
+def test_vertical_pure_latin_single_rotated_block(qapp):
+    """纯拉丁整行作为一个旋转块 (无逐字数据时单 display word)."""
     from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
 
     w = DesktopLyricsWindow()
     w.set_orientation("vertical")
     w.set_text("Hello World")
-    assert w._v_mixed is False
-    assert w._v_rotated is True
+    assert len(w._v_word_blocks) == 1
+    blocks = w._v_word_blocks[0]
+    assert len(blocks) == 1
+    assert blocks[0].rotated is True
+    assert w._v_total_v_height > 0
+
+
+def test_vertical_credit_line_no_crash(qapp):
+    """制作信息行统一走块模型: 标点正立 + 拉丁旋转, 不抛."""
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_orientation("vertical")
+    w.set_text("SP：五十环音乐 Straight50 Music")
+    w.resize(120, 600)
+    assert not w.grab().isNull()
 
 
 def test_paint_vertical_mixed_no_crash(qapp):
@@ -1091,7 +1064,6 @@ def test_vertical_trans_cjk_blocks_not_rotated(qapp):
         ],
         translation="Can't read my 读不懂我",
     )
-    assert w._v_mixed is True
     assert w._has_trans is True
     for blk in w._v_trans_blocks:
         if not blk.rotated:
@@ -1227,7 +1199,6 @@ def test_vertical_mixed_wipe_clip_covers_rotated_block(qapp):
     fm = QFontMetrics(w._font)
     ascent = fm.ascent()
 
-    assert w._v_mixed is True
     assert len(w._v_word_blocks) == 1
     blocks = w._v_word_blocks[0]
     rotated_blocks = [b for b in blocks if b.rotated]
@@ -1257,3 +1228,177 @@ def _is_v(c):
         or 0xFF00 <= cp <= 0xFF60
         or 0xFE30 <= cp <= 0xFE4F
     )
+
+
+# ============================================================== 记住拖动后的位置
+
+
+def _mouse_event(kind):
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    p = QPointF(0.0, 0.0)
+    buttons = (
+        Qt.MouseButton.LeftButton
+        if kind == QEvent.Type.MouseButtonPress
+        else Qt.MouseButton.NoButton
+    )
+    return QMouseEvent(
+        kind, p, p, Qt.MouseButton.LeftButton, buttons, Qt.KeyboardModifier.NoModifier
+    )
+
+
+def test_drag_persists_geometry_and_emits(qapp):
+    """解锁后拖动结束应记住当前几何并发 geometryEdited(orientation, x, y, w, h)."""
+    from PySide6.QtCore import QEvent
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_locked(False)
+    captured = []
+    w.geometryEdited.connect(lambda *a: captured.append(a))
+
+    w.setGeometry(123, 234, 400, 120)
+    w.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress))
+    w.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease))
+
+    assert captured, "拖动结束应发 geometryEdited"
+    orientation, x, y, ww, hh = captured[-1]
+    g = w.geometry()
+    assert orientation == "horizontal"
+    assert (x, y, ww, hh) == (g.x(), g.y(), g.width(), g.height())
+    assert w._saved_geometries["horizontal"] is not None
+
+
+def test_locked_drag_does_not_persist(qapp):
+    """锁定态: 鼠标穿透, 不进入拖动, 不应回写位置."""
+    from PySide6.QtCore import QEvent
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()  # 默认锁定
+    captured = []
+    w.geometryEdited.connect(lambda *a: captured.append(a))
+
+    w.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress))
+    w.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease))
+
+    assert captured == []
+
+
+def test_saved_geometry_applied_per_orientation(qapp):
+    """切方向时各用各方向记忆的位置."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QGuiApplication
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    h_rect = QRect(avail.x() + 10, avail.y() + 10, 300, 100)
+    v_rect = QRect(avail.x() + 20, avail.y() + 20, 180, 360)
+
+    w = DesktopLyricsWindow()
+    w.set_saved_geometries(h_rect, v_rect)
+    assert w.geometry().topLeft() == h_rect.topLeft()
+
+    w.set_orientation("vertical")
+    assert w.geometry().topLeft() == v_rect.topLeft()
+
+    w.set_orientation("horizontal")
+    assert w.geometry().topLeft() == h_rect.topLeft()
+
+
+def test_offscreen_saved_geometry_falls_back_to_default(qapp):
+    """记忆位置完全离屏 (拔副屏) 时回退默认几何, 不把窗口定位到看不见处."""
+    from PySide6.QtCore import QRect
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    w = DesktopLyricsWindow()
+    w.set_saved_geometries(QRect(100000, 100000, 300, 100), None)
+    g = w.geometry()
+    assert g.x() < 100000 and g.y() < 100000
+
+
+def test_show_event_reapplies_saved_geometry(qapp):
+    """模拟 Windows show() 把 frameless 窗口移回默认: showEvent 应拉回记忆位置."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QGuiApplication, QShowEvent
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    saved = QRect(avail.x() + 12, avail.y() + 34, 360, 110)
+    w = DesktopLyricsWindow()
+    w.set_saved_geometries(saved, None)
+    # 模拟窗口管理器在 show 时把窗口挪到别处
+    w.setGeometry(avail.x() + 250, avail.y() + 250, 360, 110)
+    w.showEvent(QShowEvent())
+    assert w.geometry().topLeft() == saved.topLeft()
+
+
+def test_set_locked_preserves_position(qapp):
+    """锁 / 解锁切换 (setWindowFlags) 不应丢失当前位置."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QGuiApplication
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsWindow
+
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    w = DesktopLyricsWindow()
+    target = QRect(avail.x() + 15, avail.y() + 25, 360, 110)
+    w.setGeometry(target)
+    w.set_locked(False)
+    assert w.geometry().topLeft() == target.topLeft()
+    w.set_locked(True)
+    assert w.geometry().topLeft() == target.topLeft()
+
+
+def test_controller_persists_dragged_geometry_to_settings(qapp, tmp_path):
+    """窗口 geometryEdited -> SettingsController 落盘, 重载后可读回."""
+    from PySide6.QtCore import QSettings
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+    from quaverq.bridge.settings_controller import SettingsController
+
+    path = tmp_path / "s.ini"
+    settings = QSettings(str(path), QSettings.Format.IniFormat)
+    settings.clear()
+    sc = SettingsController(settings=settings)
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake, settings_controller=sc)
+
+    ctrl.window.geometryEdited.emit("horizontal", 50, 60, 400, 120)
+    qapp.processEvents()
+
+    assert sc.desktopLyricsGeometryHorizontal == "50,60,400,120"
+    reloaded = SettingsController(settings=QSettings(str(path), QSettings.Format.IniFormat))
+    assert reloaded.desktopLyricsGeometryHorizontal == "50,60,400,120"
+    assert reloaded.desktopLyricsGeometryVertical == ""
+    ctrl.hide()
+
+
+def test_controller_positions_window_from_saved_geometry(qapp, tmp_path):
+    """启动期 SettingsController 里已有记忆位置 -> 窗口定位到该位置."""
+    from PySide6.QtCore import QSettings
+    from PySide6.QtGui import QGuiApplication
+
+    from quaverq.bridge.desktop_lyrics import DesktopLyricsController
+    from quaverq.bridge.settings_controller import SettingsController
+
+    avail = QGuiApplication.primaryScreen().availableGeometry()
+    x = avail.x() + 30
+    y = avail.y() + 40
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    settings.clear()
+    settings.setValue("desktopLyrics/geometryHorizontal", f"{x},{y},420,140")
+    settings.sync()
+    sc = SettingsController(settings=settings)
+    fake = _FakeLyricController()
+    ctrl = DesktopLyricsController(fake, settings_controller=sc)
+    qapp.processEvents()
+
+    g = ctrl.window.geometry()
+    assert (g.x(), g.y()) == (x, y)
+    ctrl.hide()
