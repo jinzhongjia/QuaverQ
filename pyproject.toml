@@ -25,8 +25,9 @@ classifiers = [
 # 跨平台依赖.
 # Linux-only 项用 sys_platform marker 隔离, Windows / macOS 装包时自动跳过.
 dependencies = [
-    # 临时 git pin: 依赖上游 main 最新提交; 上游发布含该提交的版本后切回 PyPI 版本锁.
-    "qqmusic-api-python @ git+https://github.com/L-1124/QQMusicApi.git@0ef9645806c9778cfa6214dd60fa56644568c276",
+    # 临时 git pin: 暂指向 fork 的收藏歌单 PR 分支 (L-1124/QQMusicApi#281, fav_songlist/unfav_songlist);
+    # 上游合并后切回 L-1124/QQMusicApi.git@<merge-commit>, 再发布后切回 PyPI 版本锁.
+    "qqmusic-api-python @ git+https://github.com/jinzhongjia/QQMusicApi.git@88afcf9cab879ffb37b0f21f45669d645f699c5c",
     "tomli-w>=1.0",
     "platformdirs>=4.0",     # 跨平台 config / cache 目录解析
     "keyring>=24.0",         # 跨平台凭据存储 (Linux Secret Service / Win Credential Manager / macOS Keychain)

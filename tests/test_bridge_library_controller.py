@@ -37,6 +37,8 @@ class _FakeLibraryService:
             )
         ]
         self.fav_songlists = [Playlist(pid="fp1", name="夏日清凉", creator="陌生人", song_count=18)]
+        self.fav_calls: list[str] = []
+        self.unfav_calls: list[str] = []
         self.singers = [Singer(mid="ar1", name="周杰伦")]
 
     async def set_credential(self, credential) -> None:
@@ -69,6 +71,17 @@ class _FakeLibraryService:
 
     async def get_fav_songlist(self) -> list[Playlist]:
         return self.fav_songlists
+
+    async def fav_songlist(self, pid: str) -> bool:
+        self.fav_calls.append(str(pid))
+        if not any(item.pid == str(pid) for item in self.fav_songlists):
+            self.fav_songlists.insert(0, Playlist(pid=str(pid), name="新收藏", creator="陌生人"))
+        return True
+
+    async def unfav_songlist(self, pid: str) -> bool:
+        self.unfav_calls.append(str(pid))
+        self.fav_songlists = [item for item in self.fav_songlists if item.pid != str(pid)]
+        return True
 
     async def get_followed_singers(self) -> list[Singer]:
         return self.singers
@@ -271,6 +284,120 @@ async def test_refresh_fav_songlists_clears_when_logged_out():
     service_controller.authStateChanged.emit()
 
     assert controller.favPlaylistModel.count == 0
+
+
+async def test_refresh_fav_songlists_if_needed_fetches_once_then_skips():
+    service = _FakeLibraryService()
+    calls = 0
+    original = service.get_fav_songlist
+
+    async def counting_get_fav_songlist() -> list[Playlist]:
+        nonlocal calls
+        calls += 1
+        return await original()
+
+    service.get_fav_songlist = counting_get_fav_songlist  # type: ignore[method-assign]
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refreshFavSonglistsIfNeeded()
+    await controller.refreshFavSonglistsIfNeeded()
+
+    assert calls == 1
+    assert controller.isPlaylistFaved("fp1") is True
+
+    # 登出重置 loaded 标志 (登出分支提前 return, 不会起 liked 刷新任务)
+    service.is_authenticated = False
+    service_controller.authStateChanged.emit()
+    # 重新认证后再次进入详情页, 因标志已重置应重新拉取
+    service.is_authenticated = True
+    await controller.refreshFavSonglistsIfNeeded()
+    assert calls == 2
+
+
+async def test_refresh_fav_songlists_populates_faved_lookup():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_fav_songlists_async()
+
+    assert controller.isPlaylistFaved("fp1") is True
+    assert controller.isPlaylistFaved("missing") is False
+
+
+async def test_is_my_playlist_distinguishes_created_from_external():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_my_playlists_async()
+
+    assert controller.isMyPlaylist("p1") is True
+    assert controller.isMyPlaylist("fp1") is False
+
+
+async def test_toggle_playlist_fav_adds_and_emits_state():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+    states: list[tuple[str, bool]] = []
+    controller.favPlaylistChanged.connect(lambda pid, faved: states.append((pid, faved)))
+
+    await controller.refresh_fav_songlists_async()
+    await controller.toggle_playlist_fav_async("new99")
+
+    assert service.fav_calls == ["new99"]
+    assert controller.isPlaylistFaved("new99") is True
+    assert states[-1] == ("new99", True)
+    assert any(card["id"] == "new99" for card in controller.favPlaylistModel.cards())
+
+
+async def test_toggle_playlist_fav_removes_existing():
+    service = _FakeLibraryService()
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refresh_fav_songlists_async()
+    await controller.toggle_playlist_fav_async("fp1")
+
+    assert service.unfav_calls == ["fp1"]
+    assert controller.isPlaylistFaved("fp1") is False
+    assert controller.favPlaylistModel.count == 0
+
+
+async def test_toggle_playlist_fav_requires_login():
+    service = _FakeLibraryService()
+    service.is_authenticated = False
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.toggle_playlist_fav_async("fp1")
+
+    assert service.fav_calls == []
+    assert service.unfav_calls == []
+    assert controller.errorMessage == "登录后才能收藏歌单"
+    assert errors == ["登录后才能收藏歌单"]
+
+
+async def test_toggle_playlist_fav_raises_error_on_failure():
+    service = _FakeLibraryService()
+
+    async def fail_fav(pid: str) -> bool:
+        return False
+
+    service.fav_songlist = fail_fav  # type: ignore[method-assign]
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+    errors: list[str] = []
+    controller.errorRaised.connect(errors.append)
+
+    await controller.toggle_playlist_fav_async("new99")
+
+    assert controller.isPlaylistFaved("new99") is False
+    assert errors == ["收藏失败"]
 
 
 async def test_refresh_fav_albums_populates_card_model():
