@@ -1170,8 +1170,8 @@ wheels = [
 
 [[package]]
 name = "qqmusic-api-python"
-version = "0.6.6"
-source = { git = "https://github.com/L-1124/QQMusicApi.git?rev=0ef9645806c9778cfa6214dd60fa56644568c276#0ef9645806c9778cfa6214dd60fa56644568c276" }
+version = "0.6.7"
+source = { git = "https://github.com/jinzhongjia/QQMusicApi.git?rev=88afcf9cab879ffb37b0f21f45669d645f699c5c#88afcf9cab879ffb37b0f21f45669d645f699c5c" }
 dependencies = [
     { name = "anyio" },
     { name = "cryptography" },
@@ -1218,7 +1218,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.0" },
     { name = "pyside6", specifier = ">=6.6" },
     { name = "qasync", specifier = ">=0.27" },
-    { name = "qqmusic-api-python", git = "https://github.com/L-1124/QQMusicApi.git?rev=0ef9645806c9778cfa6214dd60fa56644568c276" },
+    { name = "qqmusic-api-python", git = "https://github.com/jinzhongjia/QQMusicApi.git?rev=88afcf9cab879ffb37b0f21f45669d645f699c5c" },
     { name = "tomli-w", specifier = ">=1.0" },
 ]
 

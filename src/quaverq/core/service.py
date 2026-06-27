@@ -1605,6 +1605,33 @@ class QuaverService:
             logger.warning("库 get_fav_songlist pydantic 校验失败, 退 bypass: %s", exc)
             return await self._fetch_fav_songlist_via_bypass(cred)
 
+    async def fav_songlist(self, pid: str | int) -> bool:
+        """收藏外部歌单 (别人的公开歌单). pid 为歌单 disstid/pid, 非自建 dirid."""
+        return await self._write_fav_songlist(pid, fav=True)
+
+    async def unfav_songlist(self, pid: str | int) -> bool:
+        """取消收藏外部歌单. pid 为歌单 disstid/pid, 非自建 dirid."""
+        return await self._write_fav_songlist(pid, fav=False)
+
+    async def _write_fav_songlist(self, pid: str | int, *, fav: bool) -> bool:
+        cred = self._effective_credential()
+        if cred is None or not cred.musickey:
+            return False
+        try:
+            songlist_id = int(pid)
+        except (TypeError, ValueError):
+            logger.warning("%s_songlist: 非法 pid %r", "fav" if fav else "unfav", pid)
+            return False
+        action = self.client.user.fav_songlist if fav else self.client.user.unfav_songlist
+        try:
+            ok = await action(songlist_id, credential=cred)
+            return bool(ok)
+        except Exception as exc:
+            if is_credential_expired_error(exc):
+                raise CredentialExpiredError("登录已过期，请重新登录") from exc
+            logger.warning("%s_songlist API 失败: %s", "fav" if fav else "unfav", exc)
+            return False
+
     async def _fetch_fav_songlist_via_library(self, cred: Credential) -> list[Playlist]:
         out: list[Playlist] = []
         page = 1

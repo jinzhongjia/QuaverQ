@@ -95,6 +95,9 @@ ColumnLayout {
             root.detailController = root.detailControllerFactory.create(root)
         }
         root.loadDetail()
+        // 确保"我收藏的歌单"已加载, 收藏按钮态 (isPlaylistFaved) 才准确
+        if (root.detailKind === "playlist" && root.libraryController && root.libraryController.authed)
+            root.libraryController.refreshFavSonglists()
     }
 
     onCurrentTabChanged: root._ensureSingerTabLoaded(root.currentTab)
@@ -321,6 +324,63 @@ ColumnLayout {
                                 ? ThemeTokens.Palette.statePressed
                                 : downloadAllButton.hovered && downloadAllButton.enabled ? ThemeTokens.Palette.stateHover : "transparent"
                             border.color: ThemeTokens.Palette.outline
+                        }
+                    }
+
+                    Button {
+                        id: favPlaylistButton
+
+                        // likedRevision 同款: 绑 favPlaylistsRevision 让收藏态变化时重算
+                        readonly property bool faved: root.libraryController
+                            && root.libraryController.favPlaylistsRevision >= 0
+                            && root.libraryController.isPlaylistFaved(root.detailId)
+
+                        Layout.preferredWidth: 112
+                        Layout.preferredHeight: ThemeTokens.Spacing.toolHitSize
+                        // 仅外部歌单可收藏: 排行榜/专辑/艺人 + 自建歌单不显示
+                        visible: root.displayKind === "playlist"
+                            && root.detailId.length > 0
+                            && root.libraryController
+                            && root.libraryController.authed
+                            && !root.libraryController.isMyPlaylist(root.detailId)
+                        enabled: favPlaylistButton.visible && !root.libraryController.loading
+                        text: favPlaylistButton.faved ? qsTr("已收藏") : qsTr("收藏")
+                        Accessible.name: text
+                        onClicked: {
+                            if (root.libraryController)
+                                root.libraryController.togglePlaylistFav(root.detailId)
+                        }
+
+                        contentItem: RowLayout {
+                            spacing: ThemeTokens.Spacing.s2
+
+                            Item { Layout.fillWidth: true }
+
+                            Components.AppIcon {
+                                size: 16
+                                source: favPlaylistButton.faved ? "../icons/heart-filled.svg" : "../icons/heart.svg"
+                                color: favPlaylistButton.faved
+                                    ? ThemeTokens.Palette.primaryFg
+                                    : favPlaylistButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.stateDisabled
+                            }
+
+                            Label {
+                                text: favPlaylistButton.text
+                                verticalAlignment: Text.AlignVCenter
+                                color: favPlaylistButton.enabled ? ThemeTokens.Palette.surfaceText : ThemeTokens.Palette.stateDisabled
+                                font.pixelSize: ThemeTokens.TypeScale.bodySm
+                                font.weight: ThemeTokens.TypeScale.medium
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+
+                        background: Rectangle {
+                            radius: ThemeTokens.Spacing.radiusPill
+                            color: favPlaylistButton.down
+                                ? ThemeTokens.Palette.statePressed
+                                : favPlaylistButton.hovered && favPlaylistButton.enabled ? ThemeTokens.Palette.stateHover : "transparent"
+                            border.color: favPlaylistButton.faved ? ThemeTokens.Palette.primary : ThemeTokens.Palette.outline
                         }
                     }
 

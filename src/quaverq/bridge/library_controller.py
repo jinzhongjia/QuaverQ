@@ -42,6 +42,8 @@ class LibraryController(QObject):
     errorMessageChanged = Signal()
     authStateChanged = Signal()
     likedChanged = Signal(str, bool)
+    favPlaylistsRevisionChanged = Signal()
+    favPlaylistChanged = Signal(str, bool)
     errorRaised = Signal(str)
 
     def __init__(
@@ -59,10 +61,12 @@ class LibraryController(QObject):
         self._album_model = CardListModel(self)
         self._artist_model = CardListModel(self)
         self._liked_mids: set[str] = set()
+        self._fav_pids: set[str] = set()
         self._loading_sections: set[str] = set()
         self._refresh_tasks: dict[str, asyncio.Task[None]] = {}
         self._error_message = ""
         self._liked_revision = 0
+        self._fav_playlists_revision = 0
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
 
     def prime_from_cache(self, account_key: str) -> None:
@@ -100,6 +104,10 @@ class LibraryController(QObject):
     @Property(int, notify=likedRevisionChanged)
     def likedRevision(self) -> int:
         return self._liked_revision
+
+    @Property(int, notify=favPlaylistsRevisionChanged)
+    def favPlaylistsRevision(self) -> int:
+        return self._fav_playlists_revision
 
     @Property(bool, notify=loadingChanged)
     def loading(self) -> bool:
@@ -204,6 +212,7 @@ class LibraryController(QObject):
             self._set_section_loading("favSonglists", False)
 
         self._fav_playlist_model.set_cards([playlist_to_card(item) for item in playlists])
+        self._set_fav_pids({item.pid for item in playlists if item.pid})
 
     @asyncSlot()
     async def refreshFavAlbums(self) -> None:
@@ -309,6 +318,61 @@ class LibraryController(QObject):
     def isLiked(self, mid: str) -> bool:
         return bool(mid) and mid in self._liked_mids
 
+    @Slot(str, result=bool)
+    def isPlaylistFaved(self, pid: str) -> bool:
+        return bool(pid) and pid in self._fav_pids
+
+    @Slot(str, result=bool)
+    def isMyPlaylist(self, pid: str) -> bool:
+        """pid 是否属于"我创建的歌单"(用于在详情页隐藏对自建歌单的收藏按钮)."""
+        return bool(pid) and any(card.get("id") == pid for card in self._playlist_model.cards())
+
+    @asyncSlot(str)
+    async def togglePlaylistFav(self, pid: str) -> None:
+        await self.toggle_playlist_fav_async(pid)
+
+    async def toggle_playlist_fav_async(self, pid: str) -> None:
+        pid = str(pid or "")
+        if not pid:
+            self._raise_error("无法收藏：歌单数据不完整")
+            return
+        if not self.authed:
+            self._raise_error("登录后才能收藏歌单")
+            return
+
+        faved = pid in self._fav_pids
+        self._set_section_loading("togglePlaylistFav", True)
+        self._set_error_message("")
+        try:
+            if faved:
+                ok = await self._service_controller.call_service(
+                    lambda service: service.unfav_songlist(pid),
+                    operation_name="unfav songlist",
+                )
+            else:
+                ok = await self._service_controller.call_service(
+                    lambda service: service.fav_songlist(pid),
+                    operation_name="fav songlist",
+                )
+        except Exception as exc:
+            self._raise_error(log_bridge_error(logger, f"toggle playlist fav failed: {pid}", exc))
+            return
+        finally:
+            self._set_section_loading("togglePlaylistFav", False)
+
+        if not ok:
+            self._raise_error("取消收藏失败" if faved else "收藏失败")
+            return
+
+        # 先翻转本地态让详情页按钮即时响应, 再从服务端重拉"我收藏的"列表对齐 model
+        if faved:
+            self._fav_pids.discard(pid)
+        else:
+            self._fav_pids.add(pid)
+        self._bump_fav_playlists_revision()
+        self.favPlaylistChanged.emit(pid, not faved)
+        await self.refresh_fav_songlists_async()
+
     @Slot()
     def _handle_auth_state_changed(self) -> None:
         self.authStateChanged.emit()
@@ -316,6 +380,7 @@ class LibraryController(QObject):
             self._set_liked_songs([])
             self._playlist_model.clear()
             self._fav_playlist_model.clear()
+            self._set_fav_pids(set())
             self._album_model.clear()
             self._artist_model.clear()
             if self._home_cache is not None:
@@ -355,6 +420,16 @@ class LibraryController(QObject):
     def _bump_liked_revision(self) -> None:
         self._liked_revision += 1
         self.likedRevisionChanged.emit()
+
+    def _set_fav_pids(self, pids: set[str]) -> None:
+        if pids == self._fav_pids:
+            return
+        self._fav_pids = pids
+        self._bump_fav_playlists_revision()
+
+    def _bump_fav_playlists_revision(self) -> None:
+        self._fav_playlists_revision += 1
+        self.favPlaylistsRevisionChanged.emit()
 
     async def _run_singleton_refresh(
         self,
