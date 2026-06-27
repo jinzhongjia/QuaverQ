@@ -21,6 +21,7 @@ from .models import (
 )
 from .mpris_controller import MprisController
 from .player_controller import PlayerController
+from .radar_controller import RadarController
 from .service_controller import ServiceController
 from .settings_controller import SettingsController, open_settings_ini
 from .song_detail_controller import SongDetailController
@@ -40,6 +41,7 @@ __all__ = [
     "LyricsDBusController",
     "MprisController",
     "PlayerController",
+    "RadarController",
     "ServiceController",
     "SettingsController",
     "open_settings_ini",

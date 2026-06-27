@@ -72,6 +72,7 @@ Rectangle {
                     { route: "home", label: qsTr("发现"), icon: "../icons/home.svg" },
                     { route: "search", label: qsTr("搜索"), icon: "../icons/search.svg" },
                     { route: "library", label: qsTr("资料库"), icon: "../icons/library.svg" },
+                    { route: "radar", label: qsTr("雷达"), icon: "../icons/radar.svg" },
                     { route: "downloads", label: qsTr("下载"), icon: "../icons/download.svg" }
                 ]
 
