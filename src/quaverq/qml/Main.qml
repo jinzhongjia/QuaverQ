@@ -1210,6 +1210,10 @@ ApplicationWindow {
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
     }
     Connections {
+        target: root.radarController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
         target: root.libraryController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
     }

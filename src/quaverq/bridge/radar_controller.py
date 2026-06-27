@@ -87,19 +87,15 @@ class RadarController(QObject):
     # ------------------------------------------------------------------ 拉取
     async def refresh_async(self) -> None:
         """重置推荐流并拉首页. 未登录则只立门槛, 不打网络."""
-        task = self._refresh_task
-        current = asyncio.current_task()
-        if task is not None and task is not current and not task.done():
-            await task
-            return
         if not self._service_controller.authed:
             self._set_requires_login(True)
             self._reset_stream()
             return
+        # set_loading 在首个 await 前同步置位, 单线程事件循环下并发 refresh 自然合并
+        if self._loading:
+            return
 
         self._set_requires_login(False)
-        if current is not None:
-            self._refresh_task = current
         self._set_loading(True)
         try:
             songs, has_more = await self._service_controller.call_service(
@@ -116,8 +112,6 @@ class RadarController(QObject):
             self.errorRaised.emit(message)
         finally:
             self._set_loading(False)
-            if self._refresh_task is current:
-                self._refresh_task = None
 
     async def load_next_page_async(self) -> list[Song]:
         """拉下一页追加到 radarModel; 返回去重后新增歌曲 (供续接复用)."""
