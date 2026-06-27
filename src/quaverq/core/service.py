@@ -22,6 +22,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from qqmusic_api import Client, Credential
 from qqmusic_api.core.exceptions import (
@@ -237,6 +238,11 @@ class QuaverService:
     _memo: dict[str, tuple[float, Any]] = field(default_factory=dict, init=False, repr=False)
     # 续命锁: 防并发刷新触发 refresh_token rotation (Gemini Code Review PR#1)
     _refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    # 音频 CDN 根地址 (get_cdn_dispatch 动态调度), 带 TTL; 失败回落 _CDN_FALLBACK_DOMAIN
+    _cdn_prefix: str = field(default="", init=False, repr=False)
+    _cdn_prefix_expiry: float = field(default=0.0, init=False, repr=False)
+    # CDN 调度锁: 冷启多首歌并发取流时只发一次调度 (其余等锁后命中缓存)
+    _cdn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     # 内存 cache 默认 TTL: 推荐数据每天/每小时换换, 10 分钟够
     _MEMO_TTL_SEC = 600
@@ -301,6 +307,14 @@ class QuaverService:
     }
     _DEFAULT_QUALITY = "balanced"
     _VKEY_REQUEST_TIMEOUT_SEC = 4
+    # 音频 CDN 兜底根地址: get_cdn_dispatch 不可用时回落 (与上游库 _SONG_URL_FALLBACK_DOMAIN 一致)
+    _CDN_FALLBACK_DOMAIN = "https://isure.stream.qqmusic.qq.com/"
+    # get_cdn_dispatch 未给 cache_time/expiration 时的默认缓存时长
+    _CDN_DISPATCH_DEFAULT_TTL_SEC = 1800
+    # 只取此域名族的 sip host: StreamProxy 的 SSRF 白名单只放行 .qqmusic.qq.com
+    # (见 bridge/stream_proxy.py _ALLOWED_HOST_SUFFIXES); dispatch 还会返 aqqmusic.tc.qq.com
+    # 等非该域名 host, 直接拼会被代理拒成 403 (实测), 而 stream 家族 host 的 vkey purl 全可用.
+    _CDN_HOST_SUFFIX = ".qqmusic.qq.com"
     # 反风控 U1/G2: curl_cffi 用官方浏览器 TLS 指纹 (JA3) + UA 发 musicu.fcg
     _IMPERSONATE = "chrome"
 
@@ -1029,6 +1043,66 @@ class QuaverService:
                 return True
         return False
 
+    @classmethod
+    def _pick_stream_host(cls, sip: list[str]) -> str:
+        """从 dispatch 的 sip 里挑第一个 .qqmusic.qq.com 族 host (StreamProxy 白名单内)."""
+        for raw in sip:
+            s = str(raw).strip()
+            if not s:
+                continue
+            host = (urlsplit(s if "://" in s else "https://" + s).hostname or "").lower()
+            if host.endswith(cls._CDN_HOST_SUFFIX):
+                return s
+        return ""
+
+    @staticmethod
+    def _normalize_cdn_host(raw: str) -> str:
+        """统一成 https + 单尾斜杠的根地址 (stream 拉流走 https JA3, 见 _try_bypass_urls)."""
+        host = raw.strip()
+        if host.startswith("http://"):
+            host = "https://" + host[len("http://") :]
+        elif not host.startswith("https://"):
+            host = "https://" + host
+        return host.rstrip("/") + "/"
+
+    async def _get_cdn_prefix(self) -> str:
+        """动态取音频 CDN 根地址 (get_cdn_dispatch), 带 TTL 缓存; 不可用时回落兜底域名.
+
+        bare-path purl 要拼一个 CDN host 才能播; 不再硬编码单一域名 —— 让服务端按当前
+        网络环境调度节点 (取 .qqmusic.qq.com 族, 见 _pick_stream_host), 按服务端给的
+        cache_time/expiration 缓存. 失败 / 无兼容 host / 未连接一律回落 _CDN_FALLBACK_DOMAIN,
+        保证永远有可拼的 host. _cdn_lock + 双检: 冷启多首歌并发取流时只发一次调度
+        (其余等锁后命中缓存); 缓存命中走锁前快路径, 不竞争锁.
+        """
+        fallback = self._cdn_prefix or self._CDN_FALLBACK_DOMAIN
+        now = time.monotonic()
+        if self._cdn_prefix and now < self._cdn_prefix_expiry:
+            return self._cdn_prefix
+        if self._client is None:
+            return fallback
+        async with self._cdn_lock:
+            # 双检: 等锁期间别的协程可能已调度成功, 直接命中缓存不再重发
+            now = time.monotonic()
+            if self._cdn_prefix and now < self._cdn_prefix_expiry:
+                return self._cdn_prefix
+            try:
+                resp = await self.client.song.get_cdn_dispatch()
+            except Exception as exc:
+                logger.warning("get_cdn_dispatch 失败, 回落兜底域名: %s", exc)
+                return fallback
+            host = self._pick_stream_host(resp.sip)
+            if not host:
+                logger.warning("get_cdn_dispatch 无兼容 CDN host, 回落兜底域名")
+                return fallback
+            ttl = min(
+                (t for t in (resp.cache_time, resp.expiration) if t > 0),
+                default=self._CDN_DISPATCH_DEFAULT_TTL_SEC,
+            )
+            self._cdn_prefix = self._normalize_cdn_host(host)
+            self._cdn_prefix_expiry = now + ttl
+            logger.info("音频 CDN 调度命中: %s", self._cdn_prefix)
+            return self._cdn_prefix
+
     async def _try_bypass_urls(
         self,
         mid: str,
@@ -1112,6 +1186,7 @@ class QuaverService:
             )
             return results
 
+        cdn_prefix: str | None = None  # 按需取 (仅 bare purl 需要), 整批共用一次调度
         for label, filename, entry in pairs:
             if entry is None:
                 continue
@@ -1139,13 +1214,16 @@ class QuaverService:
             # 指纹会被 CDN 风控 (https→401/403)，故不让它直连；明文只在本机回环。
             # purl 有两种形态: 多数是裸路径 (F000xxx.flac?vkey=...), 个别直接返完整
             # URL (含 ws6 等 host)。完整 URL 必须原样用 (http 升 https 走 JA3),
-            # 无脑拼 isure 前缀会拼出 .../http://ws6... 垃圾 URL → CDN 401 (实测偶发主因)。
+            # 无脑拼 CDN 前缀会拼出 .../http://ws6... 垃圾 URL → CDN 401 (实测偶发主因)。
+            # 裸路径才拼 host, 走 get_cdn_dispatch 动态调度 (不再硬编码单一域名)。
             if purl.startswith("https://"):
                 full_url = purl
             elif purl.startswith("http://"):
                 full_url = "https://" + purl[len("http://") :]
             else:
-                full_url = f"https://isure.stream.qqmusic.qq.com/{purl}"
+                if cdn_prefix is None:
+                    cdn_prefix = await self._get_cdn_prefix()
+                full_url = f"{cdn_prefix}{purl}"
             results[label] = (full_url, None)
         return results
 
