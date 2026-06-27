@@ -286,6 +286,35 @@ async def test_refresh_fav_songlists_clears_when_logged_out():
     assert controller.favPlaylistModel.count == 0
 
 
+async def test_refresh_fav_songlists_if_needed_fetches_once_then_skips():
+    service = _FakeLibraryService()
+    calls = 0
+    original = service.get_fav_songlist
+
+    async def counting_get_fav_songlist() -> list[Playlist]:
+        nonlocal calls
+        calls += 1
+        return await original()
+
+    service.get_fav_songlist = counting_get_fav_songlist  # type: ignore[method-assign]
+    service_controller = ServiceController(service=service)  # type: ignore[arg-type]
+    controller = LibraryController(service_controller)
+
+    await controller.refreshFavSonglistsIfNeeded()
+    await controller.refreshFavSonglistsIfNeeded()
+
+    assert calls == 1
+    assert controller.isPlaylistFaved("fp1") is True
+
+    # 登出重置 loaded 标志 (登出分支提前 return, 不会起 liked 刷新任务)
+    service.is_authenticated = False
+    service_controller.authStateChanged.emit()
+    # 重新认证后再次进入详情页, 因标志已重置应重新拉取
+    service.is_authenticated = True
+    await controller.refreshFavSonglistsIfNeeded()
+    assert calls == 2
+
+
 async def test_refresh_fav_songlists_populates_faved_lookup():
     service = _FakeLibraryService()
     service_controller = ServiceController(service=service)  # type: ignore[arg-type]

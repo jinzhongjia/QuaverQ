@@ -67,6 +67,7 @@ class LibraryController(QObject):
         self._error_message = ""
         self._liked_revision = 0
         self._fav_playlists_revision = 0
+        self._fav_songlists_loaded = False
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
 
     def prime_from_cache(self, account_key: str) -> None:
@@ -188,6 +189,13 @@ class LibraryController(QObject):
     async def refreshFavSonglists(self) -> None:
         await self.refresh_fav_songlists_async()
 
+    @asyncSlot()
+    async def refreshFavSonglistsIfNeeded(self) -> None:
+        """仅在尚未加载过时拉取 (详情页进入用): 避免频繁切歌单页重复打接口触发风控."""
+        if self._fav_songlists_loaded:
+            return
+        await self.refresh_fav_songlists_async()
+
     async def refresh_fav_songlists_async(self) -> None:
         await self._run_singleton_refresh("favSonglists", self._refresh_fav_songlists_impl)
 
@@ -212,7 +220,9 @@ class LibraryController(QObject):
             self._set_section_loading("favSonglists", False)
 
         self._fav_playlist_model.set_cards([playlist_to_card(item) for item in playlists])
-        self._set_fav_pids({item.pid for item in playlists if item.pid})
+        # pid 统一存 str: QML / isPlaylistFaved 均传 str, 避免 int/str 不匹配致收藏态恒为 False
+        self._set_fav_pids({str(item.pid) for item in playlists if item.pid})
+        self._fav_songlists_loaded = True
 
     @asyncSlot()
     async def refreshFavAlbums(self) -> None:
@@ -325,7 +335,9 @@ class LibraryController(QObject):
     @Slot(str, result=bool)
     def isMyPlaylist(self, pid: str) -> bool:
         """pid 是否属于"我创建的歌单"(用于在详情页隐藏对自建歌单的收藏按钮)."""
-        return bool(pid) and any(card.get("id") == pid for card in self._playlist_model.cards())
+        return bool(pid) and any(
+            str(card.get("id") or "") == pid for card in self._playlist_model.cards()
+        )
 
     @asyncSlot(str)
     async def togglePlaylistFav(self, pid: str) -> None:
@@ -381,6 +393,7 @@ class LibraryController(QObject):
             self._playlist_model.clear()
             self._fav_playlist_model.clear()
             self._set_fav_pids(set())
+            self._fav_songlists_loaded = False
             self._album_model.clear()
             self._artist_model.clear()
             if self._home_cache is not None:

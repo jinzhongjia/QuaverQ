@@ -95,9 +95,10 @@ ColumnLayout {
             root.detailController = root.detailControllerFactory.create(root)
         }
         root.loadDetail()
-        // 确保"我收藏的歌单"已加载, 收藏按钮态 (isPlaylistFaved) 才准确
+        // 确保"我收藏的歌单"已加载, 收藏按钮态 (isPlaylistFaved) 才准确;
+        // IfNeeded: 已加载则不重复打接口, 防频繁切歌单页触发风控
         if (root.detailKind === "playlist" && root.libraryController && root.libraryController.authed)
-            root.libraryController.refreshFavSonglists()
+            root.libraryController.refreshFavSonglistsIfNeeded()
     }
 
     onCurrentTabChanged: root._ensureSingerTabLoaded(root.currentTab)
