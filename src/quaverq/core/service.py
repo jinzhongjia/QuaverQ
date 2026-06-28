@@ -988,10 +988,16 @@ class QuaverService:
         *,
         require_login: bool = False,
         timeout: float = 10,
+        raise_on_error: bool = False,
     ) -> dict[str, Any] | None:
         """通用 musicu.fcg POST: 用 self._ct_value 跳过库默认 ct=11 的降级响应.
 
         返回 req_0.data 字典 (失败/无登录时 None).
+
+        raise_on_error: 传输层异常 (curl 超时 / 断网 / DNS 抖动) 是否上抛. 默认吞成
+        None (首页/歌词等 best-effort 路径容忍缺数据). 取播放链 (vkey) 必须传 True ——
+        播放层要靠"raise=网络问题 vs None=服务端拒发(104003 灰歌)"区分该停还是该跳,
+        吞成 None 会把可播歌误判不可播逐首跳光 (见 _try_bypass_urls 调用点注释).
         """
         cred = self._effective_credential()
         if require_login and (cred is None or not cred.musickey):
@@ -1023,6 +1029,8 @@ class QuaverService:
             data = await asyncio.to_thread(_do)
         except Exception as exc:
             logger.warning("bypass %s.%s 请求异常: %s", module, method, exc)
+            if raise_on_error:
+                raise
             return None
 
         if require_login and self._payload_indicates_credential_expired(data):
@@ -1141,6 +1149,9 @@ class QuaverService:
             },
             require_login=True,
             timeout=self._VKEY_REQUEST_TIMEOUT_SEC,
+            # 传输层异常上抛: get_song_url → 播放层据此停住报错而非自动跳过. 服务端
+            # 拒发档 (purl 空 + 104003) 仍正常返回 (None, 码), 该跳的灰歌照跳.
+            raise_on_error=True,
         )
         if not data:
             logger.debug("vkey 空响应: mid=%s labels=%s", mid, list(quality_labels))

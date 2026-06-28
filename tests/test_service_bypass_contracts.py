@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import pytest
 from qqmusic_api import Credential
 
 from quaverq.core.service import QuaverService
@@ -157,6 +158,21 @@ async def test_get_song_url_warning_carries_vkey_result(caplog):
 
     assert result is None
     assert any("104003" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_vkey_transport_error_propagates_not_swallowed(monkeypatch):
+    # curl (28) 超时等传输层异常: vkey 取链必须向上抛, 不能吞成 None. 否则播放层
+    # 无法区分"网络抖动"和"服务端拒发 (104003 灰歌)", 会把可播歌误判不可播自动跳过
+    # —— 实测断网/DNS 抖动时整个队列被逐首跳光. 与服务端拒发 (返 None) 严格区分,
+    # 见 test_bridge_player_controller.test_network_exception_stops_without_skipping.
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("curl: (28) Resolving timed out after 4001 milliseconds")
+
+    monkeypatch.setattr("curl_cffi.requests.post", boom)
+
+    svc = _svc()
+    with pytest.raises(RuntimeError):
+        await svc._try_bypass_urls("abc", ("MP3_128",))
 
 
 # ------------------------------------------------------------------ 排行榜详情
