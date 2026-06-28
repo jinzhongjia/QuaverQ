@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 from quaverq.bridge.player_controller import PlayerController
 from quaverq.bridge.radar_controller import RadarController
@@ -25,9 +26,10 @@ def _song(mid: str, name: str = "") -> Song:
 class _FakeRadarService:
     """最底层 service mock: 按调用顺序吐 (songs, has_more) 页, 记录 page 入参."""
 
-    def __init__(self, pages: list[tuple[list[Song], bool]]) -> None:
+    def __init__(self, pages: list[tuple[list[Song], bool]], *, musicid: str = "111") -> None:
         self.connected = False
         self.is_authenticated = True
+        self.musicid = musicid  # 改它即模拟切换账号 (ServiceController.account_key 据此哈希)
         self._pages = list(pages)
         self.calls: list[int] = []
 
@@ -36,6 +38,11 @@ class _FakeRadarService:
 
     async def disconnect(self) -> None:
         self.connected = False
+
+    def _effective_credential(self):
+        if not self.is_authenticated:
+            return None
+        return SimpleNamespace(musicid=self.musicid)
 
     async def get_radar_recommend(self, *, page: int = 1) -> tuple[list[Song], bool]:
         self.calls.append(page)
@@ -50,6 +57,23 @@ class _FakeRadarService:
 class _BoomRadarService(_FakeRadarService):
     async def get_radar_recommend(self, *, page: int = 1) -> tuple[list[Song], bool]:
         raise RuntimeError("radar boom")
+
+
+class _GatedRadarService(_FakeRadarService):
+    """可阻塞指定页的请求, 用于构造并发 / 迟到响应竞态."""
+
+    def __init__(self, pages: list[tuple[list[Song], bool]], *, gate_page: int) -> None:
+        super().__init__(pages)
+        self._gate_page = gate_page
+        self.gate = asyncio.Event()
+
+    async def get_radar_recommend(self, *, page: int = 1) -> tuple[list[Song], bool]:
+        self.calls.append(page)
+        if page == self._gate_page:
+            await self.gate.wait()
+        if not self._pages:
+            return [], False
+        return self._pages.pop(0)
 
 
 def _wire(
@@ -176,3 +200,93 @@ async def test_logout_clears_stream():
     assert radar.radarRequiresLogin is True
     assert radar.radarModel.count == 0
     assert radar.hasMore is False
+
+
+async def test_concurrent_next_page_and_extend_share_one_request():
+    """滚动加载下一页与队列耗尽续接并发: 应合并成一次请求, 两者拿到同一批结果.
+
+    回归 (PR #35 review): 旧实现里 extend 撞上 _loading=True 会拿到空列表 ->
+    队列不续接 -> 自动续播静默失败.
+    """
+    service = _GatedRadarService(
+        [([_song("a1"), _song("a2")], True), ([_song("b1"), _song("b2")], True)],
+        gate_page=2,
+    )
+    _, player, radar = _wire(service)
+    await radar.refresh_async()
+    await player.play_from_model_async(radar.radarModel, 0, source="radar")
+
+    t_scroll = asyncio.create_task(radar.load_next_page_async())
+    await asyncio.sleep(0)  # 让滚动加载进入 page 2 的 gate 等待
+    t_extend = asyncio.create_task(radar._extend_async())  # noqa: SLF001
+    await asyncio.sleep(0)  # 让 extend 进入 await(合并到滚动任务)
+    service.gate.set()
+
+    fresh_scroll = await t_scroll
+    added_extend = await t_extend
+
+    assert [s.mid for s in fresh_scroll] == ["b1", "b2"]
+    assert [s.mid for s in added_extend] == ["b1", "b2"]
+    assert service.calls.count(2) == 1  # 合并: page 2 只请求一次
+    assert player.queueModel.count == 4  # 队列被续接, 不再静默失败
+
+
+async def test_late_response_after_logout_is_discarded():
+    """refresh 在途时用户登出: 迟到的响应不得污染已清空的 model (竞态保护).
+
+    回归 (PR #35 review).
+    """
+    service = _GatedRadarService([([_song("a1"), _song("a2")], True)], gate_page=1)
+    _, _, radar = _wire(service)
+
+    t = asyncio.create_task(radar.refresh_async())
+    await asyncio.sleep(0)  # refresh 进入 page 1 的 gate 等待
+    service.is_authenticated = False
+    radar._handle_auth_state_changed()  # noqa: SLF001 -> 登出, 清空 model
+    service.gate.set()
+    await t  # 迟到响应返回
+
+    assert radar.radarModel.count == 0  # 被丢弃, 未 repopulate
+    assert radar.radarRequiresLogin is True
+
+
+async def test_late_response_after_account_switch_is_discarded():
+    """账号 A 的 refresh 在途时切到账号 B (authed->authed): A 的结果不得填进 B 的 model.
+
+    回归 (PR #35 review 边角): 仅靠 authed 重查挡不住换号, 需 account_key 代际校验.
+    """
+    service = _GatedRadarService([([_song("a1"), _song("a2")], True)], gate_page=1)
+    service.musicid = "AAA"
+    _, _, radar = _wire(service)
+
+    t = asyncio.create_task(radar.refresh_async())
+    await asyncio.sleep(0)  # 账号 A 的 refresh 进入 gate
+    service.musicid = "BBB"  # 切到账号 B, 仍登录
+    service.gate.set()
+    await t  # A 的迟到响应返回
+
+    assert radar.radarModel.count == 0  # account_key 不匹配 -> 丢弃, 不污染 B
+
+
+async def test_account_switch_via_auth_handler_resets_and_reloads():
+    """切号事件 (authStateChanged, authed->authed): 立即清旧账号流并自动重载新账号."""
+    service = _FakeRadarService(
+        [([_song("a1")], True), ([_song("b1"), _song("b2")], True)], musicid="AAA"
+    )
+    _, _, radar = _wire(service)
+    await radar.refresh_async()  # 账号 A: [a1]
+    assert radar.radarModel.count == 1
+
+    service.musicid = "BBB"  # 切账号
+    radar._handle_auth_state_changed()  # noqa: SLF001 -> 同步清旧流 + 调度新 refresh
+    assert radar.radarModel.count == 0  # A 的内容立即清掉
+
+    for _ in range(5):
+        await asyncio.sleep(0)
+        if radar._refresh_task and radar._refresh_task.done():  # noqa: SLF001
+            break
+    if radar._refresh_task is not None:  # noqa: SLF001
+        await radar._refresh_task  # noqa: SLF001
+
+    mids = [radar.radarModel.songAt(i)["mid"] for i in range(radar.radarModel.count)]
+    assert mids == ["b1", "b2"]  # 自动加载了账号 B 的推荐

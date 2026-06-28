@@ -52,7 +52,9 @@ class RadarController(QObject):
         self._loading = False
         self._requires_login = False
         self._seen: set[str] = set()
+        self._account_key = ""  # 当前流所属账号; 切号时迟到响应据此丢弃 (generation token)
         self._refresh_task: asyncio.Task[None] | None = None
+        self._load_next_page_task: asyncio.Task[list[Song]] | None = None
         self._extend_task: asyncio.Task[list[Song]] | None = None
         self._service_controller.authStateChanged.connect(self._handle_auth_state_changed)
         if self._player_controller is not None:
@@ -96,12 +98,16 @@ class RadarController(QObject):
             return
 
         self._set_requires_login(False)
+        key = self._service_controller.account_key()
         self._set_loading(True)
         try:
             songs, has_more = await self._service_controller.call_service(
                 lambda service: service.get_radar_recommend(page=1),
                 operation_name="radar recommend",
             )
+            if not self._service_controller.authed or self._service_controller.account_key() != key:
+                return  # 登出 / 切账号: 丢弃迟到响应, 不污染已清空 (或属于别的账号) 的 model
+            self._account_key = key
             self._page = 1
             self._seen = {s.mid for s in songs if s.mid}
             self._set_has_more(has_more)
@@ -114,10 +120,24 @@ class RadarController(QObject):
             self._set_loading(False)
 
     async def load_next_page_async(self) -> list[Song]:
-        """拉下一页追加到 radarModel; 返回去重后新增歌曲 (供续接复用)."""
-        if self._loading or not self._has_more or not self._service_controller.authed:
+        """拉下一页追加到 radarModel; 返回去重后新增歌曲 (供续接复用).
+
+        并发合并: 滚动加载与队列耗尽续接 (_extend_async) 可能同时触发, 后到者直接
+        await 在途任务拿同一批结果, 否则续接会因 _loading=True 拿到空列表而静默失败.
+        """
+        if not self._has_more or not self._service_controller.authed:
             return []
+        task = self._load_next_page_task
+        current = asyncio.current_task()
+        if task is not None and task is not current and not task.done():
+            return await task
+        if self._loading:  # 刷新在途 -> 不并发翻页
+            return []
+
         next_page = self._page + 1
+        key = self._service_controller.account_key()
+        if current is not None:
+            self._load_next_page_task = current
         self._set_loading(True)
         try:
             songs, has_more = await self._service_controller.call_service(
@@ -130,7 +150,11 @@ class RadarController(QObject):
             return []
         finally:
             self._set_loading(False)
+            if self._load_next_page_task is current:
+                self._load_next_page_task = None
 
+        if not self._service_controller.authed or self._service_controller.account_key() != key:
+            return []  # 登出 / 切账号: 丢弃迟到响应
         self._page = next_page
         self._set_has_more(has_more)
         fresh = [s for s in songs if s.mid and s.mid not in self._seen]
@@ -145,6 +169,9 @@ class RadarController(QObject):
     def _handle_auth_state_changed(self) -> None:
         if self._service_controller.authed:
             self._set_requires_login(False)
+            # 切换账号 (authed->authed 换 musicid): 先清掉上个账号的流, 避免旧推荐残留
+            if self._service_controller.account_key() != self._account_key:
+                self._reset_stream()
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -182,6 +209,7 @@ class RadarController(QObject):
     def _reset_stream(self) -> None:
         self._page = 0
         self._seen = set()
+        self._account_key = ""
         self._radar_model.clear()
         self.radarModelChanged.emit()
         self._set_has_more(False)
