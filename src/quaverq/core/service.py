@@ -1436,6 +1436,28 @@ class QuaverService:
         self._memo_put(cache_key, out)
         return out[:limit]
 
+    async def get_radar_recommend(self, *, page: int = 1) -> tuple[list[Song], bool]:
+        """雷达推荐 (个性化分页流). 返回 (本页歌曲, 是否还有下一页).
+
+        需登录态 (client 全局凭据自动携带, **不传 credential=**, 库不接受该参数).
+        不缓存: 推荐流每次刷新都变, 不走 memo / 磁盘. 分页游标由上层 controller 管.
+        """
+        try:
+            resp = await self.client.recommend.get_radar_recommend(page=page)
+        except Exception as exc:
+            logger.warning("get_radar_recommend 失败: %s", exc)
+            return [], False
+
+        out: list[Song] = []
+        seen: set[str] = set()
+        for raw in getattr(resp, "songs", None) or []:
+            song = self._to_song(raw)
+            if not song.mid or song.mid in seen:
+                continue
+            seen.add(song.mid)
+            out.append(song)
+        return out, bool(getattr(resp, "has_more", False))
+
     async def get_hot_search(self, *, limit: int = 12) -> list[str]:
         """热搜词 (vec_hotkey 抽 query). 10 分钟内存 cache, 去重."""
         cached = self._memo_get("hot_search")

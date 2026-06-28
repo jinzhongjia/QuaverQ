@@ -33,6 +33,7 @@ ApplicationWindow {
     readonly property var appController: AppController
     readonly property var coverController: CoverController
     readonly property var homeController: HomeController
+    readonly property var radarController: RadarController
     readonly property var detailControllerFactory: DetailControllerFactory
     readonly property var songDetailController: SongDetailController
     readonly property var serviceController: ServiceController
@@ -142,6 +143,8 @@ ApplicationWindow {
             return qsTr("设置")
         case "downloads":
             return qsTr("下载")
+        case "radar":
+            return qsTr("雷达")
         case "detail":
             return root.currentDetailTitle.length > 0 ? root.currentDetailTitle : qsTr("详情")
         default:
@@ -173,6 +176,8 @@ ApplicationWindow {
             root.resetContent(settingsPageComponent, "settings")
         } else if (route === "downloads") {
             root.resetContent(downloadsPageComponent, "downloads")
+        } else if (route === "radar") {
+            root.resetContent(radarPageComponent, "radar")
         } else {
             root.resetContent(searchPageComponent, "search")
         }
@@ -1009,6 +1014,23 @@ ApplicationWindow {
         }
     }
 
+    Component {
+        id: radarPageComponent
+
+        Views.RadarView {
+            radarController: root.radarController
+            coverController: root.coverController
+            playerController: root.playerController
+            libraryController: root.libraryController
+            songDetailController: root.songDetailController
+            downloadController: root.downloadController
+            onLoginRequested: loginDialog.open()
+            onDetailRequested: function(kind, detailId, title, subtitle, coverUrl) {
+                root.pushDetail(kind, detailId, title, subtitle, coverUrl)
+            }
+        }
+    }
+
     // 正在播放沉浸浮层: 盖侧栏 + 内容区 (z=5, 低于 QueuePanel 的 z=10), 顶栏与播放栏保持可见.
     // 首次打开后常驻 (everOpened 闩锁): active 绑 nowPlayingOpen 会在收起瞬间销毁 item,
     // 滑出动画就没有宿主可播; 常驻也保住歌词滚动位置等页内状态.
@@ -1185,6 +1207,10 @@ ApplicationWindow {
     }
     Connections {
         target: root.homeController
+        function onErrorRaised(message) { globalSnackbar.show(message, "error") }
+    }
+    Connections {
+        target: root.radarController
         function onErrorRaised(message) { globalSnackbar.show(message, "error") }
     }
     Connections {

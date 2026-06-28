@@ -27,6 +27,7 @@ from .bridge import (
     LibraryController,
     LyricController,
     PlayerController,
+    RadarController,
     ServiceController,
     SettingsController,
     SongDetailController,
@@ -437,6 +438,12 @@ def main() -> None:
         home_cache=home_cache,
         player_controller=player_controller,
     )
+    # 雷达推荐: 个性化推荐流独立页 (不缓存, 不进 prime 链路). 登录态变化自动刷新 / 清流;
+    # 队列耗尽且 source=="radar" 时续接下一页.
+    radar_controller = RadarController(
+        service_controller,
+        player_controller=player_controller,
+    )
     lyric_controller = LyricController(
         service_controller,
         player_controller,
@@ -460,6 +467,7 @@ def main() -> None:
     engine.rootContext().setContextProperty("AppController", app_controller)
     engine.rootContext().setContextProperty("CoverController", cover_controller)
     engine.rootContext().setContextProperty("HomeController", home_controller)
+    engine.rootContext().setContextProperty("RadarController", radar_controller)
     engine.rootContext().setContextProperty("DetailControllerFactory", detail_controller_factory)
     engine.rootContext().setContextProperty("SongDetailController", song_detail_controller)
     engine.rootContext().setContextProperty("ServiceController", service_controller)
