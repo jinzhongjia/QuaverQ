@@ -132,6 +132,37 @@ def test_default_multimedia_probe_finds_plugins_via_library_paths(tmp_path, monk
     assert diagnostics._default_multimedia_probe() is True
 
 
+def test_default_multimedia_probe_skips_inaccessible_candidate(tmp_path, monkeypatch) -> None:
+    """一个候选路径访问抛 OSError (受限 / 系统目录) 不该拖垮整个 probe: 跳过它继续查
+    后面的候选, 只有全部候选都无有效 multimedia 才算缺失 (PR #37 review: 单坏路径
+    否则会被 _safe 吞成 False -> 误判后端缺失 critical 退出).
+    """
+    import pathlib
+
+    from PySide6.QtCore import QCoreApplication, QLibraryInfo
+
+    bad = tmp_path / "restricted"  # is_dir() 抛 PermissionError
+    good = tmp_path / "ok"
+    (good / "multimedia").mkdir(parents=True)
+    (good / "multimedia" / "ffmpegmediaplugin.dll").write_bytes(b"placeholder")
+
+    real_is_dir = pathlib.Path.is_dir
+
+    def flaky_is_dir(self: pathlib.Path) -> bool:
+        if str(self).startswith(str(bad)):
+            raise PermissionError("access denied")
+        return real_is_dir(self)
+
+    monkeypatch.setattr(pathlib.Path, "is_dir", flaky_is_dir)
+    monkeypatch.setattr(QLibraryInfo, "path", staticmethod(lambda _kind: str(tmp_path / "none")))
+    monkeypatch.setattr(
+        QCoreApplication, "libraryPaths", staticmethod(lambda: [str(bad), str(good)])
+    )
+
+    # bad 在前且会抛 -> 必须被跳过, good 里的插件仍要被找到
+    assert diagnostics._default_multimedia_probe() is True
+
+
 def test_include_dbus_false_skips_dbus_check() -> None:
     """Windows / macOS 调用方传 include_dbus=False 时不该跑 dbus check (D-Bus 在这些平台不适用)."""
     results = diagnostics.run_diagnostics(

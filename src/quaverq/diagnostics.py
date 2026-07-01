@@ -76,8 +76,15 @@ def _default_multimedia_probe() -> bool:
             continue
         seen.add(base)
         multimedia_dir = base / "multimedia"
-        if multimedia_dir.is_dir() and any(multimedia_dir.iterdir()):
-            return True
+        # 单个候选目录不可访问 (受限 / 系统目录 -> PermissionError, 或其他 OSError)
+        # 时只跳过它继续查下一个, 不能让一个坏路径把整个 probe 拖成 False (会被 _safe
+        # 吞成"后端缺失" critical 退出). is_dir() 对 EACCES 会 re-raise (不在 pathlib
+        # 的忽略 errno 列表里), 必须显式 except.
+        try:
+            if multimedia_dir.is_dir() and any(multimedia_dir.iterdir()):
+                return True
+        except OSError:
+            continue
     return False
 
 
