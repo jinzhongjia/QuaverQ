@@ -25,9 +25,9 @@ classifiers = [
 # 跨平台依赖.
 # Linux-only 项用 sys_platform marker 隔离, Windows / macOS 装包时自动跳过.
 dependencies = [
-    # 临时 git pin: 暂指向 fork 的收藏歌单 PR 分支 (L-1124/QQMusicApi#281, fav_songlist/unfav_songlist);
-    # 上游合并后切回 L-1124/QQMusicApi.git@<merge-commit>, 再发布后切回 PyPI 版本锁.
-    "qqmusic-api-python @ git+https://github.com/jinzhongjia/QQMusicApi.git@88afcf9cab879ffb37b0f21f45669d645f699c5c",
+    # 收藏歌单 API (fav_songlist/unfav_songlist, 原 L-1124/QQMusicApi#281) 已随 v0.6.8 上游发布,
+    # 切回 PyPI 版本锁. 注意 0.6.x 补丁版间有破坏性变更, 由 uv.lock 锁定具体版本.
+    "qqmusic-api-python>=0.6.8",
     "tomli-w>=1.0",
     "platformdirs>=4.0",     # 跨平台 config / cache 目录解析
     "keyring>=24.0",         # 跨平台凭据存储 (Linux Secret Service / Win Credential Manager / macOS Keychain)
@@ -105,11 +105,6 @@ quaverq = "quaverq.__main__:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-# qqmusic-api-python 临时 git pin (见 dependencies 注释) 需要 direct reference;
-# 切回 PyPI 版本锁后可一并移除.
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quaverq"]
