@@ -29,7 +29,13 @@
 
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- AllowSameVersionUpgrades=yes: 发布前版本一直是 0.1.0, 每次重打 MSI 走同版本
+         重装. 默认 (no) 时同版本不算"更旧" -> MajorUpgrade 不移除旧产品 -> 并存安装,
+         且同版本文件 Windows Installer 默认不覆盖 -> 装了新 MSI 磁盘上还是旧 exe
+         (排查过的坑: 装完自检还是旧行为, 以为没修好其实根本没换文件). 设 yes 让同版本
+         重装也整体卸旧装新. WiX 会报 ICE61 警告 (预期), 不影响功能. -->
     <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
         Schedule="afterInstallInitialize"
         DowngradeErrorMessage="已安装的 QuaverQ 版本比当前要装的更新, 请先卸载现有版本." />
 

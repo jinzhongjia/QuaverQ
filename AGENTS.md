@@ -167,7 +167,7 @@ LLM 约定：
 **通用 Nuitka 配置 (`src/quaverq/packaging.py`)**:
 - **Python 3.13 不要 3.14**: Nuitka 4.1.2 对 3.14 标 experimental, 启动期刷 warning. `uv python pin 3.13` 一劳永逸.
 - **入口必须在包外**: 直接 `-m src/quaverq` 启动会让 `quaverq.__main__` 同时是"主程序"又是 `--include-package=quaverq` 子模块, Nuitka 去重打 INFO 警告刷屏. 用 `src/quaverq_entry.py` 包外 shim 调 `from quaverq.__main__ import main`. **副作用**: dist 目录名跟随入口名, 变 `quaverq_entry.dist` (不是 `quaverq.dist`), `build_*` 路径要用统一常量 `_NUITKA_DIST_DIRNAME`.
-- **`--include-qt-plugins=multimedia` 必带**: Nuitka 的 `sensible` 默认集**不含** QtMultimedia 后端插件, 不显式加, Windows 上启动报 "No QtMultimedia backends found" 不能播放. 自检 `_default_multimedia_probe` 不只 `import` 模块, 还查 `QLibraryInfo.PluginsPath/multimedia/` 真有插件文件, 防再误报 OK.
+- **`--include-qt-plugins=multimedia` 必带**: Nuitka 的 `sensible` 默认集**不含** QtMultimedia 后端插件, 不显式加, Windows 上启动报 "No QtMultimedia backends found" 不能播放. 自检 `_default_multimedia_probe` 不只 `import` 模块, 还查后端插件目录真有插件文件, 防再误报 OK. ⚠️ **检后端目录必须遍历 `QCoreApplication.libraryPaths()`, 不能只查 `QLibraryInfo.PluginsPath`**: Nuitka standalone 把 Qt 插件从 wheel 的 `PySide6/plugins` 重定位到 `PySide6/qt-plugins` 并用 `addLibraryPath` 注入运行时检索路径, 而 `QLibraryInfo.PluginsPath` 仍报那个**已不存在**的 `PySide6/plugins` —— 只查它会在打包产物里假阴性, 把插件其实齐全的可用包当成"后端缺失" critical 退出 (现象: 双击 / 终端跑 exe 都瞬间闪退无窗口, 且 `--windows-console-mode=disable` 吞掉 stderr 难排查). `uv run` 用完整 wheel (`PySide6/plugins` 在) 所以开发态正常, 掩盖了此假阴性. 见 `diagnostics._default_multimedia_probe`.
 - **`--windows-console-mode=disable`**: GUI 应用必加, 否则双击 exe 启动会弹黑色 cmd 窗口.
 - **`--include-windows-runtime-dlls=yes` 显式声明**: 默认行为是带 VC++ runtime (`vcruntime140.dll` 等), 显式声明只是消掉 Nuitka 提示. 保留 = 没装 VC++ Redist 的机器也能跑 portable. 不要 `=no` 否则部分用户启动直接缺 dll 崩.
 - **`--remove-output`**: 编译成功后清掉 `.build` 中间目录 (500MB-1GB 的 .o 文件), 只留 `.dist` 产物.

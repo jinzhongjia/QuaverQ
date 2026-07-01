@@ -42,27 +42,50 @@ def _safe(probe: Probe) -> bool:
 
 
 def _default_multimedia_probe() -> bool:
-    """检 ``PySide6.QtMultimedia`` 能 import **且** 后端插件目录非空.
+    """检 ``PySide6.QtMultimedia`` 能 import **且** Qt 实际搜索的插件路径下 ``multimedia/`` 非空.
 
     Nuitka 打包时如果漏带 ``--include-qt-plugins=multimedia``, 模块本身能 import
     (.pyd 在), 但运行时 ``QMediaPlayer`` 找不到 FFmpeg / WMF 等后端插件, 启动报
-    "No QtMultimedia backends found" 不能播放. 仅检 import 会误报 OK,
-    所以这里还要确认 ``<Qt 插件目录>/multimedia/`` 真的有插件文件.
+    "No QtMultimedia backends found" 不能播放. 仅检 import 会误报 OK, 所以还要确认
+    ``<Qt 插件目录>/multimedia/`` 真的有插件文件.
+
+    **不能只查 ``QLibraryInfo.PluginsPath``**: Nuitka standalone 把 Qt 插件从 wheel 的
+    ``PySide6/plugins`` 重定位到 ``PySide6/qt-plugins`` 并注入 ``QCoreApplication.
+    libraryPaths()`` 供 Qt 运行时检索, 但 ``QLibraryInfo.PluginsPath`` 仍报那个已不
+    存在的 ``PySide6/plugins`` —— 只查它会在打包产物里**假阴性**, 把插件其实齐全的
+    可用包当成"后端缺失"直接 critical 退出 (现象: 双击 exe / 终端跑都无反应即闪退).
+    改为遍历 Qt 真正搜索的所有 library path (覆盖 dev wheel + Nuitka bundle 两种布局),
+    任一含非空 ``multimedia/`` 即算后端就绪; 全空才算真缺失.
     """
     import importlib
     from pathlib import Path
 
     importlib.import_module("PySide6.QtMultimedia")
-    from PySide6.QtCore import QLibraryInfo
+    from PySide6.QtCore import QCoreApplication, QLibraryInfo
 
-    plugins_dir = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath))
-    # pathlib 风格
-    multimedia_dir = plugins_dir / "multimedia"
-    if not multimedia_dir.is_dir():
-        return False
-    # 至少一个后端插件 (Windows: ffmpegmediaplugin.dll / qtwmfmediaplugin.dll;
-    # Linux: libgstreamermediaplugin.so / libffmpegmediaplugin.so 等)
-    return any(multimedia_dir.iterdir())
+    # PluginsPath (dev wheel 布局正确) + libraryPaths (Nuitka 注入 qt-plugins);
+    # 去重后逐个看 multimedia/ 子目录. 至少一个后端插件 (Windows:
+    # ffmpegmediaplugin.dll / windowsmediaplugin.dll; Linux: libffmpegmediaplugin.so 等).
+    candidates = [
+        Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)),
+        *(Path(p) for p in QCoreApplication.libraryPaths()),
+    ]
+    seen: set[Path] = set()
+    for base in candidates:
+        if base in seen:
+            continue
+        seen.add(base)
+        multimedia_dir = base / "multimedia"
+        # 单个候选目录不可访问 (受限 / 系统目录 -> PermissionError, 或其他 OSError)
+        # 时只跳过它继续查下一个, 不能让一个坏路径把整个 probe 拖成 False (会被 _safe
+        # 吞成"后端缺失" critical 退出). is_dir() 对 EACCES 会 re-raise (不在 pathlib
+        # 的忽略 errno 列表里), 必须显式 except.
+        try:
+            if multimedia_dir.is_dir() and any(multimedia_dir.iterdir()):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _default_dbus_probe() -> bool:
