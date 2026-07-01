@@ -600,6 +600,11 @@ class ServiceController(QObject):
 
     async def logout_async(self) -> None:
         await self._ensure_started()
+        # 先趁本地凭据还在通知服务端注销 (logout 需要有效凭据); 失败不阻塞本地清理
+        service_logout = getattr(self._service, "logout", None)
+        if callable(service_logout):
+            with contextlib.suppress(Exception):
+                await service_logout()
         set_credential = getattr(self._service, "set_credential", None)
         if callable(set_credential):
             await set_credential(None)

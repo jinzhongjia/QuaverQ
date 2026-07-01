@@ -444,6 +444,25 @@ class QuaverService:
                 logger.info("已扫码, 等待确认...")
             await anyio.sleep(0.8 if event == QRCodeLoginEvents.CONF else 1.5)
 
+    async def logout(self) -> None:
+        """通知服务端注销当前会话 (music.login.LoginServer/Logout).
+
+        尽力而为: 未登录直接跳过; 服务端失败 (网络 / 凭据已过期) 只 log 不抛 ——
+        调用方 (service_controller.logout_async) 随后会无条件清本地凭据,
+        服务端没注销成功也不能阻塞本地退出. 显式传 cred: 库对非 None 凭据不会
+        擅动 client.credential, 本地清理由调用方统一走 set_credential(None).
+        """
+        if self._client is None:
+            return
+        cred = self._effective_credential()
+        if cred is None or not cred.musickey:
+            return
+        try:
+            await self._client.login.logout(cred)
+            logger.info("已通知服务端注销当前会话")
+        except Exception as exc:
+            logger.warning("服务端 logout 失败 (本地凭据仍会清除): %s", exc)
+
     async def check_login_expired(self) -> bool:
         expired = await self.probe_login_expired()
         return expired is not False
