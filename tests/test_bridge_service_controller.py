@@ -707,6 +707,77 @@ async def test_logout_async_clears_credential_cache(tmp_path, caplog):
     assert "removed cached QQ Music credential" in caplog.text
 
 
+async def test_logout_async_notifies_server_before_clearing(tmp_path):
+    """退出登录先通知服务端注销 (趁凭据还在), 再清本地凭据与缓存."""
+    service = _FakeAuthService()
+    service.credential = object()
+    service.is_authenticated = True
+    credential_file = tmp_path / "credential.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    service.credential_path = str(credential_file)
+
+    cred_at_logout: list[object] = []
+
+    async def _logout() -> None:
+        cred_at_logout.append(service.credential)  # 服务端注销时本地凭据应仍在
+
+    service.logout = _logout  # type: ignore[attr-defined]
+    controller = ServiceController(service=service)
+
+    await controller.logout_async()
+
+    assert cred_at_logout and cred_at_logout[0] is not None, "logout 应在清凭据之前调用"
+    assert service.is_authenticated is False
+    assert not credential_file.exists()
+
+
+async def test_logout_async_survives_server_logout_failure(tmp_path):
+    """service.logout 抛异常也不能阻塞本地凭据清理 (退出登录必须完成)."""
+    service = _FakeAuthService()
+    service.credential = object()
+    service.is_authenticated = True
+    credential_file = tmp_path / "credential.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    service.credential_path = str(credential_file)
+
+    async def _logout() -> None:
+        raise RuntimeError("network down")
+
+    service.logout = _logout  # type: ignore[attr-defined]
+    controller = ServiceController(service=service)
+
+    await controller.logout_async()
+
+    assert service.is_authenticated is False
+    assert not credential_file.exists()
+
+
+async def test_logout_async_clears_local_even_if_server_logout_cancelled(tmp_path):
+    """服务端注销被取消 (CancelledError, 属 BaseException) 也必须清干净本地凭据.
+
+    退出登录核心承诺是清本地登录态; suppress(Exception) 拦不住 CancelledError,
+    本地清理放在 finally 才能保证执行 (见 logout_async 注释).
+    """
+    service = _FakeAuthService()
+    service.credential = object()
+    service.is_authenticated = True
+    credential_file = tmp_path / "credential.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    service.credential_path = str(credential_file)
+
+    async def _logout() -> None:
+        raise asyncio.CancelledError
+
+    service.logout = _logout  # type: ignore[attr-defined]
+    controller = ServiceController(service=service)
+
+    with pytest.raises(asyncio.CancelledError):
+        await controller.logout_async()
+
+    assert service.is_authenticated is False, "被取消也应清内存凭据"
+    assert not credential_file.exists(), "被取消也应删缓存文件"
+
+
 async def test_get_user_profile_passes_through_service():
     class _ProfileService(_FakeAuthService):
         async def get_user_profile(self):

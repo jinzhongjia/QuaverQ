@@ -600,17 +600,27 @@ class ServiceController(QObject):
 
     async def logout_async(self) -> None:
         await self._ensure_started()
-        set_credential = getattr(self._service, "set_credential", None)
-        if callable(set_credential):
-            await set_credential(None)
-            logger.info("cleared QQ Music credential from memory")
-        credential_path = getattr(self._service, "_credential_cache_path", "")
-        if credential_path and os.path.exists(credential_path):
-            os.remove(credential_path)
-            logger.info("removed cached QQ Music credential: %s", credential_path)
-        else:
-            logger.info("no cached QQ Music credential to remove")
-        self.authStateChanged.emit()
+        # 本地清理放 finally: 退出登录的核心承诺是清本地登录态, 必须保证执行. 服务端
+        # 注销请求可能挂起被取消 (关窗口/超时), CancelledError 属 BaseException,
+        # suppress(Exception) 拦不住 —— 不放 finally 会连凭据都没清, 用户以为退了却还登着.
+        try:
+            # 先趁本地凭据还在通知服务端注销 (logout 需要有效凭据); 失败不阻塞本地清理
+            service_logout = getattr(self._service, "logout", None)
+            if callable(service_logout):
+                with contextlib.suppress(Exception):
+                    await service_logout()
+        finally:
+            set_credential = getattr(self._service, "set_credential", None)
+            if callable(set_credential):
+                await set_credential(None)
+                logger.info("cleared QQ Music credential from memory")
+            credential_path = getattr(self._service, "_credential_cache_path", "")
+            if credential_path and os.path.exists(credential_path):
+                os.remove(credential_path)
+                logger.info("removed cached QQ Music credential: %s", credential_path)
+            else:
+                logger.info("no cached QQ Music credential to remove")
+            self.authStateChanged.emit()
 
     async def _probe_current_credential(self) -> bool | None:
         probe = getattr(self._service, "probe_login_expired", None)

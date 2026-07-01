@@ -442,7 +442,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -472,7 +472,7 @@ name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp", marker = "python_full_version < '3.13'" },
+    { name = "zipp" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [
@@ -1170,8 +1170,8 @@ wheels = [
 
 [[package]]
 name = "qqmusic-api-python"
-version = "0.6.7"
-source = { git = "https://github.com/jinzhongjia/QQMusicApi.git?rev=88afcf9cab879ffb37b0f21f45669d645f699c5c#88afcf9cab879ffb37b0f21f45669d645f699c5c" }
+version = "0.6.8"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "cryptography" },
@@ -1182,6 +1182,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "tarsio" },
     { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f1/f1/21cf16b339d029b862aeb55d17060d0bc92e50320b7dba69d14664082cd4/qqmusic_api_python-0.6.8.tar.gz", hash = "sha256:ea41d39f0d35dd7383e78420c6f1cb896e513614a1f11126bcb991813d1caf41", size = 405660, upload-time = "2026-07-01T09:10:49.821Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/69/e054403300f16b16e0a5c337c4521d65c48ee0d425b18dcf91be8e173c05/qqmusic_api_python-0.6.8-py3-none-any.whl", hash = "sha256:bfb9c5f0d047b3e95eb8316d026b35cfaa9a96e1c674f928df8c2a003924aa58", size = 127597, upload-time = "2026-07-01T09:10:48.752Z" },
 ]
 
 [[package]]
@@ -1218,7 +1222,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.0" },
     { name = "pyside6", specifier = ">=6.6" },
     { name = "qasync", specifier = ">=0.27" },
-    { name = "qqmusic-api-python", git = "https://github.com/jinzhongjia/QQMusicApi.git?rev=88afcf9cab879ffb37b0f21f45669d645f699c5c" },
+    { name = "qqmusic-api-python", specifier = ">=0.6.8" },
     { name = "tomli-w", specifier = ">=1.0" },
 ]
 
