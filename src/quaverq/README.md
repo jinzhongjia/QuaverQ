@@ -36,5 +36,9 @@ engine.load(Main.qml) → tray + MPRIS/SMTC → loop.run_forever() →
 显式保存会话快照 → _shutdown(): close 下载 session / 停 MPRIS / 排空挂起任务
 ```
 
+启动入口会在创建任何 `QMediaPlayer` 前直接调用 PySide6 自带 `libavutil` 的
+`av_log_set_level(AV_LOG_QUIET)`。仅 Linux 会预加载 `libcrypto` 解决 `RAND_bytes`
+符号；macOS 的 `libavutil` 不依赖它，禁止加载无版本 ABI 的 `/usr/lib/libcrypto.dylib`。
+
 `StreamProxy` 不在这条启动链路里同步 `start()`；第一次在线挂源由 `PlayerController`
 启动，Windows SMTC 第一次把缓存封面转成本机 `http://127.0.0.1` URI 时也会启动。

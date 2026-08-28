@@ -139,10 +139,10 @@ def _silence_ffmpeg_logs() -> None:
         candidates = _libavutil_candidates(sys.platform, pyside_dir)
         if not candidates:
             return
-        # Linux / macOS: PySide6 的 libavutil 引用 OpenSSL 的 RAND_bytes, 单独 dlopen
-        # 会 "undefined symbol: RAND_bytes"; 先 RTLD_GLOBAL 预加载 libcrypto 让符号
-        # 对后续 dlopen 可见. Windows 不需要 (依赖随 dll 同目录解析).
-        if sys.platform != "win32":
+        # Linux 的 libavutil 可能只声明 RAND_bytes 为未解析符号, 需先全局加载
+        # libcrypto。macOS 不需要；且 ctypes.util.find_library("crypto") 会返回
+        # /usr/lib/libcrypto.dylib，macOS 26 会因该无版本 ABI 被加载而直接 SIGABRT。
+        if sys.platform == "linux":
             crypto = ctypes.util.find_library("crypto")
             if crypto:
                 with contextlib.suppress(OSError):

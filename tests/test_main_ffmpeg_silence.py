@@ -7,7 +7,12 @@ ffmpeg 库实际在 `PySide6/Qt/lib/` 子目录 -> candidates 为空 -> av_log_s
 
 from __future__ import annotations
 
-from quaverq.__main__ import _libavutil_candidates
+import ctypes
+import ctypes.util
+
+import pytest
+
+from quaverq.__main__ import _libavutil_candidates, _silence_ffmpeg_logs
 
 
 def test_linux_searches_qt_lib_subdir(tmp_path):
@@ -52,6 +57,44 @@ def test_macos_searches_qt_lib(tmp_path):
 
     names = [c.name for c in _libavutil_candidates("darwin", pyside)]
     assert "libavutil.59.dylib" in names
+
+
+def test_macos_does_not_preload_unversioned_system_libcrypto(tmp_path, monkeypatch):
+    pyside = tmp_path / "PySide6"
+    qtlib = pyside / "Qt" / "lib"
+    qtlib.mkdir(parents=True)
+    avutil = qtlib / "libavutil.59.dylib"
+    avutil.touch()
+    loaded: list[str] = []
+    levels: list[int] = []
+
+    class FakeFunction:
+        argtypes = None
+        restype = None
+
+        def __call__(self, level):
+            levels.append(level)
+
+    class FakeLibrary:
+        av_log_set_level = FakeFunction()
+
+    monkeypatch.setattr("quaverq.__main__.sys.platform", "darwin")
+    monkeypatch.setattr("PySide6.__file__", str(pyside / "__init__.py"))
+    monkeypatch.setattr(
+        ctypes.util,
+        "find_library",
+        lambda _name: pytest.fail("macOS 不得加载不稳定 ABI 的 /usr/lib/libcrypto.dylib"),
+    )
+    monkeypatch.setattr(
+        ctypes,
+        "CDLL",
+        lambda path, *, mode: loaded.append(path) or FakeLibrary(),
+    )
+
+    _silence_ffmpeg_logs()
+
+    assert loaded == [str(avutil)]
+    assert levels == [-8]
 
 
 def test_unknown_platform_returns_empty(tmp_path):

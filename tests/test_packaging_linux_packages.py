@@ -51,6 +51,7 @@ def test_build_deb_writes_control_and_invokes_dpkg_deb(tmp_path, monkeypatch):
     _fake_dist(tmp_path)
     calls: list[list[str]] = []
 
+    monkeypatch.setattr(packaging.sys, "platform", "linux")
     monkeypatch.setattr(packaging.resources, "project_root", lambda: tmp_path)
     monkeypatch.setattr(packaging, "project_version", lambda: "1.2.3")
     monkeypatch.setattr(

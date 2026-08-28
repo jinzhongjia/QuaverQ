@@ -29,9 +29,7 @@ async def test_logout_calls_server_with_current_credential():
     async def _logout(cred=None):
         received.append(cred)
 
-    svc = _svc_with_logout(
-        _logout, credential=Credential(musicid=1, musickey="k", str_musicid="1")
-    )
+    svc = _svc_with_logout(_logout, credential=Credential(musicid=1, musickey="k", str_musicid="1"))
     await svc.logout()
     assert len(received) == 1
     assert received[0].musickey == "k"
@@ -57,9 +55,7 @@ async def test_logout_swallows_server_error():
     async def _logout(cred=None):
         raise RuntimeError("network down")
 
-    svc = _svc_with_logout(
-        _logout, credential=Credential(musicid=1, musickey="k", str_musicid="1")
-    )
+    svc = _svc_with_logout(_logout, credential=Credential(musicid=1, musickey="k", str_musicid="1"))
     await svc.logout()  # 服务端失败不上抛, 本地清理由调用方继续
 
 

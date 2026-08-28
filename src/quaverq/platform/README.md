@@ -57,7 +57,7 @@ mpris = pal.media_session(player_ctrl)     # QObject | None  (start_async/stop_a
 - 跨平台：`get_platform()` 返回非 None；`name` 为已知值；多次调用返回同一实例。
 - Linux：契约测试，验证 `LinuxPlatform.*()` 返回正确的具体类型。
 - Windows：契约测试，验证单实例、系统主题、SMTC、阻止睡眠、任务栏、桌面歌词等能力返回正确具体类型。
-- macOS：契约测试，验证当前未实现能力返回 `None`。
+- macOS：`get_platform()` 返回 `name == "macos"` 的 stub，契约测试验证当前未实现能力返回 `None`。
 - Protocol 结构鸭子：自写 stub adapter 应当满足 `PlatformAdapter` Protocol。
 
 按平台 `skipif` 跳过其他平台的测试，CI matrix 各平台跑自己那段。

@@ -30,6 +30,9 @@ class _NullPlatform:
 
     name = "stub"
 
+    def __init__(self, *, name: str = "stub") -> None:
+        self.name = name
+
     def single_instance(self) -> Any | None:
         return None
 
@@ -91,4 +94,6 @@ def get_platform() -> PlatformAdapter:
 
         return WindowsPlatform()
     # darwin 暂时回退 stub, Stage 4 替换为 MacOSPlatform.
+    if sys.platform == "darwin":
+        return _NullPlatform(name="macos")
     return _NullPlatform()
